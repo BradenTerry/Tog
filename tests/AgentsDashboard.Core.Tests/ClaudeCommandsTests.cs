@@ -77,3 +77,49 @@ public class ClaudeCommandsTests
     public void Reports_no_id_when_the_cli_said_nothing_about_one() =>
         Assert.Null(ClaudeCommands.ParseStartedId("something else entirely"));
 }
+
+public class ClaudeListingTests
+{
+    [Fact]
+    public void The_running_listing_leaves_out_stopped_sessions()
+    {
+        // Presence in this listing is the only sound liveness test. A stopped
+        // session keeps its entry under --all, and a running one that has not
+        // transitioned yet reports no status at all, so neither can be used.
+        Assert.Equal(["agents", "--json"], ClaudeCommands.List(includeStopped: false));
+    }
+
+    [Fact]
+    public void The_full_listing_includes_them() =>
+        Assert.Equal(["agents", "--json", "--all"], ClaudeCommands.List(includeStopped: true));
+
+    [Fact]
+    public void A_running_session_with_no_status_yet_is_still_read()
+    {
+        const string json = """
+            [{ "pid": 70312, "kind": "background", "id": "a2498250",
+               "sessionId": "a2498250-c333-4bae-939a-9cb8f4044d87", "cwd": "/repo" }]
+            """;
+
+        var agent = Assert.Single(ClaudeCommands.ParseList(json));
+
+        Assert.Null(agent.Status);
+        Assert.Equal(70312, agent.Pid);
+    }
+
+    [Fact]
+    public void A_stopped_session_reports_no_pid_and_no_status()
+    {
+        const string json = """
+            [{ "pid": null, "kind": "background", "id": "87e0322a",
+               "sessionId": "87e0322a-1111-2222-3333-444444444444",
+               "cwd": "/repo", "name": "file change request", "status": null }]
+            """;
+
+        var agent = Assert.Single(ClaudeCommands.ParseList(json));
+
+        Assert.Equal(0, agent.Pid);
+        Assert.Null(agent.Status);
+        Assert.Equal("file change request", agent.Name);
+    }
+}

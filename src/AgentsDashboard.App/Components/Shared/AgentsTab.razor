@@ -242,7 +242,7 @@
 
         try
         {
-            _known = await Cli.ListAsync(_work.Token);
+            _known = await Cli.ListAsync(includeStopped: true, _work.Token);
         }
         catch (OperationCanceledException)
         {

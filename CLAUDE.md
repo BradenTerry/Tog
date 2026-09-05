@@ -56,6 +56,12 @@ clones the conversation under a new id, prints a note on **stderr**, and exits 0
 `ClaudeCli.SendAsync` therefore stops the agent, waits for it to actually be gone,
 and reads both output streams. Never read only stdout from the CLI.
 
+**Liveness is presence in `claude agents --json` without `--all`.** A stopped
+session keeps its entry under `--all`; a running one that has not transitioned yet
+has no status and no pid. Judging by either reads a live agent as stopped, and
+the resume that follows clones the conversation. `pid` can also be JSON null, and
+`JsonElement.TryGetInt32` throws on a null element rather than returning false.
+
 **Worktree URLs are not prefix-comparable.** A linked worktree lives inside the
 primary one, so the primary's URL is a prefix of every other worktree's. Use
 `WorktreeRoute.Shows`, which compares whole paths. A prefix test lights up the

@@ -112,20 +112,20 @@ public sealed class ClaudeCli(TimeSpan? timeout = null)
     /// Waits for a session to leave the CLI's list of running agents.
     /// </summary>
     /// <remarks>
-    /// Polled rather than assumed, because the whole correctness of sending a
-    /// message rests on the session being gone first, and there is no signal for
-    /// it other than asking.
+    /// Presence in the running-only listing is the test, and it has to be: a
+    /// stopped session keeps its entry in the <c>--all</c> listing, and a running
+    /// session that has not transitioned yet reports no status at all. Judging
+    /// liveness by either of those reads a live agent as stopped, and the resume
+    /// that follows clones the conversation instead of continuing it.
     /// </remarks>
     private async Task<bool> WaitUntilStoppedAsync(string sessionId, CancellationToken ct)
     {
-        var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(15);
+        var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(20);
 
         while (DateTimeOffset.UtcNow < deadline)
         {
-            var running = await ListAsync(ct).ConfigureAwait(false);
-            if (!running.Any(a =>
-                    string.Equals(a.SessionId, sessionId, StringComparison.Ordinal)
-                    && a.Status is not null))
+            var running = await ListAsync(includeStopped: false, ct).ConfigureAwait(false);
+            if (!running.Any(a => string.Equals(a.SessionId, sessionId, StringComparison.Ordinal)))
             {
                 return true;
             }
@@ -136,9 +136,12 @@ public sealed class ClaudeCli(TimeSpan? timeout = null)
         return false;
     }
 
-    public async Task<IReadOnlyList<BackgroundAgent>> ListAsync(CancellationToken ct = default)
+    /// <summary>Background agents, with or without the ones that have stopped.</summary>
+    public async Task<IReadOnlyList<BackgroundAgent>> ListAsync(
+        bool includeStopped = true,
+        CancellationToken ct = default)
     {
-        var result = await RunAsync(null, ClaudeCommands.List(), ct).ConfigureAwait(false);
+        var result = await RunAsync(null, ClaudeCommands.List(includeStopped), ct).ConfigureAwait(false);
         return result.Ok ? ClaudeCommands.ParseList(result.Message) : [];
     }
 

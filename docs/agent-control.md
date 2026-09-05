@@ -40,6 +40,10 @@ only then resumes it with the message. Two details make that reliable:
 - **The stop is waited on, not assumed.** `claude stop` returns before the process
   has finished exiting, and resuming a session the CLI still thinks is live
   produces exactly the copy described above.
+- **Liveness is presence in `claude agents --json` without `--all`.** Nothing else
+  works: a stopped session keeps its entry under `--all`, and a running session
+  that has not transitioned yet reports no status and, briefly, no pid. Judging by
+  either reads a live agent as stopped, and the resume then clones it.
 - **Both output streams are read.** The CLI reports what it did on stdout but puts
   its notes on stderr, and "this started a copy of that conversation" is a note.
   Reading only stdout means the one line that says the send went wrong is thrown

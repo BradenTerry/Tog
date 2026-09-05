@@ -55,7 +55,18 @@ public static class ClaudeCommands
     public static IReadOnlyList<string> Send(string sessionId, string message) =>
         ["--bg", "--resume", sessionId, message];
 
-    public static IReadOnlyList<string> List() => ["agents", "--json", "--all"];
+    /// <summary>
+    /// Lists background agents.
+    /// </summary>
+    /// <param name="includeStopped">
+    /// With <c>--all</c> the list also holds sessions that have exited, which is
+    /// what the parked list needs. Without it, the list is exactly the sessions
+    /// that are running, which is the only sound way to ask whether one still is:
+    /// a stopped session keeps its entry under <c>--all</c>, and a running one
+    /// that has not transitioned yet has no status to read.
+    /// </param>
+    public static IReadOnlyList<string> List(bool includeStopped = true) =>
+        includeStopped ? ["agents", "--json", "--all"] : ["agents", "--json"];
 
     /// <summary>Parses <c>claude agents --json</c>, keeping only background sessions.</summary>
     public static IReadOnlyList<BackgroundAgent> ParseList(string json)
@@ -85,7 +96,7 @@ public static class ClaudeCommands
                     Text(entry, "cwd") ?? "",
                     Text(entry, "name"),
                     Text(entry, "status"),
-                    entry.TryGetProperty("pid", out var pid) && pid.TryGetInt32(out var value) ? value : 0));
+                    Number(entry, "pid")));
             }
 
             return agents;
@@ -128,4 +139,16 @@ public static class ClaudeCommands
         element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
             ? value.GetString()
             : null;
+
+    /// <summary>
+    /// An integer property, or zero when it is absent or null. The kind is checked
+    /// first because TryGetInt32 throws on an element of the wrong type rather
+    /// than returning false, and a stopped session reports a null pid.
+    /// </summary>
+    private static int Number(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var value)
+        && value.ValueKind == JsonValueKind.Number
+        && value.TryGetInt32(out var parsed)
+            ? parsed
+            : 0;
 }
