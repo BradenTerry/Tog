@@ -1,0 +1,98 @@
+@inherits StateComponent
+@inject NavigationManager Nav
+
+<nav class="sidebar" aria-label="Repositories and worktrees">
+    <div class="brand">
+        <div class="brand-mark" aria-hidden="true">A</div>
+        <div class="brand-name">Agents</div>
+        @if (Snapshot.Waiting.Count > 0)
+        {
+            <span class="chip waiting brand-sub">@Snapshot.Waiting.Count waiting</span>
+        }
+    </div>
+
+    <div class="nav">
+        <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
+            Overview
+            @if (ActiveCount > 0)
+            {
+                <span class="count">@ActiveCount active</span>
+            }
+        </NavLink>
+        <NavLink class="nav-link" href="repos">
+            Repositories
+            <span class="count">@Snapshot.Repos.Count</span>
+        </NavLink>
+    </div>
+
+    <div class="tree">
+        @foreach (var repo in Snapshot.Repos)
+        {
+            <div class="tree-repo">
+                <div class="tree-repo-name" title="@repo.Root">@repo.Name</div>
+                @foreach (var worktree in repo.Worktrees)
+                {
+                    var path = worktree.Worktree.Path;
+                    <a class="tree-item @(IsCurrent(path) ? "active" : "")"
+                       href="@Urls.Worktree(path)" title="@path">
+                        <span class="dot @DotClass(worktree)" aria-hidden="true"></span>
+                        <span class="name">@worktree.Worktree.Name</span>
+                        <span class="badges">
+                            @if (worktree.WaitingCount > 0)
+                            {
+                                <span class="chip waiting" title="@Fmt.Count(worktree.WaitingCount, "agent") waiting">@worktree.WaitingCount</span>
+                            }
+                            @if (worktree.LatestRun is { State: TestRunState.Failed } failed)
+                            {
+                                <span class="chip danger" title="@Fmt.Count(failed.Failed, "test") failing">@failed.Failed</span>
+                            }
+                        </span>
+                    </a>
+                }
+            </div>
+        }
+
+        @if (Snapshot.Repos.Count == 0)
+        {
+            <p class="faint" style="padding: 12px 8px;">
+                No repositories yet. Start a Claude session in one, or add it under Repositories.
+            </p>
+        }
+    </div>
+</nav>
+
+@code {
+    private int ActiveCount => Snapshot.Repos.Sum(r => r.ActiveCount);
+
+    /// <summary>
+    /// Whether the page is showing exactly this worktree. Compared as whole paths
+    /// rather than by URL prefix: a linked worktree lives inside the primary one,
+    /// so a prefix test marks the primary active whenever any of its worktrees is.
+    /// </summary>
+    private bool IsCurrent(string worktreePath) =>
+        Urls.ShowsWorktree(Nav.ToBaseRelativePath(Nav.Uri), worktreePath);
+
+    private static string DotClass(WorktreeView worktree) =>
+        worktree.WaitingCount > 0 ? "waiting"
+        : worktree.ActiveCount > 0 ? "active"
+        : "";
+
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+        Nav.LocationChanged += OnLocationChanged;
+    }
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e) =>
+        _ = InvokeAsync(StateHasChanged);
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            Nav.LocationChanged -= OnLocationChanged;
+        }
+
+        base.Dispose(disposing);
+    }
+}

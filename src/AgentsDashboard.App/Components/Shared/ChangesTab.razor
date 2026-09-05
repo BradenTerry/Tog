@@ -1,0 +1,1059 @@
+@inject DiffReader Diffs
+@inject ReviewDraftStore Drafts
+@inject FeedbackDispatcher Dispatcher
+@inject SettingsStore SettingsStore
+@inject ClaudeCli Cli
+@inject Staging Staging
+@inject IJSRuntime Js
+@implements IDisposable
+
+<div class="inline" style="margin-bottom: 12px;">
+    <div class="inline" role="group" aria-label="What to diff against">
+        <button class="@BaseClass(DiffBase.WorkingTree)" @onclick="() => SetBase(DiffBase.WorkingTree)">
+            Uncommitted
+        </button>
+        <button class="@BaseClass(DiffBase.DefaultBranch)" @onclick="() => SetBase(DiffBase.DefaultBranch)">
+            Whole branch
+        </button>
+        <button class="@BaseClass(DiffBase.CustomRef)" @onclick="() => SetBase(DiffBase.CustomRef)">
+            Against a ref
+        </button>
+    </div>
+
+    @if (_base == DiffBase.CustomRef)
+    {
+        <input type="text" style="width: 180px;" placeholder="e.g. origin/main"
+               value="@_customRef"
+               @oninput="e => { _customRef = e.Value?.ToString() ?? string.Empty; Touch(); }"
+               @onkeydown="OnRefKey" aria-label="Ref to diff against" />
+        <button @onclick="Load">Compare</button>
+    }
+
+    <button class="ghost" @onclick="Load" disabled="@_loading">@(_loading ? "Loading..." : "Refresh")</button>
+
+    <div class="inline" role="group" aria-label="Staging">
+        <button class="small" @onclick="StageAll" disabled="@_staging">Stage all</button>
+        <button class="small" @onclick="UnstageAll" disabled="@_staging">Unstage all</button>
+    </div>
+
+    @if (_diff is { } diff && diff.Error is null)
+    {
+        <span class="spacer faint">
+            @Fmt.Count(diff.Files.Count, "file"),
+            <span class="n add">+@diff.Additions</span>
+            <span class="n del">-@diff.Deletions</span>
+        </span>
+    }
+</div>
+
+@if (_stageError is { Length: > 0 } stageError)
+{
+    <div class="banner danger">
+        <strong>Staging failed.</strong>
+        <p class="mono muted" style="margin: 5px 0 0;">@stageError</p>
+    </div>
+}
+
+@if (_loading && _diff is null)
+{
+    <div class="empty"><p>Reading the diff...</p></div>
+}
+else if (_diff?.Error is { } error)
+{
+    <div class="banner danger">
+        <strong>Could not produce the diff.</strong>
+        <p class="mono muted" style="margin: 6px 0 0;">@error</p>
+    </div>
+}
+else if (_diff is { Files.Count: 0 })
+{
+    <div class="empty">
+        <h2>No changes</h2>
+        <p>
+            @(_base == DiffBase.WorkingTree
+                ? "This worktree has nothing uncommitted."
+                : "This branch has no changes against that base.")
+        </p>
+    </div>
+}
+else if (_diff is { } set)
+{
+    <div class="diff-layout">
+        <aside class="card filelist" aria-label="Changed files">
+            <div class="filelist-head">
+                <span class="faint">@Fmt.Count(set.Files.Count, "file")</span>
+                <button class="ghost small spacer" @onclick="ToggleAll">
+                    @(AnyOpen ? "Collapse all" : "Expand all")
+                </button>
+            </div>
+
+            <PathTreeView TValue="DiffFile"
+                          Node="Tree(set)"
+                          Collapsed="_collapsed"
+                          Selected="@_selected"
+                          OnToggle="ToggleDirectory"
+                          OnSelect="ScrollTo">
+                <FileRow Context="node">
+                    <span class="kind @KindClass(node.Value!.Kind)" title="@node.Value.Kind">
+                        @KindLetter(node.Value.Kind)
+                    </span>
+                    <span class="label">@node.Name</span>
+                    @if (StageOf(node.Path) is { Staged: true } staged)
+                    {
+                        <span class="staged-dot @(staged.IsFullyStaged ? "full" : "part")"
+                              title="@StageLabel(staged)" aria-hidden="true"></span>
+                    }
+                    @if (CommentCount(node.Path) > 0)
+                    {
+                        <span class="chip accent"
+                              title="@Fmt.Count(CommentCount(node.Path), "comment") on this file">
+                            @CommentCount(node.Path)
+                        </span>
+                    }
+                    <span class="n add">+@node.Value.Additions</span>
+                    <span class="n del">-@node.Value.Deletions</span>
+                </FileRow>
+            </PathTreeView>
+        </aside>
+
+        <div>
+            @foreach (var file in set.Files)
+            {
+                <article class="card diff-file" id="@Anchor(file.Path)">
+                    <div class="card-head diff-file-head">
+                        <span class="chip" title="@file.Kind">@KindLetter(file.Kind)</span>
+                        <span class="mono truncate" title="@file.Path">
+                            @if (file.OldPath is { Length: > 0 } old)
+                            {
+                                <span class="faint">@old &rarr; </span>
+                            }
+                            @file.Path
+                        </span>
+                        <span class="spacer"></span>
+                        @{
+                            var stage = StageOf(file.Path);
+                        }
+                        @if (stage.HasAnything)
+                        {
+                            <span class="chip @StageClass(stage)">@StageLabel(stage)</span>
+                            @if (stage.IsFullyStaged)
+                            {
+                                <button class="small" @onclick="() => Unstage(file.Path)" disabled="@_staging">
+                                    Unstage
+                                </button>
+                            }
+                            else
+                            {
+                                <button class="small" @onclick="() => Stage(file.Path)" disabled="@_staging">
+                                    @(stage.Staged ? "Stage the rest" : "Stage")
+                                </button>
+                                @if (stage.Staged)
+                                {
+                                    <button class="ghost small" @onclick="() => Unstage(file.Path)"
+                                            disabled="@_staging">
+                                        Unstage
+                                    </button>
+                                }
+                            }
+                        }
+                        <span class="n add">+@file.Additions</span>
+                        <span class="n del">-@file.Deletions</span>
+                    </div>
+
+                    @if (file.IsBinary)
+                    {
+                        <div class="row faint">Binary file, not shown.</div>
+                    }
+                    else if (file.Hunks.Count == 0)
+                    {
+                        <div class="row faint">No textual changes.</div>
+                    }
+                    else if (IsCollapsed(file))
+                    {
+                        <div class="row">
+                            <span class="faint">
+                                @Fmt.Count(LineCount(file), "line") of diff, folded to keep the page responsive.
+                            </span>
+                            <button class="small spacer" @onclick="() => Expand(file.Path)">Show it</button>
+                        </div>
+                    }
+                    else
+                    {
+                        foreach (var hunk in file.Hunks)
+                        {
+                            <div class="hunk-header">
+                                @@@("@ -")@hunk.OldStart,@hunk.OldCount +@hunk.NewStart,@hunk.NewCount @@@("@")
+                                @if (hunk.Section is { Length: > 0 } section)
+                                {
+                                    <span> @section</span>
+                                }
+                            </div>
+                            <div class="diff-lines">
+                                @foreach (var line in hunk.Lines)
+                                {
+                                    var side = line.Kind == DiffLineKind.Removed ? DiffSide.Left : DiffSide.Right;
+                                    var number = side == DiffSide.Left ? line.OldLine : line.NewLine;
+                                    var comments = number is null
+                                        ? []
+                                        : CommentsAt(file.Path, side, number.Value);
+                                    var editing = number is not null && IsEditing(file.Path, side, number.Value);
+                                    var inRange = InRange(file.Path, side, number);
+
+                                    <div class="diff-line @LineClass(line) @(comments.Count > 0 ? "commented" : "") @(inRange ? "in-range" : "")"
+                                         data-file="@file.Path"
+                                         data-side="@side"
+                                         data-line="@number">
+                                        @* The whole line-number gutter is the target, not a small
+                                           hover-only glyph: this is how you pick lines, so it has to
+                                           be somewhere the pointer already is. A mouse press is
+                                           handled in app.js so a drag costs one round trip instead of
+                                           one per pixel; this click handler is what is left for the
+                                           keyboard. *@
+                                        <button type="button" class="ln-pick"
+                                                title="Comment on this line. Drag down the gutter to cover a range."
+                                                aria-label="Comment on line @number"
+                                                @onclick="e => StartComment(file.Path, side, number!.Value, e.ShiftKey)">
+                                            <span class="ln">@line.OldLine</span>
+                                            <span class="ln">@line.NewLine</span>
+                                            <span class="plus" aria-hidden="true">+</span>
+                                        </button>
+                                        <span class="marker">@Marker(line.Kind)</span>
+                                        <span class="code">
+                                            @{
+                                                var segments = Coloured(file.Path, line);
+                                            }
+                                            @if (segments.Count == 0)
+                                            {
+                                                @line.Text
+                                            }
+                                            else
+                                            {
+                                                foreach (var segment in segments)
+                                                {
+                                                    if (segment.Css is null)
+                                                    {
+                                                        @segment.Text
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="@segment.Css">@segment.Text</span>
+                                                    }
+                                                }
+                                            }
+                                        </span>
+
+                                        @foreach (var comment in comments)
+                                        {
+                                            <div class="comment">
+                                                <div class="body">
+                                                    <strong class="mono faint">@comment.Range</strong>
+                                                    <div>@comment.Body</div>
+                                                </div>
+                                                <button class="ghost small" @onclick="() => Remove(comment.Id)"
+                                                        aria-label="Delete this comment">Delete</button>
+                                            </div>
+                                        }
+
+                                        @if (editing)
+                                        {
+                                            <div class="comment-editor">
+                                                <div class="inline" style="margin-bottom: 6px;">
+                                                    <strong class="mono">@_editorRange</strong>
+                                                    <span class="faint">
+                                                        @(_editing is { } r && r.Start != r.End
+                                                            ? $"{r.End - r.Start + 1} lines in {file.Path}"
+                                                            : $"in {file.Path}")
+                                                    </span>
+                                                </div>
+                                                <textarea rows="3"
+                                                          value="@_body"
+                                                          @oninput="e => { _body = e.Value?.ToString() ?? string.Empty; Touch(); }"
+                                                          @onkeydown="OnEditorKey"
+                                                          placeholder="What should change here?"
+                                                          aria-label="Comment text"></textarea>
+                                                <div class="inline" style="margin-top: 7px;">
+                                                    <button class="primary" @onclick="Commit"
+                                                            disabled="@string.IsNullOrWhiteSpace(_body)">
+                                                        Add comment
+                                                    </button>
+                                                    <button class="ghost" @onclick="CancelEdit">Cancel</button>
+                                                    <span class="faint spacer">
+                                                        Drag down the line numbers to cover a range.
+                                                        Escape cancels.
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+                    }
+                </article>
+            }
+        </div>
+    </div>
+
+    @if (_draft.Comments.Count > 0 || !string.IsNullOrWhiteSpace(_draft.Summary))
+    {
+        <div class="reviewbar">
+            <div class="inline" style="margin-bottom: 8px;">
+                <strong>@Fmt.Count(_draft.Comments.Count, "comment") pending</strong>
+                <span class="faint spacer">Saved as you go. Submitting writes them into the worktree.</span>
+            </div>
+            <textarea rows="2" placeholder="Overall note, optional"
+                      aria-label="Overall review note"
+                      value="@Summary"
+                      @oninput="e => Summary = e.Value?.ToString() ?? string.Empty"></textarea>
+            <div class="inline" style="margin-top: 8px;">
+                <button class="primary" @onclick="Submit" disabled="@(_submitting || _draft.Comments.Count == 0)">
+                    @(_submitting ? "Submitting..." : "Submit review")
+                </button>
+                <button class="ghost" @onclick="Discard">Discard</button>
+            </div>
+        </div>
+    }
+}
+
+@if (_submission is { } submission)
+{
+    <div class="banner info" style="margin-top: 12px;">
+        <strong>Review written.</strong>
+        <p class="mono muted" style="margin: 5px 0;">@submission.MarkdownPath</p>
+        <p class="muted" style="margin: 0 0 8px;">
+            @if (submission.Sent)
+            {
+                <span>Handed to the agent. </span>
+            }
+            else if (submission.ClipboardCopied)
+            {
+                <span>The prompt is on your clipboard. Paste it into the agent's terminal. </span>
+            }
+            else
+            {
+                <span>Copy the prompt below into the agent's terminal. </span>
+            }
+        </p>
+        <div class="inline">
+            <code class="mono" style="flex: 1; min-width: 0;">@submission.Prompt</code>
+            <button class="small" @onclick="() => Copy(submission.Prompt)">@(_copied ? "Copied" : "Copy")</button>
+            <button class="ghost small" @onclick="DismissSubmission">Dismiss</button>
+        </div>
+        @if (submission.SendError is { Length: > 0 } why)
+        {
+            <p class="faint" style="margin: 8px 0 0;">@why</p>
+        }
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public string WorktreePath { get; set; } = "";
+
+    [Parameter, EditorRequired]
+    public WorktreeView View { get; set; } = default!;
+
+    [Inject]
+    private DashboardState State { get; set; } = default!;
+
+    /// <summary>
+    /// How many diff lines are drawn before the remaining files are folded.
+    /// </summary>
+    /// <remarks>
+    /// Every line carries an interactive button, and in Blazor Server every one of
+    /// those is a handler registered over the circuit. A large branch diff can
+    /// reach tens of thousands, at which point the page takes seconds to answer a
+    /// click. Folding what is past the budget keeps the page usable and costs one
+    /// press on the files you actually want to read.
+    /// </remarks>
+    private const int TotalLineBudget = 2500;
+
+    private DiffBase _base = DiffBase.WorkingTree;
+    private string _customRef = "";
+    private DiffSet? _diff;
+    private bool _loading;
+
+    private ReviewDraft _draft = new() { WorktreePath = "" };
+    private readonly HashSet<string> _expanded = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _folded = new(StringComparer.Ordinal);
+
+    /// <summary>Directories the user has folded shut in the tree.</summary>
+    private readonly HashSet<string> _collapsed = new(StringComparer.Ordinal);
+
+    private string? _selected;
+    private PathTreeNode<DiffFile>? _treeCache;
+
+    /// <summary>
+    /// Coloured runs per line, keyed by file and the line numbers on each side,
+    /// which are unique within a file. Filled per file the first time that file
+    /// is drawn, so a diff nobody has expanded costs nothing.
+    /// </summary>
+    private readonly Dictionary<(string File, int? Old, int? New), IReadOnlyList<Segment>> _colours = [];
+
+    private readonly HashSet<string> _coloured = new(StringComparer.Ordinal);
+
+    /// <summary>Where each file's changes are, refreshed alongside the diff.</summary>
+    private IReadOnlyDictionary<string, FileStage> _stages = new Dictionary<string, FileStage>();
+
+    private bool _staging;
+    private DiffSet? _treeCacheFor;
+
+    private (string File, DiffSide Side, int Start, int End)? _editing;
+    private string _body = "";
+    private bool _submitting;
+    private bool _copied;
+    private ReviewSubmission? _submission;
+    private CancellationTokenSource? _load;
+    private DotNetObjectReference<ChangesTab>? _self;
+
+    /// <summary>
+    /// Set by anything that changes what this component shows.
+    /// </summary>
+    /// <remarks>
+    /// The worktree page re-renders every second, because the monitor publishes a
+    /// snapshot every second and the page header is live. Re-rendering a diff of a
+    /// few thousand lines at that rate saturates the circuit and the page stops
+    /// answering clicks at all. Nothing in this tab depends on the snapshot, so it
+    /// renders only when its own state moves.
+    /// </remarks>
+    private bool _dirty = true;
+
+    protected override bool ShouldRender()
+    {
+        if (!_dirty)
+        {
+            return false;
+        }
+
+        _dirty = false;
+        return true;
+    }
+
+    /// <summary>Mark the view as needing a render on the next opportunity.</summary>
+    private void Touch() => _dirty = true;
+
+    private string Summary
+    {
+        get => _draft.Summary ?? "";
+        set
+        {
+            _draft = _draft with { Summary = value };
+            Drafts.Save(_draft);
+            Touch();
+        }
+    }
+
+    private string _editorRange => _editing is { } e
+        ? e.Start == e.End ? $"L{e.Start}" : $"L{e.Start}-{e.End}"
+        : "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _draft = Drafts.Load(WorktreePath);
+
+        // Reading a diff is several git invocations. During prerendering the
+        // result is thrown away and the component initializes again over the
+        // circuit, so doing it here would spawn git twice per navigation.
+        if (RendererInfo.IsInteractive)
+        {
+            await Load();
+            await ReadStages();
+        }
+    }
+
+    private async Task SetBase(DiffBase next)
+    {
+        Touch();
+        _base = next;
+        if (next != DiffBase.CustomRef || !string.IsNullOrWhiteSpace(_customRef))
+        {
+            await Load();
+        }
+        else
+        {
+            _diff = null;
+        }
+    }
+
+    private async Task OnRefKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await Load();
+        }
+    }
+
+    private async Task Load()
+    {
+        // A base change while a read is in flight would otherwise race, and the
+        // slower one would win and show the wrong diff.
+        if (_load is not null)
+        {
+            await _load.CancelAsync();
+            _load.Dispose();
+        }
+
+        _load = new CancellationTokenSource();
+        var token = _load.Token;
+
+        _loading = true;
+        Touch();
+        StateHasChanged();
+
+        try
+        {
+            var result = await Diffs.ReadAsync(WorktreePath, _base, _customRef, token);
+            if (!token.IsCancellationRequested)
+            {
+                _diff = result;
+                _expanded.Clear();
+                _collapsed.Clear();
+                _colours.Clear();
+                _coloured.Clear();
+                _selected = null;
+                FoldPastBudget(result);
+                await ReadStages();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        finally
+        {
+            if (!token.IsCancellationRequested)
+            {
+                _loading = false;
+                Touch();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Decides which files start folded. Files are expanded in the order they are
+    /// shown until the budget runs out, so the top of the diff is always readable
+    /// however large the whole thing is.
+    /// </summary>
+    private void FoldPastBudget(DiffSet set)
+    {
+        _folded.Clear();
+        var spent = 0;
+
+        foreach (var file in set.Files)
+        {
+            var lines = LineCount(file);
+            if (spent > 0 && spent + lines > TotalLineBudget)
+            {
+                _folded.Add(file.Path);
+                continue;
+            }
+
+            spent += lines;
+        }
+    }
+
+    /// <summary>The coloured runs for one diff line, colouring its file on first use.</summary>
+    private IReadOnlyList<Segment> Coloured(string path, DiffLine line)
+    {
+        if (_coloured.Add(path) && _diff?.Files.FirstOrDefault(f => f.Path == path) is { } file)
+        {
+            Colour(file);
+        }
+
+        return _colours.GetValueOrDefault((path, line.OldLine, line.NewLine), []);
+    }
+
+    /// <summary>
+    /// Colours a file's hunks.
+    /// </summary>
+    /// <remarks>
+    /// Two passes per hunk, because a diff interleaves two different versions of
+    /// the file. Reading them as one stream would let an added line's opening
+    /// quote be closed by a removed line's, and colour the rest of the hunk as a
+    /// string. Each hunk starts afresh, since a hunk begins after a gap.
+    /// </remarks>
+    private void Colour(DiffFile file)
+    {
+        var highlighter = new LineHighlighter(file.Path);
+        if (!highlighter.Enabled)
+        {
+            return;
+        }
+
+        foreach (var hunk in file.Hunks)
+        {
+            highlighter.Reset();
+            foreach (var line in hunk.Lines.Where(l => l.Kind != DiffLineKind.Removed))
+            {
+                _colours[(file.Path, line.OldLine, line.NewLine)] = highlighter.Next(line.Text);
+            }
+
+            highlighter.Reset();
+            foreach (var line in hunk.Lines.Where(l => l.Kind != DiffLineKind.Added))
+            {
+                var runs = highlighter.Next(line.Text);
+
+                // Context lines already have their result from the new-side pass,
+                // and the text is the same either way.
+                if (line.Kind == DiffLineKind.Removed)
+                {
+                    _colours[(file.Path, line.OldLine, line.NewLine)] = runs;
+                }
+            }
+        }
+    }
+
+    private FileStage StageOf(string path) =>
+        _stages.TryGetValue(path, out var stage) ? stage : default;
+
+    private static string StageLabel(FileStage stage) =>
+        stage.IsFullyStaged ? "staged"
+        : stage.Staged ? "partly staged"
+        : stage.Untracked ? "new"
+        : "unstaged";
+
+    private static string StageClass(FileStage stage) =>
+        stage.IsFullyStaged ? "active" : stage.Staged ? "accent" : "";
+
+    private Task Stage(string path) => Restage(() => Staging.StageAsync(WorktreePath, [path]));
+
+    private Task Unstage(string path) => Restage(() => Staging.UnstageAsync(WorktreePath, [path]));
+
+    private Task StageAll() => Restage(() => Staging.StageAllAsync(WorktreePath));
+
+    private Task UnstageAll() => Restage(() => Staging.UnstageAllAsync(WorktreePath));
+
+    /// <summary>
+    /// Runs a staging change and re-reads where things are.
+    /// </summary>
+    /// <remarks>
+    /// Only the staging state is re-read, not the diff: the Uncommitted view is
+    /// taken against HEAD and so shows staged and unstaged work together, which
+    /// means moving a file between them does not change a single line of it.
+    /// </remarks>
+    private async Task Restage(Func<Task<GitResult>> action)
+    {
+        _staging = true;
+        Touch();
+        StateHasChanged();
+
+        try
+        {
+            var result = await action();
+            if (!result.Ok)
+            {
+                _stageError = result.Message;
+            }
+            else
+            {
+                _stageError = null;
+            }
+        }
+        catch (Exception e) when (e is IOException or InvalidOperationException)
+        {
+            _stageError = e.Message;
+        }
+        finally
+        {
+            _staging = false;
+            await ReadStages();
+            Touch();
+        }
+    }
+
+    private async Task ReadStages()
+    {
+        try
+        {
+            _stages = await Staging.ReadAsync(WorktreePath);
+        }
+        catch (Exception e) when (e is IOException or InvalidOperationException)
+        {
+            _stageError = e.Message;
+        }
+    }
+
+    private string? _stageError;
+
+    private void Expand(string path)
+    {
+        _expanded.Add(path);
+        Touch();
+    }
+
+    /// <summary>
+    /// Called from app.js when a drag over the line numbers finishes.
+    /// </summary>
+    /// <remarks>
+    /// Once per gesture, not once per movement: the drag is followed in the
+    /// browser and only its result crosses the circuit. The side arrives as a
+    /// string because that is what the row carries in its data attributes.
+    /// </remarks>
+    [JSInvokable]
+    public Task SelectLines(string file, string side, int start, int end, bool extend)
+    {
+        var which = side == nameof(DiffSide.Left) ? DiffSide.Left : DiffSide.Right;
+
+        Touch();
+        if (extend && _editing is { } current && current.File == file && current.Side == which)
+        {
+            _editing = (file, which, Math.Min(current.Start, start), Math.Max(current.End, end));
+        }
+        else
+        {
+            _editing = (file, which, start, end);
+            _body = "";
+        }
+
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        _self = DotNetObjectReference.Create(this);
+
+        try
+        {
+            await Js.InvokeVoidAsync("agentsDashboard.startDiffSelection", _self);
+        }
+        catch (JSException)
+        {
+            // Without this the gutter still works, one line at a time.
+        }
+        catch (InvalidOperationException)
+        {
+            // Prerendering, where there is no JS runtime yet.
+        }
+    }
+
+    private void StartComment(string file, DiffSide side, int line, bool extend)
+    {
+        Touch();
+        if (extend && _editing is { } current
+            && current.File == file && current.Side == side)
+        {
+            _editing = (file, side, Math.Min(current.Start, line), Math.Max(current.End, line));
+            return;
+        }
+
+        _editing = (file, side, line, line);
+        _body = "";
+    }
+
+    private void CancelEdit()
+    {
+        Touch();
+        _editing = null;
+        _body = "";
+    }
+
+    private void Commit()
+    {
+        Touch();
+        if (_editing is not { } target || string.IsNullOrWhiteSpace(_body))
+        {
+            return;
+        }
+
+        var comment = new ReviewComment
+        {
+            Id = Guid.NewGuid().ToString("n")[..12],
+            FilePath = target.File,
+            StartLine = target.Start,
+            EndLine = target.End,
+            Side = target.Side,
+            Body = _body.Trim(),
+            Snippet = SnippetFor(target),
+        };
+
+        _draft = _draft with { Comments = [.. _draft.Comments, comment] };
+        Drafts.Save(_draft);
+        CancelEdit();
+    }
+
+    private void Remove(string id)
+    {
+        Touch();
+        _draft = _draft with { Comments = _draft.Comments.Where(c => c.Id != id).ToArray() };
+        Drafts.Save(_draft);
+    }
+
+    private void Discard()
+    {
+        Touch();
+        Drafts.Clear(WorktreePath);
+        _draft = new ReviewDraft { WorktreePath = WorktreePath };
+        CancelEdit();
+    }
+
+    private async Task Submit()
+    {
+        _submitting = true;
+        Touch();
+        StateHasChanged();
+
+        var settings = SettingsStore.Load();
+
+        try
+        {
+            var submission = await Dispatcher.SubmitAsync(_draft);
+            Drafts.Clear(WorktreePath);
+            _draft = new ReviewDraft { WorktreePath = WorktreePath };
+            _copied = false;
+
+            _submission = settings.SendReviewToAgent
+                ? await HandOver(submission)
+                : submission;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            _submission = new ReviewSubmission("", "", false, false, e.Message);
+        }
+        finally
+        {
+            _submitting = false;
+            Touch();
+        }
+    }
+
+    /// <summary>
+    /// Hands the review to a background agent in this worktree.
+    /// </summary>
+    /// <remarks>
+    /// Only a background agent, because that is the only kind the CLI can be told
+    /// to continue. A session someone is sitting in front of belongs to its
+    /// terminal, and the clipboard is how a review reaches it.
+    /// </remarks>
+    private async Task<ReviewSubmission> HandOver(ReviewSubmission submission)
+    {
+        var target = View.Agents.FirstOrDefault(a => a.IsBackground && a.JobId is { Length: > 0 });
+        if (target is null)
+        {
+            return submission with
+            {
+                SendError = View.Agents.Count == 0
+                    ? null
+                    : "No background agent here to hand it to. Paste the prompt into the agent's terminal.",
+            };
+        }
+
+        var sent = await Cli.SendAsync(target.JobId!, target.SessionId, WorktreePath, submission.Prompt);
+        return submission with { Sent = sent.Ok, SendError = sent.Ok ? null : sent.Message };
+    }
+
+    private async Task Copy(string text)
+    {
+        Touch();
+        try
+        {
+            _copied = await Js.InvokeAsync<bool>("agentsDashboard.copy", text);
+        }
+        catch (JSException)
+        {
+            _copied = false;
+        }
+    }
+
+    private async Task ScrollTo(string path)
+    {
+        Touch();
+        _selected = path;
+
+        // Picking a file in the tree is a request to read it, so a file folded by
+        // the line budget opens rather than showing you a "Show it" button you
+        // then have to press as well.
+        _expanded.Add(path);
+
+        try
+        {
+            await Js.InvokeVoidAsync("agentsDashboard.scrollTo", Anchor(path));
+        }
+        catch (JSException)
+        {
+            // The element is not there. Nothing useful to do.
+        }
+    }
+
+    /// <summary>
+    /// The tree for a diff, rebuilt only when the diff itself changes. The sidebar
+    /// re-renders on every comment, and rebuilding the tree each time would walk
+    /// every path in the diff for no reason.
+    /// </summary>
+    private PathTreeNode<DiffFile> Tree(DiffSet set)
+    {
+        if (!ReferenceEquals(_treeCacheFor, set))
+        {
+            _treeCacheFor = set;
+            _treeCache = DiffTree.Build(set.Files);
+        }
+
+        return _treeCache!;
+    }
+
+    private void ToggleDirectory(string path)
+    {
+        Touch();
+        if (!_collapsed.Add(path))
+        {
+            _collapsed.Remove(path);
+        }
+    }
+
+    /// <summary>True while any directory is open, which decides what the button offers.</summary>
+    private bool AnyOpen => _diff is { } set && AllDirectories(Tree(set)).Any(d => !_collapsed.Contains(d));
+
+    private void ToggleAll()
+    {
+        Touch();
+        if (_diff is not { } set)
+        {
+            return;
+        }
+
+        if (AnyOpen)
+        {
+            foreach (var dir in AllDirectories(Tree(set)))
+            {
+                _collapsed.Add(dir);
+            }
+        }
+        else
+        {
+            _collapsed.Clear();
+        }
+    }
+
+    private static IEnumerable<string> AllDirectories<T>(PathTreeNode<T> node) =>
+        node.Children
+            .Where(c => !c.IsFile)
+            .SelectMany(c => new[] { c.Path }.Concat(AllDirectories(c)));
+
+    private int CommentCount(string file) => _draft.Comments.Count(c => c.FilePath == file);
+
+    /// <summary>
+    /// Comments are drawn under the last line of their range, the way a review
+    /// tool anchors a multi-line note.
+    /// </summary>
+    private List<ReviewComment> CommentsAt(string file, DiffSide side, int line) =>
+        _draft.Comments
+            .Where(c => c.FilePath == file && c.Side == side && c.EndLine == line)
+            .ToList();
+
+    private bool IsEditing(string file, DiffSide side, int line) =>
+        _editing is { } e && e.File == file && e.Side == side && e.End == line;
+
+    /// <summary>
+    /// Whether a line is inside the range being composed, so the whole selection
+    /// is visible while you extend it rather than only its last line.
+    /// </summary>
+    private bool InRange(string file, DiffSide side, int? number) =>
+        _editing is { } e
+        && number is { } n
+        && e.File == file
+        && e.Side == side
+        && n >= e.Start
+        && n <= e.End;
+
+    private void OnEditorKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+        {
+            CancelEdit();
+        }
+    }
+
+    /// <summary>The lines the comment covers, quoted into the review so the agent sees them.</summary>
+    private string? SnippetFor((string File, DiffSide Side, int Start, int End) target)
+    {
+        var file = _diff?.Files.FirstOrDefault(f => f.Path == target.File);
+        if (file is null)
+        {
+            return null;
+        }
+
+        var lines = file.Hunks
+            .SelectMany(h => h.Lines)
+            .Where(l =>
+            {
+                var n = target.Side == DiffSide.Left ? l.OldLine : l.NewLine;
+                return n is not null && n >= target.Start && n <= target.End;
+            })
+            .Select(l => Marker(l.Kind) + l.Text)
+            .Take(20)
+            .ToList();
+
+        return lines.Count == 0 ? null : string.Join('\n', lines);
+    }
+
+    private bool IsCollapsed(DiffFile file) =>
+        _folded.Contains(file.Path) && !_expanded.Contains(file.Path);
+
+    private static int LineCount(DiffFile file) => file.Hunks.Sum(h => h.Lines.Count);
+
+    private string BaseClass(DiffBase which) => _base == which ? "primary" : "";
+
+    /// <summary>Dismisses the submitted-review banner.</summary>
+    private void DismissSubmission()
+    {
+        Touch();
+        _submission = null;
+    }
+
+    /// <summary>
+    /// A DOM id for a file's diff. Hashed rather than truncated: two paths under
+    /// the same directory share a long prefix, so anything that only looks at the
+    /// front of the path collides and the file list scrolls to the wrong file.
+    /// </summary>
+    private static string Anchor(string path) =>
+        "f-" + Convert.ToHexStringLower(
+            System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(path)))[..16];
+
+    private static string LineClass(DiffLine line) => line.Kind switch
+    {
+        DiffLineKind.Added => "added",
+        DiffLineKind.Removed => "removed",
+        _ => "",
+    };
+
+    private static string Marker(DiffLineKind kind) => kind switch
+    {
+        DiffLineKind.Added => "+",
+        DiffLineKind.Removed => "-",
+        _ => " ",
+    };
+
+    private static string KindLetter(FileChangeKind kind) => kind switch
+    {
+        FileChangeKind.Added => "A",
+        FileChangeKind.Deleted => "D",
+        FileChangeKind.Renamed => "R",
+        FileChangeKind.Untracked => "N",
+        _ => "M",
+    };
+
+    private static string KindClass(FileChangeKind kind) => kind switch
+    {
+        FileChangeKind.Added or FileChangeKind.Untracked => "added",
+        FileChangeKind.Deleted => "deleted",
+        _ => "",
+    };
+
+    public void Dispose()
+    {
+        _load?.Cancel();
+        _load?.Dispose();
+
+        // The listeners in app.js outlive this component, so the reference they
+        // call back through has to be taken away with it.
+        _ = Js.InvokeVoidAsync("agentsDashboard.stopDiffSelection").AsTask()
+            .ContinueWith(t => _ = t.Exception, TaskScheduler.Default);
+
+        _self?.Dispose();
+    }
+}

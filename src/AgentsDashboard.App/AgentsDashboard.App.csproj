@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <RootNamespace>AgentsDashboard.App</RootNamespace>
+    <AssemblyName>agents-dashboard</AssemblyName>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Photino.NET" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AgentsDashboard.Core\AgentsDashboard.Core.csproj" />
+  </ItemGroup>
+
+</Project>

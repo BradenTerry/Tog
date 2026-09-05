@@ -1,0 +1,205 @@
+@page "/repos"
+@inherits StateComponent
+@inject SettingsStore Store
+@inject MonitorService Monitor
+
+<PageTitle>Repositories - Agents Dashboard</PageTitle>
+
+<div class="page">
+    <div class="page-head"><h1>Repositories</h1></div>
+    <p class="page-sub">
+        A repository appears on its own as soon as a Claude session runs in it. Add one here to
+        keep it on screen when nothing is running, or hide one you would rather not see.
+    </p>
+
+    <div class="card">
+        <div class="card-head"><h2>Watched</h2></div>
+
+        @if (Snapshot.Repos.Count == 0)
+        {
+            <div class="row faint">Nothing yet.</div>
+        }
+
+        @foreach (var repo in Snapshot.Repos)
+        {
+            <div class="row">
+                <div class="stack" style="flex: 1;">
+                    <strong>@repo.Name</strong>
+                    <span class="mono faint truncate">@repo.Root</span>
+                </div>
+                <span class="chip">@Fmt.Count(repo.Worktrees.Count, "worktree")</span>
+                @if (_settings.RepoRoots.Contains(repo.Root, StringComparer.Ordinal))
+                {
+                    <span class="chip accent" title="Added by hand rather than discovered">pinned</span>
+                }
+                <button class="ghost small" @onclick="() => Hide(repo.Root)">Hide</button>
+            </div>
+        }
+    </div>
+
+    <div class="card">
+        <div class="card-head"><h2>Add a repository</h2></div>
+        <div class="card-body">
+            <div class="inline">
+                @* An explicit value plus oninput rather than @@bind: two-way binding
+                   will not push a value the component itself cleared back into the
+                   DOM, so the field would keep the path after it was added. *@
+                <input type="text" placeholder="/Users/you/code/your-repo"
+                       aria-label="Repository path"
+                       value="@_newRoot"
+                       @oninput="e => _newRoot = e.Value?.ToString() ?? string.Empty"
+                       @onkeydown="OnAddKey" />
+                <button class="primary" @onclick="Add" disabled="@string.IsNullOrWhiteSpace(_newRoot)">Add</button>
+            </div>
+            @if (_error is { Length: > 0 })
+            {
+                <p class="faint" style="margin: 8px 0 0; color: var(--danger);">@_error</p>
+            }
+        </div>
+    </div>
+
+    @if (_settings.HiddenRoots.Count > 0)
+    {
+        <div class="card">
+            <div class="card-head"><h2>Hidden</h2></div>
+            @foreach (var root in _settings.HiddenRoots)
+            {
+                <div class="row">
+                    <span class="mono truncate" style="flex: 1;">@root</span>
+                    <button class="ghost small" @onclick="() => Unhide(root)">Show again</button>
+                </div>
+            }
+        </div>
+    }
+
+    <div class="card">
+        <div class="card-head"><h2>Preferences</h2></div>
+
+        <div class="row">
+            <div class="stack" style="flex: 1;">
+                <strong>Notify when an agent starts waiting</strong>
+                <span class="faint">
+                    One notification per time an agent blocks, never repeated while it stays there,
+                    and nothing for agents that were already blocked when the app opened.
+                </span>
+            </div>
+            <input type="checkbox" checked="@_settings.NotifyOnWaiting"
+                   @onchange="e => Set(_settings with { NotifyOnWaiting = (bool)e.Value! })"
+                   aria-label="Notify when an agent starts waiting" />
+        </div>
+
+        <div class="row">
+            <div class="stack" style="flex: 1;">
+                <strong>Hand submitted reviews to a background agent</strong>
+                <span class="faint">
+                    The review file and the clipboard copy happen either way. This only controls
+                    whether an agent working in that worktree is told about it.
+                </span>
+            </div>
+            <input type="checkbox" checked="@_settings.SendReviewToAgent"
+                   @onchange="e => Set(_settings with { SendReviewToAgent = (bool)e.Value! })"
+                   aria-label="Hand submitted reviews to a background agent" />
+        </div>
+
+        <div class="row">
+            <div class="stack" style="flex: 1;">
+                <strong>Git status interval</strong>
+                <span class="faint">
+                    Seconds between status reads for a worktree an agent is working in. Worktrees
+                    with no agent are read far less often.
+                </span>
+            </div>
+            <input type="number" min="2" max="60" style="width: 90px;"
+                   value="@_settings.GitPollSeconds"
+                   @onchange="e => SetInterval(e.Value?.ToString())"
+                   aria-label="Git status interval in seconds" />
+        </div>
+    </div>
+
+    @if (Monitor.LastError is { Length: > 0 } error)
+    {
+        <div class="banner danger">
+            <strong>The last refresh failed.</strong>
+            <p class="mono muted" style="margin: 5px 0 0;">@error</p>
+        </div>
+    }
+</div>
+
+@code {
+    private Settings _settings = new();
+    private string _newRoot = "";
+    private string? _error;
+
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+        _settings = Store.Load();
+    }
+
+    private void OnAddKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            Add();
+        }
+    }
+
+    private void Add()
+    {
+        var root = _newRoot.Trim();
+        _error = null;
+
+        if (root.Length == 0)
+        {
+            return;
+        }
+
+        if (!Directory.Exists(root))
+        {
+            _error = "There is no directory at that path.";
+            return;
+        }
+
+        if (!Directory.Exists(Path.Combine(root, ".git")) && !File.Exists(Path.Combine(root, ".git")))
+        {
+            // Not fatal: discovery resolves any directory inside a repo up to its
+            // root. Worth saying so rather than silently accepting nothing.
+            _error = "That is not a repository root, but it will be resolved to one if it is inside a repository.";
+        }
+
+        Set(_settings with
+        {
+            RepoRoots = [.. _settings.RepoRoots.Where(r => r != root), root],
+            HiddenRoots = _settings.HiddenRoots.Where(r => r != root).ToArray(),
+        });
+
+        _newRoot = "";
+    }
+
+    private void Hide(string root) => Set(_settings with
+    {
+        HiddenRoots = [.. _settings.HiddenRoots.Where(r => r != root), root],
+        RepoRoots = _settings.RepoRoots.Where(r => r != root).ToArray(),
+    });
+
+    private void Unhide(string root) =>
+        Set(_settings with { HiddenRoots = _settings.HiddenRoots.Where(r => r != root).ToArray() });
+
+    private void SetInterval(string? raw)
+    {
+        if (int.TryParse(raw, out var seconds))
+        {
+            Set(_settings with { GitPollSeconds = Math.Clamp(seconds, 2, 60) });
+        }
+    }
+
+    private void Set(Settings next)
+    {
+        _settings = next;
+        Store.Save(next);
+
+        // The repo list is read on the monitor's slow timer. Waiting up to twenty
+        // seconds to see a repository you just added would read as broken.
+        Monitor.InvalidateWorktrees();
+    }
+}

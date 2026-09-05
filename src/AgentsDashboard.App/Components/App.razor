@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <title>Agents Dashboard</title>
+    <link rel="stylesheet" href="app.css" />
+    <link rel="icon" href="data:," />
+    <HeadOutlet @rendermode="Interactive" />
+</head>
+
+<body>
+    <Routes @rendermode="Interactive" />
+    <script src="_framework/blazor.web.js"></script>
+    <script src="app.js"></script>
+</body>
+
+</html>
+
+@code {
+    // The whole app is interactive: every page reacts to the monitor's snapshot,
+    // so there is no page that would be better off static. Prerendering stays on
+    // so the first paint has content rather than an empty window while the
+    // circuit connects; the one page with expensive work in OnInitializedAsync
+    // checks RendererInfo.IsInteractive so it does not do it twice.
+    private static readonly InteractiveServerRenderMode Interactive = new(prerender: true);
+}

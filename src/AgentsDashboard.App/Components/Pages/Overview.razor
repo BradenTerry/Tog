@@ -1,0 +1,191 @@
+@page "/"
+@inherits StateComponent
+@inject IJSRuntime Js
+
+<PageTitle>Agents Dashboard</PageTitle>
+
+<div class="page">
+    <div class="page-head">
+        <h1>Overview</h1>
+        <span class="muted">
+            @Fmt.Count(AgentCount, "agent") across @Fmt.Count(WorktreeCount, "worktree")
+        </span>
+    </div>
+
+    @if (Snapshot.Waiting.Count > 0)
+    {
+        <section class="needs" aria-labelledby="needs-you">
+            <div class="needs-head" id="needs-you">
+                <span class="dot waiting" aria-hidden="true"></span>
+                @Fmt.Count(Snapshot.Waiting.Count, "agent") @Fmt.Plural(Snapshot.Waiting.Count, "needs", "need") you
+            </div>
+            <div class="card needs-card">
+                @foreach (var agent in Snapshot.Waiting)
+                {
+                    <a class="needs-item" href="@Urls.Worktree(agent.WorktreePath, "agents")">
+                        <span class="dot waiting" aria-hidden="true"></span>
+                        <div class="stack" style="flex: 1;">
+                            <div class="needs-question">
+                                @(string.IsNullOrWhiteSpace(agent.Session.WaitingFor)
+                                    ? agent.Session.Label
+                                    : agent.Session.WaitingFor)
+                            </div>
+                            <div class="needs-where">
+                                <span>@Where(agent)</span>
+                                @if (agent.Branch is { Length: > 0 } branch)
+                                {
+                                    <span class="sep" aria-hidden="true"></span>
+                                    <span class="mono">@branch</span>
+                                }
+                            </div>
+                        </div>
+                        <span class="needs-for">@Fmt.Duration(Now - agent.Session.StatusSince)</span>
+                    </a>
+                }
+            </div>
+        </section>
+    }
+
+    @if (Snapshot.Repos.Count == 0)
+    {
+        <div class="empty">
+            <h2>Nothing to show yet</h2>
+            <p>
+                Repositories appear here as soon as a Claude session is running in one.
+                You can also add one by hand.
+            </p>
+            <a class="btn primary" href="repos">Add a repository</a>
+        </div>
+    }
+
+    @foreach (var repo in Snapshot.Repos)
+    {
+        <section style="margin-bottom: 22px;">
+            <div class="page-head" style="margin-bottom: 8px;">
+                <h2>@repo.Name</h2>
+                <span class="faint mono truncate" title="@repo.Root">@repo.Root</span>
+            </div>
+
+            @foreach (var worktree in repo.Worktrees)
+            {
+                <article class="card">
+                    <div class="card-head">
+                        <span class="dot @DotClass(worktree)"
+                              title="@DotTitle(worktree)"
+                              aria-hidden="true"></span>
+                        <a href="@Urls.Worktree(worktree.Worktree.Path)" style="color: var(--text); font-weight: 600;">
+                            @worktree.Worktree.Name
+                        </a>
+                        @if (worktree.Worktree.IsPrimary)
+                        {
+                            <span class="chip" title="The repository's main working tree">primary</span>
+                        }
+                        @if (worktree.Worktree.Branch is { Length: > 0 } branch)
+                        {
+                            <span class="chip mono">@branch</span>
+                        }
+                        else if (worktree.Worktree.Detached)
+                        {
+                            <span class="chip">detached</span>
+                        }
+
+                        <span class="spacer"></span>
+
+                        @if (worktree.Status is { } status)
+                        {
+                            @if (Fmt.Changes(status) is { } changes)
+                            {
+                                <span class="chip">@changes</span>
+                            }
+                            else
+                            {
+                                <span class="faint">clean</span>
+                            }
+
+                            @if (Fmt.Position(status) is { } position)
+                            {
+                                <span class="chip">@position</span>
+                            }
+                        }
+                    </div>
+
+                    @if (worktree.Agents.Count == 0)
+                    {
+                        <div class="row faint">No agents in this worktree</div>
+                    }
+
+                    @foreach (var agent in worktree.Agents)
+                    {
+                        <div class="row">
+                            <AgentRow Agent="agent" Now="Now" />
+                        </div>
+                    }
+
+                    @if (worktree.LatestRun is { } run)
+                    {
+                        <a class="row link" href="@Urls.Worktree(worktree.Worktree.Path, "tests")">
+                            <TestSummary Run="run" />
+                        </a>
+                    }
+                </article>
+            }
+        </section>
+    }
+</div>
+
+@code {
+    private DateTimeOffset Now => Snapshot.Value.TakenAt;
+
+    private int AgentCount => Snapshot.Repos.Sum(r => r.Worktrees.Sum(w => w.Agents.Count));
+
+    private int WorktreeCount => Snapshot.Repos.Sum(r => r.Worktrees.Count);
+
+    private int _lastTitleCount = -1;
+
+    /// <summary>
+    /// Where a blocked agent is. The primary worktree is named after its
+    /// repository, so naming both reads as a stutter rather than as detail.
+    /// </summary>
+    private static string Where(WaitingAgent agent) =>
+        string.Equals(agent.RepoName, agent.WorktreeName, StringComparison.Ordinal)
+            ? agent.RepoName
+            : $"{agent.RepoName} / {agent.WorktreeName}";
+
+    private static string DotClass(WorktreeView worktree) =>
+        worktree.WaitingCount > 0 ? "waiting" : worktree.ActiveCount > 0 ? "active" : "";
+
+    private static string DotTitle(WorktreeView worktree) =>
+        worktree.WaitingCount > 0 ? $"{Fmt.Count(worktree.WaitingCount, "agent")} waiting"
+        : worktree.ActiveCount > 0 ? $"{Fmt.Count(worktree.ActiveCount, "agent")} active"
+        : "No agents working";
+
+    /// <summary>
+    /// Keeps the count of blocked agents in the window title. It is the only
+    /// signal that survives the window being behind something else, short of a
+    /// notification.
+    /// </summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        var count = Snapshot.Waiting.Count;
+        if (count == _lastTitleCount)
+        {
+            return;
+        }
+
+        _lastTitleCount = count;
+        var title = count > 0 ? $"({count}) Agents Dashboard" : "Agents Dashboard";
+
+        try
+        {
+            await Js.InvokeVoidAsync("agentsDashboard.setTitle", title);
+        }
+        catch (JSException)
+        {
+            // The circuit went away mid-render. Nothing to do.
+        }
+        catch (InvalidOperationException)
+        {
+            // Prerendering, where there is no JS runtime yet.
+        }
+    }
+}

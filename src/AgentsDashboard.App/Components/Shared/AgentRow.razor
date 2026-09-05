@@ -1,0 +1,57 @@
+@* One agent, plus any subagents running under it. *@
+
+<div class="agent-row">
+    <span class="dot @Fmt.StatusName(Agent.Status)"
+          title="@Fmt.StatusHelp(Agent.Status)"
+          aria-hidden="true"></span>
+    <div class="stack" style="flex: 1;">
+        <div class="inline">
+            @* A prompt is shown as the quotation it is, so it is not mistaken for
+               a title the session gave itself. *@
+            <span class="agent-label truncate @(Agent.LabelIsPrompt ? "as-prompt" : "")"
+                  title="@(Agent.LabelIsPrompt ? Agent.LastPrompt : Agent.Label)">@Agent.Label</span>
+            <span class="chip @Fmt.StatusName(Agent.Status)">@Fmt.StatusName(Agent.Status)</span>
+            @if (Agent.Status == AgentStatus.Waiting)
+            {
+                <span class="needs-for">for @Fmt.Duration(Now - Agent.StatusSince)</span>
+            }
+        </div>
+
+        @if (Agent.Status == AgentStatus.Waiting && !string.IsNullOrWhiteSpace(Agent.WaitingFor))
+        {
+            <div class="needs-question">@Agent.WaitingFor</div>
+        }
+
+        <div class="agent-meta inline">
+            <span>started @Fmt.Ago(Agent.StartedAt, Now)</span>
+            @if (Agent.Skills.Count > 0)
+            {
+                <span title="@string.Join(", ", Agent.Skills)">
+                    @Fmt.Count(Agent.Skills.Count, "skill")
+                </span>
+            }
+            <span class="mono faint">@Agent.SessionId[..8]</span>
+        </div>
+
+        @foreach (var sub in Agent.Subagents)
+        {
+            <div class="subagent">
+                <span class="chip accent">@(sub.AgentType ?? "subagent")</span>
+                <span class="truncate">@(sub.Description ?? "working")</span>
+                <span class="faint nums">@Fmt.Duration(Now - sub.StartedAt)</span>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public AgentSession Agent { get; set; } = default!;
+
+    /// <summary>
+    /// The snapshot's own timestamp rather than DateTimeOffset.Now, so every
+    /// elapsed time on screen is measured from the same instant.
+    /// </summary>
+    [Parameter, EditorRequired]
+    public DateTimeOffset Now { get; set; }
+}

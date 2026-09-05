@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/AgentsDashboard.App/AgentsDashboard.App.csproj" />
+    <Project Path="src/AgentsDashboard.Core/AgentsDashboard.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/AgentsDashboard.Core.Tests/AgentsDashboard.Core.Tests.csproj" />
+  </Folder>
+</Solution>

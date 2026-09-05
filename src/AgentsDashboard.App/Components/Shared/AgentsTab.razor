@@ -1,0 +1,354 @@
+@inject ClaudeCli Cli
+@inject MonitorService Monitor
+@implements IDisposable
+
+@* Every session working in this worktree, plus the ones parked here. *@
+
+<div class="card" style="margin-bottom: 14px;">
+    <div class="card-head"><h2>Start an agent here</h2></div>
+    <div class="card-body">
+        <div class="inline">
+            <input type="text" placeholder="What should it work on? Leave empty to start it idle."
+                   aria-label="First prompt for the new agent"
+                   value="@_prompt"
+                   @oninput="e => { _prompt = e.Value?.ToString() ?? string.Empty; Touch(); }"
+                   @onkeydown="OnStartKey" />
+            <button class="primary" @onclick="Start" disabled="@_busy">
+                @(_busy ? "Working..." : "Start agent")
+            </button>
+        </div>
+        <p class="faint" style="margin: 8px 0 0;">
+            Starts a background agent with <span class="mono">claude --bg</span> in this worktree.
+            With no prompt it starts idle and does nothing until you send it one.
+        </p>
+    </div>
+</div>
+
+@if (_message is { Length: > 0 })
+{
+    <div class="banner @(_failed ? "danger" : "info")">
+        @_message
+        <button class="ghost small spacer" @onclick="() => { _message = null; Touch(); }">Dismiss</button>
+    </div>
+}
+
+@if (View.Agents.Count == 0 && Parked.Count == 0)
+{
+    <div class="empty">
+        <h2>No agents here</h2>
+        <p>Nothing is running in this worktree, and nothing is parked.</p>
+    </div>
+}
+
+@foreach (var agent in View.Agents.OrderBy(Rank).ThenBy(a => a.StartedAt))
+{
+    <article class="card">
+        <div class="row">
+            <AgentRow Agent="agent" Now="Now" />
+        </div>
+
+        @if (agent.LastReply is { Length: > 0 } reply)
+        {
+            <div class="row">
+                <div class="stack" style="flex: 1;">
+                    <span class="faint">Last said</span>
+                    <div class="reply">@reply</div>
+                </div>
+            </div>
+        }
+
+        <div class="row">
+            @if (agent.IsBackground && agent.JobId is { Length: > 0 } job)
+            {
+                <button class="small" @onclick="() => Compose(agent.SessionId)" disabled="@_busy">
+                    Send a message
+                </button>
+                <button class="ghost small" @onclick="() => Stop(job)" disabled="@_busy">Stop</button>
+                <span class="faint spacer mono">@job</span>
+            }
+            else
+            {
+                <span class="faint">
+                    Started outside the dashboard, so it belongs to its own terminal. Reviews and
+                    messages reach it through the clipboard.
+                </span>
+            }
+        </div>
+
+        @if (_composing == agent.SessionId)
+        {
+            <div class="row" style="display: block;">
+                <textarea rows="3" placeholder="What should it do next?"
+                          aria-label="Message for the agent"
+                          value="@_draft"
+                          @oninput="e => { _draft = e.Value?.ToString() ?? string.Empty; Touch(); }"></textarea>
+                <div class="inline" style="margin-top: 8px;">
+                    <button class="primary" @onclick="() => Send(agent)"
+                            disabled="@(_busy || string.IsNullOrWhiteSpace(_draft))">
+                        Send
+                    </button>
+                    <button class="ghost" @onclick="CancelCompose">Cancel</button>
+                    <span class="faint spacer">
+                        @(agent.Status == AgentStatus.Active
+                            ? "This agent is working. Sending stops it first, which interrupts what it is doing."
+                            : "The agent is stopped and resumed under the same conversation.")
+                    </span>
+                </div>
+            </div>
+        }
+    </article>
+}
+
+@if (Parked.Count > 0)
+{
+    <div class="card">
+        <div class="card-head">
+            <h2>Parked here</h2>
+            <span class="faint">Stopped background agents. Their conversations are kept.</span>
+            <button class="ghost small spacer" @onclick="LoadParked" disabled="@_busy">Refresh</button>
+        </div>
+
+        @foreach (var parked in Parked)
+        {
+            <div class="row">
+                <div class="stack" style="flex: 1;">
+                    <span class="truncate">@(parked.Name ?? parked.Id)</span>
+                    <span class="faint mono">@parked.Id</span>
+                </div>
+                <button class="small" @onclick="() => Compose(parked.SessionId)" disabled="@_busy">
+                    Send a message
+                </button>
+                <button class="ghost small" @onclick="() => Remove(parked.Id)" disabled="@_busy">Remove</button>
+            </div>
+
+            @if (_composing == parked.SessionId)
+            {
+                <div class="row" style="display: block;">
+                    <textarea rows="3" placeholder="What should it do next?"
+                              aria-label="Message for the parked agent"
+                              value="@_draft"
+                              @oninput="e => { _draft = e.Value?.ToString() ?? string.Empty; Touch(); }"></textarea>
+                    <div class="inline" style="margin-top: 8px;">
+                        <button class="primary" @onclick="() => Resume(parked)"
+                                disabled="@(_busy || string.IsNullOrWhiteSpace(_draft))">
+                            Send and restart
+                        </button>
+                        <button class="ghost" @onclick="CancelCompose">Cancel</button>
+                    </div>
+                </div>
+            }
+        }
+    </div>
+}
+
+@if (View.Agents.Any(a => a.Skills.Count > 0))
+{
+    <div class="card">
+        <div class="card-head"><h2>Skills used</h2></div>
+        @foreach (var agent in View.Agents.Where(a => a.Skills.Count > 0))
+        {
+            <div class="row">
+                <div class="stack">
+                    <span class="truncate">@agent.Label</span>
+                    <div class="inline" style="margin-top: 3px;">
+                        @foreach (var skill in agent.Skills)
+                        {
+                            <span class="chip mono">@skill</span>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public WorktreeView View { get; set; } = default!;
+
+    [Parameter, EditorRequired]
+    public DateTimeOffset Now { get; set; }
+
+    private string _prompt = "";
+    private string _draft = "";
+    private string? _composing;
+    private string? _message;
+    private bool _failed;
+    private bool _busy;
+    /// <summary>Every background agent the CLI knows about, running or not.</summary>
+    private IReadOnlyList<BackgroundAgent> _known = [];
+    private CancellationTokenSource? _work;
+
+    /// <summary>
+    /// Redraws after work that finished off an event handler.
+    /// </summary>
+    /// <remarks>
+    /// Unlike the diff, this tab renders a handful of rows and wants every
+    /// snapshot: an agent's status and its last words are the whole point of it.
+    /// So there is no ShouldRender here, and nothing to guard against.
+    /// </remarks>
+    private void Touch() => StateHasChanged();
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (RendererInfo.IsInteractive)
+        {
+            await LoadParked();
+        }
+    }
+
+    /// <summary>Waiting first, then active: the agent that needs you outranks the one that does not.</summary>
+    private static int Rank(AgentSession agent) => agent.Status switch
+    {
+        AgentStatus.Waiting => 0,
+        AgentStatus.Active => 1,
+        _ => 2,
+    };
+
+    /// <summary>
+    /// The background agents in this worktree that are not running.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The session registry only lists live processes, so a stopped agent is
+    /// invisible to everything else in the dashboard. The CLI is the only thing
+    /// that remembers them, and forgetting an agent you parked would make parking
+    /// one a mistake.
+    /// </para>
+    /// <para>
+    /// Derived on each render rather than filtered once when the list was
+    /// fetched, because whether an agent is running is live state: an agent
+    /// started a moment ago is in the CLI's list before it reaches the registry,
+    /// and would otherwise sit in both lists until something refetched.
+    /// </para>
+    /// </remarks>
+    private IReadOnlyList<BackgroundAgent> Parked
+    {
+        get
+        {
+            var live = View.Agents.Select(a => a.SessionId).ToHashSet(StringComparer.Ordinal);
+            return _known
+                .Where(a => !live.Contains(a.SessionId))
+                .Where(a => IsUnder(a.Cwd, View.Worktree.Path))
+                .ToList();
+        }
+    }
+
+    private async Task LoadParked()
+    {
+        _work?.Cancel();
+        _work?.Dispose();
+        _work = new CancellationTokenSource();
+
+        try
+        {
+            _known = await Cli.ListAsync(_work.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        Touch();
+    }
+
+    private static bool IsUnder(string path, string root) =>
+        string.Equals(path, root, StringComparison.Ordinal)
+        || path.StartsWith(root + "/", StringComparison.Ordinal)
+        || path.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal);
+
+    private async Task OnStartKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await Start();
+        }
+    }
+
+    private async Task Start()
+    {
+        await Act(async () =>
+        {
+            var (result, id) = await Cli.StartAsync(View.Worktree.Path, _prompt);
+            if (!result.Ok)
+            {
+                return result;
+            }
+
+            _prompt = "";
+            return new CliResult(true, id is null ? "Started." : $"Started {id}.");
+        });
+    }
+
+    private async Task Stop(string jobId) =>
+        await Act(async () => await Cli.StopAsync(jobId));
+
+    private async Task Remove(string jobId) =>
+        await Act(async () => await Cli.RemoveAsync(jobId));
+
+    private async Task Send(AgentSession agent) =>
+        await Act(async () =>
+            await Cli.SendAsync(agent.JobId!, agent.SessionId, View.Worktree.Path, _draft));
+
+    private async Task Resume(BackgroundAgent parked) =>
+        await Act(async () =>
+            await Cli.SendAsync(parked.Id, parked.SessionId, View.Worktree.Path, _draft));
+
+    /// <summary>
+    /// Runs one CLI action, then re-reads what changed.
+    /// </summary>
+    /// <remarks>
+    /// Every action here starts or stops a process, so the registry and the parked
+    /// list are both out of date the moment it returns. Refreshing both is what
+    /// keeps the tab from showing a stale answer until the next poll.
+    /// </remarks>
+    private async Task Act(Func<Task<CliResult>> action)
+    {
+        _busy = true;
+        _message = null;
+        Touch();
+        StateHasChanged();
+
+        CliResult result;
+        try
+        {
+            result = await action();
+        }
+        catch (Exception e) when (e is IOException or InvalidOperationException)
+        {
+            result = CliResult.Failed(e.Message);
+        }
+
+        _busy = false;
+        _failed = !result.Ok;
+        _message = result.Message;
+
+        if (result.Ok)
+        {
+            CancelCompose();
+        }
+
+        Monitor.InvalidateWorktrees();
+        await LoadParked();
+    }
+
+    private void Compose(string sessionId)
+    {
+        Touch();
+        _composing = sessionId;
+        _draft = "";
+    }
+
+    private void CancelCompose()
+    {
+        Touch();
+        _composing = null;
+        _draft = "";
+    }
+
+    public void Dispose()
+    {
+        _work?.Cancel();
+        _work?.Dispose();
+    }
+}

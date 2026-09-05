@@ -1,0 +1,323 @@
+@inject WorktreeFiles Files
+@implements IDisposable
+
+<div class="inline" style="margin-bottom: 12px;">
+    <input type="text" style="max-width: 300px;" placeholder="Filter by path"
+           aria-label="Filter files by path"
+           value="@_filter"
+           @oninput="e => SetFilter(e.Value?.ToString() ?? string.Empty)" />
+    <button class="ghost" @onclick="Load" disabled="@_loading">@(_loading ? "Loading..." : "Refresh")</button>
+    @if (_files.Count > 0)
+    {
+        <span class="spacer faint">
+            @Fmt.Count(Shown.Count, "file")@(Shown.Count == _files.Count ? "" : $" of {_files.Count}")
+        </span>
+    }
+</div>
+
+@if (_loading && _files.Count == 0)
+{
+    <div class="empty"><p>Listing the worktree...</p></div>
+}
+else if (_files.Count == 0)
+{
+    <div class="empty">
+        <h2>No files</h2>
+        <p>Git reports nothing tracked or untracked here.</p>
+    </div>
+}
+else
+{
+    <div class="diff-layout">
+        <aside class="card filelist" aria-label="Files in this worktree">
+            <div class="filelist-head">
+                <span class="faint">@Fmt.Count(Shown.Count, "file")</span>
+                <button class="ghost small spacer" @onclick="ToggleAll">
+                    @(AnyOpen ? "Collapse all" : "Expand all")
+                </button>
+            </div>
+
+            @if (Shown.Count == 0)
+            {
+                <div class="row faint">Nothing matches that filter.</div>
+            }
+            else
+            {
+                <PathTreeView TValue="WorktreeFile"
+                              Node="Tree"
+                              Collapsed="_collapsed"
+                              Selected="@_selected"
+                              OnToggle="ToggleDirectory"
+                              OnSelect="Open">
+                    <FileRow Context="node">
+                        <span class="kind @(node.Value!.Tracked ? "" : "added")"
+                              title="@(node.Value.Tracked ? "Tracked" : "Untracked")">
+                            @(node.Value.Tracked ? "" : "N")
+                        </span>
+                        <span class="label">@node.Name</span>
+                    </FileRow>
+                </PathTreeView>
+            }
+        </aside>
+
+        <div>
+            @if (_content is null)
+            {
+                <div class="empty">
+                    <h2>Pick a file</h2>
+                    <p>Everything git tracks here, plus anything new that is not ignored.</p>
+                </div>
+            }
+            else
+            {
+                <article class="card">
+                    <div class="card-head diff-file-head">
+                        <span class="mono truncate" title="@_content.Path">@_content.Path</span>
+                        <span class="spacer"></span>
+                        @if (_content.Error is null && !_content.IsBinary)
+                        {
+                            <span class="faint nums">@Fmt.Count(_content.Lines.Count, "line")</span>
+                        }
+                        <span class="faint nums">@Fmt.Bytes(_content.Bytes)</span>
+                    </div>
+
+                    @if (_content.Error is { Length: > 0 } error)
+                    {
+                        <div class="row faint">@error</div>
+                    }
+                    else if (_content.IsBinary)
+                    {
+                        <div class="row faint">Binary file, not shown.</div>
+                    }
+                    else
+                    {
+                        @if (_content.Truncated)
+                        {
+                            <div class="row faint">
+                                Large file: showing the first part of it.
+                            </div>
+                        }
+
+                        <div class="diff-lines file-lines">
+                            @for (var i = 0; i < _content.Lines.Count; i++)
+                            {
+                                var segments = _highlighted.Count > i ? _highlighted[i] : [];
+                                <div class="diff-line">
+                                    <span class="ln-static">@(i + 1)</span>
+                                    <span class="code">
+                                        @if (segments.Count == 0)
+                                        {
+                                            @_content.Lines[i]
+                                        }
+                                        else
+                                        {
+                                            foreach (var segment in segments)
+                                            {
+                                                if (segment.Css is null)
+                                                {
+                                                    @segment.Text
+                                                }
+                                                else
+                                                {
+                                                    <span class="@segment.Css">@segment.Text</span>
+                                                }
+                                            }
+                                        }
+                                    </span>
+                                </div>
+                            }
+                        </div>
+                    }
+                </article>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public string WorktreePath { get; set; } = "";
+
+    private IReadOnlyList<WorktreeFile> _files = [];
+    private readonly HashSet<string> _collapsed = new(StringComparer.Ordinal);
+    private string _filter = "";
+    private string? _selected;
+    private FileContent? _content;
+
+    /// <summary>The open file's lines, split into coloured runs, index-aligned.</summary>
+    private IReadOnlyList<IReadOnlyList<Segment>> _highlighted = [];
+    private bool _loading;
+    private CancellationTokenSource? _load;
+
+    private PathTreeNode<WorktreeFile>? _treeCache;
+    private IReadOnlyList<WorktreeFile>? _treeCacheFor;
+
+    /// <summary>
+    /// Set by anything that changes what this tab shows. The worktree page
+    /// re-renders every second because the monitor publishes that often, and
+    /// nothing here depends on the snapshot.
+    /// </summary>
+    private bool _dirty = true;
+
+    protected override bool ShouldRender()
+    {
+        if (!_dirty)
+        {
+            return false;
+        }
+
+        _dirty = false;
+        return true;
+    }
+
+    private void Touch() => _dirty = true;
+
+    private IReadOnlyList<WorktreeFile> Shown => _filter.Length == 0
+        ? _files
+        : _files.Where(f => f.Path.Contains(_filter, StringComparison.OrdinalIgnoreCase)).ToList();
+
+    private PathTreeNode<WorktreeFile> Tree
+    {
+        get
+        {
+            var shown = Shown;
+            if (!ReferenceEquals(_treeCacheFor, shown))
+            {
+                _treeCacheFor = shown;
+                _treeCache = WorktreeFiles.Tree(shown);
+            }
+
+            return _treeCache!;
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Listing is a git call, and prerendering throws its result away.
+        if (RendererInfo.IsInteractive)
+        {
+            await Load();
+        }
+    }
+
+    private async Task Load()
+    {
+        if (_load is not null)
+        {
+            await _load.CancelAsync();
+            _load.Dispose();
+        }
+
+        _load = new CancellationTokenSource();
+        var token = _load.Token;
+
+        _loading = true;
+        Touch();
+        StateHasChanged();
+
+        try
+        {
+            var files = await Files.ListAsync(WorktreePath, token);
+            if (!token.IsCancellationRequested)
+            {
+                _files = files;
+                _treeCacheFor = null;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        finally
+        {
+            if (!token.IsCancellationRequested)
+            {
+                _loading = false;
+                Touch();
+            }
+        }
+    }
+
+    private void SetFilter(string value)
+    {
+        Touch();
+        _filter = value;
+
+        // A filtered tree is small enough to read whole, and folds the user left
+        // in place would hide the very matches they searched for.
+        _collapsed.Clear();
+    }
+
+    private void Open(string path)
+    {
+        Touch();
+        _selected = path;
+        _content = Files.Read(WorktreePath, path);
+        _highlighted = Colour(_content);
+    }
+
+    /// <summary>
+    /// Colours the whole file in one pass. Done once on open rather than per
+    /// render, and in order, because a block comment or a multi-line string only
+    /// makes sense as a continuation of the line before it.
+    /// </summary>
+    private static IReadOnlyList<IReadOnlyList<Segment>> Colour(FileContent content)
+    {
+        if (content.Error is not null || content.IsBinary)
+        {
+            return [];
+        }
+
+        var highlighter = new LineHighlighter(content.Path);
+        if (!highlighter.Enabled)
+        {
+            return [];
+        }
+
+        var lines = new List<IReadOnlyList<Segment>>(content.Lines.Count);
+        foreach (var line in content.Lines)
+        {
+            lines.Add(highlighter.Next(line));
+        }
+
+        return lines;
+    }
+
+    private void ToggleDirectory(string path)
+    {
+        Touch();
+        if (!_collapsed.Add(path))
+        {
+            _collapsed.Remove(path);
+        }
+    }
+
+    private bool AnyOpen => AllDirectories(Tree).Any(d => !_collapsed.Contains(d));
+
+    private void ToggleAll()
+    {
+        Touch();
+        if (AnyOpen)
+        {
+            foreach (var dir in AllDirectories(Tree))
+            {
+                _collapsed.Add(dir);
+            }
+        }
+        else
+        {
+            _collapsed.Clear();
+        }
+    }
+
+    private static IEnumerable<string> AllDirectories<T>(PathTreeNode<T> node) =>
+        node.Children
+            .Where(c => !c.IsFile)
+            .SelectMany(c => new[] { c.Path }.Concat(AllDirectories(c)));
+
+    public void Dispose()
+    {
+        _load?.Cancel();
+        _load?.Dispose();
+    }
+}

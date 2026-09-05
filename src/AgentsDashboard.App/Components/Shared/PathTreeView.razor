@@ -1,0 +1,76 @@
+@* One level of a path tree. Recurses into itself for directories.
+   The file row is supplied by the caller, because what belongs on it differs:
+   a diff shows its additions and deletions, a file browser shows the name. *@
+
+@typeparam TValue
+
+@foreach (var child in Node.Children)
+{
+    if (child.IsFile)
+    {
+        <button type="button"
+                class="tree-row file @(Selected == child.Path ? "selected" : "")"
+                style="@Indent"
+                title="@child.Path"
+                @onclick="() => OnSelect.InvokeAsync(child.Path)">
+            @FileRow(child)
+        </button>
+    }
+    else
+    {
+        var open = !Collapsed.Contains(child.Path);
+        <button type="button"
+                class="tree-row dir"
+                style="@Indent"
+                aria-expanded="@open.ToString().ToLowerInvariant()"
+                @onclick="() => OnToggle.InvokeAsync(child.Path)">
+            <span class="caret @(open ? "open" : "")" aria-hidden="true"></span>
+            <span class="label">@child.Name</span>
+            <span class="n faint">@child.FileCount</span>
+        </button>
+
+        if (open)
+        {
+            <PathTreeView TValue="TValue"
+                          Node="child"
+                          Depth="Depth + 1"
+                          Collapsed="Collapsed"
+                          Selected="@Selected"
+                          FileRow="FileRow"
+                          OnToggle="OnToggle"
+                          OnSelect="OnSelect" />
+        }
+    }
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public PathTreeNode<TValue> Node { get; set; } = default!;
+
+    [Parameter]
+    public int Depth { get; set; }
+
+    /// <summary>Paths of the directories the user has folded shut.</summary>
+    [Parameter, EditorRequired]
+    public HashSet<string> Collapsed { get; set; } = default!;
+
+    /// <summary>The file currently in view, if any.</summary>
+    [Parameter]
+    public string? Selected { get; set; }
+
+    [Parameter, EditorRequired]
+    public RenderFragment<PathTreeNode<TValue>> FileRow { get; set; } = default!;
+
+    [Parameter]
+    public EventCallback<string> OnToggle { get; set; }
+
+    [Parameter]
+    public EventCallback<string> OnSelect { get; set; }
+
+    /// <summary>
+    /// Indentation is inline because it is data, not style: the depth is only
+    /// known while rendering, and a class per level would be a class per possible
+    /// directory depth.
+    /// </summary>
+    private string Indent => $"padding-left: {8 + Depth * 13}px;";
+}

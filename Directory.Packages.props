@@ -1,0 +1,23 @@
+<Project>
+
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Desktop shell: a native OS window over the local Blazor Server host.
+         Ships native binaries for win/linux/osx on both x64 and arm64. -->
+    <PackageVersion Include="Photino.NET" Version="4.0.16" />
+  </ItemGroup>
+
+  <ItemGroup Label="Testing">
+    <!-- xunit.v3 runs on Microsoft.Testing.Platform natively, and MTP >= 2.3.0
+         streams its TRX report to disk as the run progresses. That is what the
+         dashboard's own test monitor reads, so this suite is also its fixture. -->
+    <PackageVersion Include="xunit.v3" Version="4.0.0" />
+    <PackageVersion Include="Microsoft.Testing.Extensions.TrxReport" Version="2.4.0" />
+    <PackageVersion Include="Microsoft.Testing.Platform" Version="2.4.0" />
+    <PackageVersion Include="Microsoft.Testing.Platform.MSBuild" Version="2.4.0" />
+  </ItemGroup>
+
+</Project>
