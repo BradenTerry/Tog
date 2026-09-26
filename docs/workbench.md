@@ -8,7 +8,7 @@ ask for, and to the right panel when they do not ask.
 
 ```mermaid
 flowchart TB
-    T["Title bar: who is waiting, panel toggles, Settings"]
+    T["Title bar: repository and branch, who is waiting, panel toggles, Settings"]
     subgraph W[" "]
         direction LR
         L["Left panel<br/>Files + extensions"]

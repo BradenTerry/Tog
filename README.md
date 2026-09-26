@@ -30,9 +30,9 @@ you actually need from them are the three things a terminal is worst at.
 The window is laid out like VS Code, and every panel follows the agent you
 picked. See [docs/workbench.md](docs/workbench.md).
 
-- **Title bar** shows who is waiting on you, three buttons that fold the left,
-  bottom and right panels, and the gear, which opens **Settings** as a tab in the
-  editor.
+- **Title bar** shows the selected agent's repository and branch, who is
+  waiting on you, three buttons that fold the left, bottom and right panels,
+  and the gear, which opens **Settings** as a tab in the editor.
 - **Status bar** along the bottom labels where the selected agent works: its
   directory, worktree and branch.
 - **Left panel: Files**, the agent's worktree as a tree. A click opens a file in

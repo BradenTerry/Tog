@@ -3,9 +3,11 @@
 @inject AgentDirectory Directory
 @inject NavigationManager Nav
 
-@* Across the top: who is waiting on you, and the three buttons that fold the
-   panels away. Where the agent works is in the status bar along the bottom. Each button is a picture of the
-   window with its panel filled in while that panel shows. *@
+@* Across the top: the repository and branch of the agent in view, who is
+   waiting on you, and the three buttons that fold the panels away. The full
+   directory and the worktree are in the status bar along the bottom. Each
+   button is a picture of the window with its panel filled in while that
+   panel shows. *@
 
 <header class="titlebar">
     @* A name, not a link: going to the root would drop the agent in view. *@
@@ -13,6 +15,26 @@
         <span class="brand-mark" aria-hidden="true"></span>
         <span class="brand-name">Agents</span>
     </span>
+
+    @if (Agent is { } agent)
+    {
+        <nav class="where" aria-label="Where the agent works" title="@(agent.WorktreePath ?? agent.Cwd)">
+            <span class="where-item">@(agent.RepoName ?? Path.GetFileName(agent.Cwd.TrimEnd('/')))</span>
+            @if (agent.Branch is { Length: > 0 } branch)
+            {
+                <span class="where-branch mono" title="Branch">
+                    <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+                        <path d="M5 3v10M5 13a1.5 1.5 0 1 0 0-.01M5 3a1.5 1.5 0 1 0 0 .01M11 5a1.5 1.5 0 1 0 0-.01M11 6.5c0 3-6 2-6 5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
+                    </svg>
+                    <span class="truncate">@branch</span>
+                </span>
+            }
+            else if (agent.Detached)
+            {
+                <span class="where-branch" title="No branch is checked out: commits made here belong to no branch">detached HEAD</span>
+            }
+        </nav>
+    }
 
     <span class="spacer"></span>
 
