@@ -1,13 +1,13 @@
 @inherits StateComponent
 @inject Workbench Bench
 @inject NavigationManager Nav
+@inject AgentDirectory Directory
 
-@* Across the top: the repository, worktree and branch whose files are open, who is
-   waiting on you, a newer build when one is waiting, and the three buttons
-   that fold the panels away. The full
-   directory and the worktree are in the status bar along the bottom. Each
-   button is a picture of the window with its panel filled in while that
-   panel shows. *@
+@* Across the top: the repository, worktree and branch whose files are open, a
+   newer build when one is waiting, the agents counted by state, and the three
+   buttons that fold the panels away. The full directory and the worktree are in
+   the status bar along the bottom. Each button is a picture of the window with
+   its panel filled in while that panel shows. *@
 
 <header class="titlebar">
     @* A name, not a link: going to the root would drop the agent in view. *@
@@ -104,12 +104,48 @@
 
     <span class="spacer"></span>
 
-    @if (Snapshot.Waiting.Count > 0)
+    <UpdateButton />
+
+    @* How many agents are in each state, the waiting ones first. A click on a
+       count lists those agents, and picking one opens its conversation. Only the
+       agents this app hosts are counted, since those are the ones it can open. *@
+    @{
+        var groups = Groups(Directory.Targets(Snapshot.Value));
+    }
+    @if (groups.Count > 0)
     {
-        <span class="chip waiting" title="@Fmt.Count(Snapshot.Waiting.Count, "agent") waiting on you">@Snapshot.Waiting.Count waiting</span>
+        <div class="agent-counts" role="group" aria-label="Agents by state">
+            @foreach (var group in groups)
+            {
+                var open = _counts is { } c && c.Group == group.Name;
+                <button type="button" class="agent-count @(open ? "open" : "")" @onclick="e => OpenCounts(group.Name, e)"
+                        title="@Fmt.Count(group.Agents.Count, "agent") @group.Name.ToLowerInvariant()"
+                        aria-haspopup="menu" aria-expanded="@(open ? "true" : "false")">
+                    <span class="dot @group.Dot" aria-hidden="true"></span>
+                    <span class="nums">@group.Agents.Count</span>
+                    <span class="agent-count-word">@group.Name.ToLowerInvariant()</span>
+                </button>
+            }
+        </div>
     }
 
-    <UpdateButton />
+    @if (_counts is { } menu && groups.FirstOrDefault(g => g.Name == menu.Group) is { } shown)
+    {
+        <ContextMenu X="menu.X" Y="menu.Y" OnClose="() => _counts = null">
+            <div class="context-label">@shown.Name</div>
+            @foreach (var target in shown.Agents)
+            {
+                var current = target.SessionId == Bench.SessionId;
+                <button type="button" class="context-item agent-count-item" role="menuitemradio" aria-checked="@(current ? "true" : "false")"
+                        title="@($"{target.Label} ({target.Where}, {AgentDirectory.StateWord(target)})")" @onclick="() => GoTo(target)">
+                    <span class="context-check">@(current ? "\u2713" : "")</span>
+                    <span class="dot @AgentDirectory.DotClass(target.State)" aria-hidden="true"></span>
+                    <span class="truncate">@target.Label</span>
+                    <span class="faint">@target.Where</span>
+                </button>
+            }
+        </ContextMenu>
+    }
 
     <div class="layout-toggles" role="group" aria-label="Panels">
         @LayoutButton((PanelSide.Left, "Left panel", "M2.5 3.5h4v9h-4z", "M6.5 2.5v11"))
@@ -151,6 +187,40 @@
         _picker = null;
         Bench.FollowAgent();
         BackToEditor();
+    }
+
+    /// <summary>Which count's list is open, and under what point; null while it is shut.</summary>
+    private (string Group, double X, double Y)? _counts;
+
+    private sealed record AgentGroup(string Name, string Dot, IReadOnlyList<ChatTarget> Agents);
+
+    /// <summary>
+    /// The agents by state, the ones needing you first. Failed goes in with
+    /// stopped: either way a message is what brings it back.
+    /// </summary>
+    private static List<AgentGroup> Groups(IReadOnlyList<ChatTarget> targets)
+    {
+        AgentGroup Group(string name, string dot, params ChatState[] states) =>
+            new(name, dot, targets.Where(t => states.Contains(t.State)).ToList());
+
+        return new[]
+            {
+                Group("Waiting", "waiting", ChatState.Waiting),
+                Group("Working", "active", ChatState.Active),
+                Group("Idle", "", ChatState.Idle),
+                Group("Stopped", "stopped", ChatState.Parked, ChatState.Failed),
+            }
+            .Where(g => g.Agents.Count > 0)
+            .ToList();
+    }
+
+    private void OpenCounts(string group, MouseEventArgs e) =>
+        _counts = _counts?.Group == group ? null : (group, e.ClientX, e.ClientY);
+
+    private void GoTo(ChatTarget target)
+    {
+        _counts = null;
+        Nav.NavigateTo(Urls.Chat(target.SessionId));
     }
 
     private bool InFront(string key) => Bench.Editors(Bench.WorktreeInView(Snapshot.Value) ?? "").ActiveKey == key;
@@ -202,6 +272,7 @@
     {
         base.OnInitialized();
         Bench.Changed += OnChanged;
+        Directory.Changed += OnChanged;
         Nav.LocationChanged += OnLocationChanged;
     }
 
@@ -215,6 +286,7 @@
         if (disposing)
         {
             Bench.Changed -= OnChanged;
+            Directory.Changed -= OnChanged;
             Nav.LocationChanged -= OnLocationChanged;
         }
 
