@@ -1,6 +1,7 @@
 using AgentsDashboard.Core.Agents;
 using AgentsDashboard.Core.Model;
 using AgentsDashboard.Core.Presentation;
+using AgentsDashboard.Core.Repos;
 
 namespace AgentsDashboard.App.Services;
 
@@ -153,8 +154,10 @@ public sealed class AgentDirectory(AgentHost host)
         {
             foreach (var worktree in repo.Worktrees)
             {
+                // Through RealPaths: git names a worktree by its real path, and
+                // an agent started under a link (/tmp on macOS) keeps the link.
                 var path = worktree.Worktree.Path;
-                if ((cwd == path || cwd.StartsWith(path + "/", StringComparison.Ordinal)) && path.Length > bestLength)
+                if (RealPaths.IsUnder(cwd, path) && path.Length > bestLength)
                 {
                     best = (repo, worktree);
                     bestLength = path.Length;
