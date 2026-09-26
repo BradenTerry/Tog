@@ -111,7 +111,12 @@ passes along. `PlanLimit.Read` takes the headline limit (`rateLimitType`, with
 its `status`, `utilization` and `resetsAt`) and, when present, `unifiedWindows`,
 which has the 5-hour and weekly windows side by side. Shares are fractions and
 times Unix seconds. The status bar shows them on the right, amber from 75% or on
-a warning and red once Claude refuses. Three things to know about the figures:
+a warning and red once Claude refuses, each as the share used next to the share
+of its window gone by, since one means little without the other. Only the reset
+is reported, so a window's start is the reset less its length (5 hours, or 7 days
+for the weekly ones); `overage` has no length and shows no time. Clicking them
+opens the details: time to the reset and where the current rate lands. Three
+things to know about the figures:
 the SDK only sends them when they change, so they are as of the last hosted turn
 that reported them; agents run in a terminal never feed them; and an API-key
 login has no plan, so nothing shows. They are kept in `plan-usage.json` so the

@@ -51,19 +51,56 @@
     }
     @if (Limits.Count > 0)
     {
-        <span class="status-plan">
+        var now = DateTimeOffset.Now;
+        @* Used against elapsed is the figure that matters: 60% used is fine with
+           80% of the window gone and trouble with 20%. The reset times and the
+           rest are a click away rather than taking the bar. *@
+        <button class="status-plan" @onclick="() => _details = !_details" aria-expanded="@_details"
+                title="Plan usage: share used, and share of each window gone by. Click for details.">
             @foreach (var limit in Limits)
             {
-                <span class="status-item plan-limit @LimitClass(limit)" title="@Tooltip(limit)">
+                <span class="status-item plan-limit @LimitClass(limit)">
                     <span class="status-label">@limit.Label</span>
                     <span>@Figure(limit)</span>
-                    @if (limit.ResetsAt is { } reset)
+                    @if (limit.Elapsed(now) is { } elapsed)
                     {
-                        <span class="faint">resets @When(reset)</span>
+                        <span class="faint">@Percent(elapsed) time</span>
                     }
                 </span>
             }
-        </span>
+        </button>
+        @if (_details)
+        {
+            <div class="context-backdrop" @onclick="() => _details = false"></div>
+            <div class="plan-details" role="dialog" aria-label="Plan usage">
+                @foreach (var limit in Limits)
+                {
+                    <div class="plan-detail @LimitClass(limit)">
+                        <div class="plan-detail-head">
+                            <strong>@limit.Label</strong>
+                            <span>@Figure(limit) used</span>
+                        </div>
+                        @if (limit.Elapsed(now) is { } elapsed && limit.Length is { } length)
+                        {
+                            <div class="plan-bars" aria-hidden="true">
+                                <span class="plan-bar used" style="width: @Width(limit.Percent / 100.0)"></span>
+                                <span class="plan-bar time" style="width: @Width(elapsed)"></span>
+                            </div>
+                            <div class="faint">@Percent(elapsed) of the @Span(length) window gone by</div>
+                            @if (Pace(limit, elapsed) is { } pace)
+                            {
+                                <div class="faint">@pace</div>
+                            }
+                        }
+                        @if (limit.ResetsAt is { } reset)
+                        {
+                            <div class="faint">Resets in @Span(reset - now), @When(reset)</div>
+                        }
+                    </div>
+                }
+                <div class="faint plan-seen">As of @Limits.Max(l => l.SeenAt).ToLocalTime().ToString("ddd h:mm tt"), the last turn that reported it.</div>
+            </div>
+        }
     }
 </footer>
 
@@ -93,10 +130,33 @@
         _ => "near limit",
     };
 
-    private static string Tooltip(PlanLimit limit) =>
-        $"{limit.Label} limit: {Figure(limit)} used"
-        + (limit.ResetsAt is { } reset ? $", resets {When(reset)}" : "")
-        + $". As of {limit.SeenAt.ToLocalTime():ddd h:mm tt}, the last turn that reported it.";
+    private bool _details;
+
+    private static string Percent(double share) => $"{(int)Math.Round(share * 100)}%";
+
+    private static string Width(double? share) =>
+        FormattableString.Invariant($"{Math.Clamp(share ?? 0, 0, 1) * 100:0.#}%");
+
+    /// <summary>
+    /// Where the current rate lands by the reset. Left out early in a window,
+    /// where a few minutes of work project to nonsense.
+    /// </summary>
+    private static string? Pace(PlanLimit limit, double elapsed)
+    {
+        if (limit.Blocked || limit.AtLeast || limit.Percent is not { } percent || elapsed < 0.1)
+        {
+            return null;
+        }
+
+        var projected = (int)Math.Round(percent / elapsed);
+        return projected > 100
+            ? $"At this rate it runs out before the reset (on pace for {projected}%)"
+            : $"On pace for about {projected}% by the reset";
+    }
+
+    /// <summary>A time left in days and hours past a day, as a weekly window needs.</summary>
+    private static string Span(TimeSpan span) =>
+        span.TotalDays >= 1 ? $"{(int)span.TotalDays}d {span.Hours}h" : Fmt.Duration(span);
 
     /// <summary>The time alone within the day, with the weekday past that.</summary>
     private static string When(DateTimeOffset at)

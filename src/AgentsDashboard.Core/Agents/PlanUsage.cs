@@ -47,7 +47,23 @@ public sealed record PlanLimit(
         _ => Window,
     };
 
-    internal int Rank => Array.IndexOf(Order, Window) is var i and >= 0 ? i : Order.Length;
+    /// <summary>How long the window runs, for the windows named by their length.</summary>
+    [JsonIgnore]
+    public TimeSpan? Length => Window switch
+    {
+        "five_hour" => TimeSpan.FromHours(5),
+        _ when Window.StartsWith("seven_day", StringComparison.Ordinal) => TimeSpan.FromDays(7),
+        _ => null,
+    };
+
+    /// <summary>
+    /// The share of the window gone by, 0 to 1. Only the reset is reported, so
+    /// the start is taken as the reset less the window's length.
+    /// </summary>
+    public double? Elapsed(DateTimeOffset now) =>
+        Length is { } length && ResetsAt is { } reset ? Math.Clamp(1 - (reset - now) / length, 0, 1) : null;
+
+    internal int Rank =>Array.IndexOf(Order, Window) is var i and >= 0 ? i : Order.Length;
 
     /// <summary>Whether this reading still describes the window it was taken in.</summary>
     public bool CurrentAt(DateTimeOffset now) => ResetsAt is not { } reset || reset > now;

@@ -58,6 +58,21 @@ public class PlanUsageTests
         Assert.True(limit.AtLeast);
     }
 
+    [Fact]
+    public void Elapsed_is_the_share_of_the_window_before_its_reset()
+    {
+        var fiveHour = new PlanLimit("five_hour", 0.5, null, null, Now.AddHours(3), Now);
+        var weekly = new PlanLimit("seven_day_opus", 0.5, null, null, Now.AddDays(5.25), Now);
+        var overage = new PlanLimit("overage", 0.5, null, null, Now.AddHours(3), Now);
+        var noReset = new PlanLimit("five_hour", 0.5, null, null, null, Now);
+
+        Assert.Equal(0.4, fiveHour.Elapsed(Now)!.Value, 6);
+        Assert.Equal(0.25, weekly.Elapsed(Now)!.Value, 6);
+        Assert.Equal(1, fiveHour.Elapsed(Now.AddHours(4)));
+        Assert.Null(overage.Elapsed(Now));
+        Assert.Null(noReset.Elapsed(Now));
+    }
+
     [Theory]
     [InlineData("null")]
     [InlineData("{}")]
