@@ -125,20 +125,6 @@
 
         <div class="row">
             <div class="stack" style="flex: 1;">
-                <strong>Git status interval</strong>
-                <span class="faint">
-                    Seconds between status reads for a worktree an agent is working in. Worktrees
-                    with no agent are read far less often.
-                </span>
-            </div>
-            <input type="number" min="2" max="60" style="width: 90px;"
-                   value="@_settings.GitPollSeconds"
-                   @onchange="e => SetInterval(e.Value?.ToString())"
-                   aria-label="Git status interval in seconds" />
-        </div>
-
-        <div class="row">
-            <div class="stack" style="flex: 1;">
                 <strong>Default model</strong>
                 <span class="faint">
                     Preselected in every start form. Left to the agent, the model your own Claude
@@ -302,14 +288,6 @@
 
     private void Unhide(string root) =>
         Set(_settings with { HiddenRoots = _settings.HiddenRoots.Where(r => r != root).ToArray() });
-
-    private void SetInterval(string? raw)
-    {
-        if (int.TryParse(raw, out var seconds))
-        {
-            Set(_settings with { GitPollSeconds = Math.Clamp(seconds, 2, 60) });
-        }
-    }
 
     /// <summary>
     /// A blank choice means "say nothing", which is not the same as a value: it

@@ -14,9 +14,14 @@ namespace AgentsDashboard.Core.Monitoring;
 /// Three cadences, because the three sources cost wildly different amounts.
 /// Reading the session registry is a directory listing and a stat per file, so it
 /// runs every second and agent status is effectively live. Listing worktrees and
-/// reading git status spawn git, so they run on their own slower timers, and a
-/// worktree that nobody is looking at and no agent is working in is not polled at
-/// all.
+/// reading git status spawn git, so they run on their own slower timers.
+/// </para>
+/// <para>
+/// Git status is read only for worktrees a view has asked for through
+/// <see cref="Watch"/>, which in practice is the one agent on screen. Nothing
+/// shows the status of any other worktree, and reading every worktree of every
+/// repository on a timer was a steady stream of git processes whose output was
+/// thrown away.
 /// </para>
 /// <para>
 /// It is also one loop rather than several, so nothing can interleave two
@@ -28,6 +33,13 @@ public sealed class MonitorService : IAsyncDisposable
 {
     private static readonly TimeSpan Tick = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan WorktreeInterval = TimeSpan.FromSeconds(20);
+
+    /// <summary>
+    /// How stale a watched worktree's status may get. The status is also re-read
+    /// whenever an agent in it changes state, which is when files usually change,
+    /// so this only has to catch edits made outside an agent.
+    /// </summary>
+    private static readonly TimeSpan StatusInterval = TimeSpan.FromSeconds(10);
 
     private readonly DashboardState _state;
     private readonly SettingsStore _settings;
@@ -45,6 +57,11 @@ public sealed class MonitorService : IAsyncDisposable
     private readonly Dictionary<string, IReadOnlyList<WorktreeInfo>> _worktreeCache = new(StringComparer.Ordinal);
     private readonly Dictionary<string, (GitStatusInfo? Status, DateTimeOffset At)> _statusCache = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _repoNames = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, AgentStatus> _lastStatus = new(StringComparer.Ordinal);
+
+    /// <summary>Worktree paths views are showing, counted, since two windows can show one agent.</summary>
+    private readonly Dictionary<string, int> _watched = new(StringComparer.Ordinal);
+    private readonly Lock _watchGate = new();
 
     private CancellationTokenSource? _cts;
     private Task? _loop;
@@ -93,6 +110,48 @@ public sealed class MonitorService : IAsyncDisposable
 
     /// <summary>Force the next pass to re-list worktrees rather than reuse the cache.</summary>
     public void InvalidateWorktrees() => _worktreesRefreshedAt = DateTimeOffset.MinValue;
+
+    /// <summary>
+    /// Keep the git status of a worktree current until the returned handle is
+    /// disposed. Only watched worktrees carry a status in the snapshot.
+    /// </summary>
+    public IDisposable Watch(string worktreePath)
+    {
+        lock (_watchGate)
+        {
+            _watched[worktreePath] = _watched.GetValueOrDefault(worktreePath) + 1;
+        }
+
+        return new Watcher(this, worktreePath);
+    }
+
+    private void Unwatch(string worktreePath)
+    {
+        lock (_watchGate)
+        {
+            if (_watched.TryGetValue(worktreePath, out var count) && count > 1)
+            {
+                _watched[worktreePath] = count - 1;
+            }
+            else
+            {
+                _watched.Remove(worktreePath);
+            }
+        }
+    }
+
+    private sealed class Watcher(MonitorService owner, string path) : IDisposable
+    {
+        private int _disposed;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) == 0)
+            {
+                owner.Unwatch(path);
+            }
+        }
+    }
 
     private async Task RunAsync(CancellationToken ct)
     {
@@ -144,7 +203,7 @@ public sealed class MonitorService : IAsyncDisposable
 
         await RefreshWorktreesAsync(enriched, settings, ct).ConfigureAwait(false);
 
-        await RefreshStatusAsync(enriched, settings, ct).ConfigureAwait(false);
+        await RefreshStatusAsync(enriched, ct).ConfigureAwait(false);
 
         var snapshot = Compose(enriched);
         _state.Publish(snapshot);
@@ -224,28 +283,42 @@ public sealed class MonitorService : IAsyncDisposable
     }
 
     /// <summary>
-    /// Re-reads git status for the worktrees worth re-reading. A worktree with no
-    /// agent in it is not changing on its own, so it is polled far less often than
-    /// one an agent is working in.
+    /// Re-reads git status for the watched worktrees: on a timer, and at once when
+    /// an agent working in one changes state, since a turn ending is when its
+    /// edits land.
     /// </summary>
-    private async Task RefreshStatusAsync(
-        IReadOnlyList<AgentSession> sessions,
-        Settings settings,
-        CancellationToken ct)
+    private async Task RefreshStatusAsync(IReadOnlyList<AgentSession> sessions, CancellationToken ct)
     {
-        var busy = sessions.Select(s => s.Cwd).ToHashSet(StringComparer.Ordinal);
-        var active = TimeSpan.FromSeconds(Math.Max(2, settings.GitPollSeconds));
-        var idle = TimeSpan.FromSeconds(Math.Max(30, settings.GitPollSeconds * 6));
+        HashSet<string> watched;
+        lock (_watchGate)
+        {
+            watched = _watched.Keys.ToHashSet(StringComparer.Ordinal);
+        }
+
+        var moved = sessions
+            .Where(s => _lastStatus.TryGetValue(s.SessionId, out var was) && was != s.Status)
+            .Select(s => s.Cwd)
+            .ToList();
+
+        _lastStatus.Clear();
+        foreach (var session in sessions)
+        {
+            _lastStatus[session.SessionId] = session.Status;
+        }
+
         var now = _clock.Now;
 
         foreach (var worktree in _worktreeCache.Values.SelectMany(w => w))
         {
             ct.ThrowIfCancellationRequested();
 
-            var hasAgent = busy.Any(cwd => IsUnder(cwd, worktree.Path));
-            var interval = hasAgent ? active : idle;
+            if (!watched.Contains(worktree.Path))
+            {
+                continue;
+            }
 
-            if (_statusCache.TryGetValue(worktree.Path, out var cached) && now - cached.At < interval)
+            var fresh = _statusCache.TryGetValue(worktree.Path, out var cached) && now - cached.At < StatusInterval;
+            if (fresh && !moved.Any(cwd => IsUnder(cwd, worktree.Path)))
             {
                 continue;
             }
@@ -255,8 +328,7 @@ public sealed class MonitorService : IAsyncDisposable
                 now);
         }
 
-        var known = _worktreeCache.Values.SelectMany(w => w).Select(w => w.Path).ToHashSet(StringComparer.Ordinal);
-        foreach (var gone in _statusCache.Keys.Where(k => !known.Contains(k)).ToList())
+        foreach (var gone in _statusCache.Keys.Where(k => !watched.Contains(k)).ToList())
         {
             _statusCache.Remove(gone);
         }

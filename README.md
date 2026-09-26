@@ -90,7 +90,7 @@ group together. Add or hide one under **Repositories**.
 | `src/AgentsDashboard.App` | The Blazor Server UI and the Photino window. `Program.cs` starts the host on a free loopback port, then opens the window at it. |
 | `src/AgentsDashboard.Extensions` | The extension API (1.0), the one assembly an extension compiles against. No reference to Core. |
 | `extensions/DotnetTests` | The Tests tab, as an extension. Not shipped with the app; link it in Settings. |
-| `templates/extension` | `dotnet new agents-dashboard-extension`, with a `CLAUDE.md` for writing one. |
+| `templates/extension` | `dotnet new agents-dashboard-extension`, with an `AGENTS.md` for writing one. |
 | `tests/*` | xUnit v3 on Microsoft.Testing.Platform, for Core and for the Tests extension. |
 
 Blazor Server rather than a hybrid webview because its circuit is the push
@@ -110,14 +110,14 @@ flowchart TD
   B --> D{"20s elapsed,<br/>or an agent is somewhere<br/>we have not listed?"}
   D -->|yes| E["re-list worktrees"]
   D -->|no| F
-  E --> F{"per worktree:<br/>poll interval elapsed?"}
-  F -->|"agent working here"| G["git status"]
-  F -->|"nobody here"| H["skip, 6x the interval"]
+  E --> F{"worktree of the agent on screen:<br/>10s elapsed, or an agent<br/>in it changed state?"}
+  F -->|yes| G["git status"]
+  F -->|no| I
   G --> I[publish a snapshot]
-  H --> I
 ```
 
-A worktree nobody is working in and nobody is looking at is barely polled. A
+Only the worktree on screen has its git status read; every other worktree
+reports none. A
 failed pass never stops the loop; the next one usually succeeds, and a dashboard
 that quietly stopped updating is worse than one that missed a tick.
 

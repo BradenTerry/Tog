@@ -21,8 +21,11 @@ flowchart TD
     F --> C
 ```
 
-The template's `CLAUDE.md` is the whole API on one page, so Claude can write an
-extension from inside its folder without reading this repository. The project
+The template's `AGENTS.md` is the whole API on one page, so Claude can write an
+extension from inside its folder without reading this repository. Its
+`CLAUDE.md` is one line, `@AGENTS.md`: Claude Code skips every `AGENTS.md` once
+it finds a `CLAUDE.md` in the folder or above it, which is the usual case for an
+extension created inside a repository that already has one. The project
 compiles against `~/.agents-dashboard/sdk/1.0/AgentsDashboard.Extensions.dll`,
 which the app copies there, with its XML docs, every time it starts. No NuGet
 feed, and it always matches the app that will run it.
