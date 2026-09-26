@@ -160,4 +160,19 @@ public class ConversationReaderTests
         File.AppendAllText(file, "\n");
         Assert.Equal(3, reader.Read("s", file).Count);
     }
+
+    [Fact]
+    public void Shows_the_agents_questions_as_said_and_your_answers_as_yours()
+    {
+        const string Questions = "\"questions\":" + """[{"question":"Which database?","header":"Database","multiSelect":false,"options":[{"label":"Postgres","description":"d"},{"label":"SQLite","description":"d"}]},{"question":"Which platforms?","header":"Targets","multiSelect":true,"options":[{"label":"macOS","description":"d"},{"label":"Linux","description":"d"}]}]""";
+        const string Head = """{"type":"user","isSidechain":false,"timestamp":"2026-09-25T10:00:09Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t","content":"done"}]},"toolUseResult":{""";
+        var answered = Head + Questions + ""","answers":{"Which database?":"SQLite","Which platforms?":"macOS, Linux"},"annotations":{"Which database?":{"notes":"small data"}}}}""";
+        var skipped = Head + Questions + ""","answers":{}}}""";
+
+        var entries = Parse(Assistant(Tool("AskUserQuestion", "{" + Questions + "}")), answered, skipped);
+
+        Assert.Equal([ChatKind.Agent, ChatKind.You, ChatKind.Notice], entries.Select(e => e.Kind));
+        Assert.Equal("1. Which database?\n2. Which platforms?", entries[0].Text);
+        Assert.Equal("Database: SQLite (small data)\nTargets: macOS, Linux", entries[1].Text);
+    }
 }

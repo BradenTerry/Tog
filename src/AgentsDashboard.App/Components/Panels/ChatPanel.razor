@@ -243,6 +243,13 @@ else
                 </div>
             }
 
+            @* Keyed by the form, so the next form the agent asks is a new card
+               rather than this one with the last answers still in it. *@
+            @if (agent.Questions is { } form)
+            {
+                <QuestionCard @key="form.Key" SessionId="@agent.SessionId" Form="form" />
+            }
+
             @if (agent.Permission is { } ask)
             {
                 <div class="permission-card" role="alert">
@@ -264,7 +271,7 @@ else
                     </div>
                 </div>
             }
-            else if (agent.State == ChatState.Active)
+            else if (agent.State == ChatState.Active && agent.Questions is null)
             {
                 <div class="chat-working">
                     <span class="dot active" aria-hidden="true"></span>

@@ -127,6 +127,21 @@ public sealed class FakeAcpAgent : IAgentLauncher
             update = new { sessionUpdate = "tool_call", toolCallId = "t1", title, status = "pending" },
         });
 
+        /// <summary>
+        /// Sends an elicitation and returns the client's whole response. The bridge
+        /// ties AskUserQuestion to its tool call; an MCP server's form has no
+        /// <paramref name="toolCallId"/>.
+        /// </summary>
+        public Task<JsonElement> Elicit(string message, object requestedSchema, string mode = "form", string? toolCallId = "t1") =>
+            rpc.RequestAsync("elicitation/create", new
+            {
+                mode,
+                sessionId,
+                toolCallId,
+                message,
+                requestedSchema,
+            });
+
         /// <summary>Asks for permission and returns the chosen option id, or null when declined.</summary>
         public async Task<string?> Ask(string title)
         {
@@ -167,6 +182,13 @@ public sealed class FakeAcpAgent : IAgentLauncher
             {
                 case "initialize":
                     owner.Calls.Enqueue(method);
+                    if (p.TryGetProperty("clientCapabilities", out var caps)
+                        && caps.TryGetProperty("elicitation", out var elicitation)
+                        && elicitation.TryGetProperty("form", out _))
+                    {
+                        owner.Calls.Enqueue("initialize:elicitation.form");
+                    }
+
                     return new { protocolVersion = 1, agentCapabilities = new { loadSession = true, sessionCapabilities = new { resume = new { }, close = new { } } } };
 
                 case "session/new":

@@ -90,3 +90,9 @@ flowchart TD
 
 Opening the dashboard onto three blocked agents should show you three blocked
 agents, not fire three notifications about a state you are already looking at.
+
+An agent is waiting when it has a permission prompt or a form of questions
+open (see `docs/agent-control.md`). The notification says what it waits for:
+the tool call for a permission, the question when there is one, and "N questions
+for you" for several. A form from an MCP server is always "An MCP server the
+agent uses is asking", never the server's own words.
