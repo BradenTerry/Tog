@@ -6,6 +6,7 @@
 @inject ConversationReader Conversations
 @inject IJSRuntime Js
 @inject ChatDrafts Drafts
+@inject Workbench Bench
 
 @* The conversation with one agent, in the bottom panel. It reads like every
    messaging app, newest at the bottom with the box to type in under it. Keyed
@@ -32,6 +33,20 @@ else
                 }
             </span>
             <span class="spacer"></span>
+            @* With another worktree picked in the title bar, the files on screen are
+               not this agent's. One click brings its own up, and keeps them. *@
+            @if (agent.WorktreePath is { } home && Workbench.Find(Snapshot.Value, home) is { } place)
+            {
+                if (Bench.WorktreeInView(Snapshot.Value) == home)
+                {
+                    <span class="chip worktree-open" title="The files, Source control and editor are this agent's worktree, @agent.Where">Worktree open</span>
+                }
+                else
+                {
+                    <button class="ghost small" @onclick="() => Bench.PinWorktree(home, place.Worktree.RepoRoot)"
+                            title="Open this agent's worktree, @agent.Where, in place of the one open now">Change to worktree</button>
+                }
+            }
             @if (agent.State is ChatState.Active or ChatState.Waiting)
             {
                 <button class="ghost small" @onclick="() => Act(() => Host.CancelAsync(agent.SessionId))" disabled="@_busy"
@@ -439,12 +454,15 @@ else
         base.OnInitialized();
         State.Changed += OnSnapshot;
         Directory.Changed += OnDirectoryChanged;
+        Bench.Changed += OnBenchChanged;
 
         // Each agent keeps what you had typed to it.
         _draft = Drafts.Get(SessionId);
         _putInBox = _draft;
         ReadConversation();
     }
+
+    private void OnBenchChanged() => _ = InvokeAsync(StateHasChanged);
 
     protected override void OnParametersSet()
     {
@@ -690,6 +708,7 @@ else
         {
             State.Changed -= OnSnapshot;
             Directory.Changed -= OnDirectoryChanged;
+            Bench.Changed -= OnBenchChanged;
         }
 
         base.Dispose(disposing);

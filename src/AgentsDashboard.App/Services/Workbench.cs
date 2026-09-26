@@ -1,4 +1,5 @@
 using AgentsDashboard.Core.Git;
+using AgentsDashboard.Core.Model;
 using AgentsDashboard.Extensions;
 
 namespace AgentsDashboard.App.Services;
@@ -25,7 +26,7 @@ public enum PanelSide
 /// preference. The panels' layout is the exception, kept in the browser by the
 /// layout component, because it is how you like the window.
 /// </remarks>
-public sealed class Workbench(IServiceProvider services) : IDisposable
+public sealed class Workbench(IServiceProvider services, AgentDirectory directory) : IDisposable
 {
     public const string FilesTab = "files";
     public const string SourceControlTab = "scm";
@@ -63,6 +64,108 @@ public sealed class Workbench(IServiceProvider services) : IDisposable
 
     /// <summary>The agent every panel follows. Kept while a page that is not an agent's is open.</summary>
     public string? SessionId { get; private set; }
+
+    /// <summary>The last worktree an agent in view worked in, and its repository.</summary>
+    private (string Path, string RepoRoot)? _lastWorktree;
+
+    /// <summary>A worktree picked in the title bar, which holds whichever agent is picked.</summary>
+    private (string Path, string RepoRoot)? _pinned;
+
+    /// <summary>The agent every panel follows, when it is still in the list.</summary>
+    public ChatTarget? Agent(DashboardSnapshot snapshot) =>
+        SessionId is { } id ? directory.Targets(snapshot).FirstOrDefault(t => t.SessionId == id) : null;
+
+    /// <summary>Whether the worktree was picked by hand, rather than following the agent.</summary>
+    public bool Pinned => _pinned is not null;
+
+    /// <summary>
+    /// The worktree the editor, the Files tree and Source control show: one
+    /// picked in the title bar, else the agent's, else the last one an agent
+    /// was in.
+    /// </summary>
+    /// <remarks>
+    /// The files follow the agent until a worktree is picked, because reading
+    /// in one place while answering agents elsewhere is common, and moving the
+    /// files under someone mid-thought on every click in the agent list is not
+    /// what they want. With nothing picked, closing the last agent, or removing
+    /// the one on screen, keeps its worktree rather than emptying the window.
+    /// A worktree removed since is stood in for by its repository's main one,
+    /// which is where the work usually went.
+    /// </remarks>
+    public string? WorktreeInView(DashboardSnapshot snapshot)
+    {
+        if (_pinned is { } pinned)
+        {
+            return Resolve(snapshot, pinned);
+        }
+
+        if (Agent(snapshot) is { } agent)
+        {
+            if (agent.WorktreePath is { } path && Find(snapshot, path) is { } seen)
+            {
+                _lastWorktree = (path, seen.Worktree.RepoRoot);
+            }
+
+            return agent.WorktreePath;
+        }
+
+        return _lastWorktree is { } last ? Resolve(snapshot, last) : null;
+    }
+
+    /// <summary>A worktree in the snapshot, with its repository.</summary>
+    public static (RepoView Repo, WorktreeView Worktree)? Find(DashboardSnapshot snapshot, string path)
+    {
+        foreach (var repo in snapshot.Repos)
+        {
+            if (repo.Worktrees.FirstOrDefault(w => w.Worktree.Path == path) is { } worktree)
+            {
+                return (repo, worktree);
+            }
+        }
+
+        return null;
+    }
+
+    private static string? Resolve(DashboardSnapshot snapshot, (string Path, string RepoRoot) wanted)
+    {
+        var worktrees = snapshot.Repos.FirstOrDefault(r => r.Root == wanted.RepoRoot)?.Worktrees ?? [];
+        if (worktrees.Any(w => w.Worktree.Path == wanted.Path && !w.Worktree.Prunable))
+        {
+            return wanted.Path;
+        }
+
+        if (worktrees.FirstOrDefault(w => w.Worktree.IsPrimary && !w.Worktree.Prunable) is { } primary)
+        {
+            return primary.Worktree.Path;
+        }
+
+        // The repository is not in the snapshot, or failed to list: trust the disk.
+        return System.IO.Directory.Exists(wanted.Path) ? wanted.Path : null;
+    }
+
+    /// <summary>Shows a worktree, and keeps showing it whichever agent is picked.</summary>
+    public void PinWorktree(string path, string repoRoot)
+    {
+        if (_pinned == (path, repoRoot))
+        {
+            return;
+        }
+
+        _pinned = (path, repoRoot);
+        Raise();
+    }
+
+    /// <summary>Goes back to showing the worktree of the agent in view.</summary>
+    public void FollowAgent()
+    {
+        if (_pinned is null)
+        {
+            return;
+        }
+
+        _pinned = null;
+        Raise();
+    }
 
     public PanelState Left { get; } = new(FilesTab);
 

@@ -539,6 +539,8 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent-dim); }
     border-radius: 6px;
     box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
     outline: none;
+    max-height: calc(100vh - 16px);
+    overflow-y: auto;
 }
 .context-item {
     display: flex;
@@ -557,6 +559,8 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent-dim); }
 .context-item.destructive { color: var(--danger); }
 .context-item .faint { margin-left: auto; }
 .context-sep { margin: 4px 2px; border: none; border-top: 1px solid var(--border-soft); }
+.context-label { padding: 4px 10px 2px; color: var(--text-faint); font-size: 11px; font-weight: 600; }
+.context-check { width: 10px; margin-right: -8px; flex: none; color: var(--accent); }
 
 .n.add { color: var(--active); }
 .n.del { color: var(--danger); }
@@ -890,6 +894,8 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent-dim); }
 .chat-item-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .chat-item-time { color: var(--text-faint); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .chat-item-where { color: var(--text-faint); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-item-where.in-view { color: var(--accent); }
+.chat-item-where svg { margin-right: 4px; vertical-align: -1px; }
 .chat-item-snippet { color: var(--text-dim); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-item-snippet.waiting { color: var(--waiting); }
 
@@ -906,6 +912,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent-dim); }
 
 .chat-title { font-size: 13px; min-width: 0; }
 .chat-state { font-size: 12px; flex: 0 1 auto; }
+.chip.worktree-open { flex: none; color: var(--accent); }
 .chat-notice { margin: 8px 14px 0; }
 .chat-panel { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 
@@ -1347,7 +1354,22 @@ button.icon-btn:hover:where(:not(:disabled)) { background: var(--surface-2); }
 }
 .brand-name { font-weight: 600; letter-spacing: -0.01em; }
 
-.where { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--text-dim); font-size: 12px; }
+.where {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    padding: 3px 8px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: none;
+    color: var(--text-dim);
+    font-size: 12px;
+}
+.where:hover, .where[aria-expanded="true"] { background: var(--surface-2); border-color: var(--border-soft); }
+.where.pinned { border-color: var(--border); }
+.where-pin, .where-caret { flex: none; color: var(--text-faint); }
+.where.pinned .where-pin { color: var(--accent); }
 .where-item { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); font-weight: 500; }
 .where-sep { color: var(--text-faint); }
 .where-branch {

@@ -1,7 +1,6 @@
 @page "/worktrees"
 @inherits StateComponent
 @inject Workbench Bench
-@inject AgentDirectory Directory
 @inject NavigationManager Nav
 
 @* An address for the Worktrees tab, as /settings is for Settings: it opens the
@@ -12,9 +11,7 @@
     {
         if (firstRender && RendererInfo.IsInteractive)
         {
-            var worktree = Bench.SessionId is { } id
-                ? Directory.Targets(Snapshot.Value).FirstOrDefault(t => t.SessionId == id)?.WorktreePath
-                : null;
+            var worktree = Bench.WorktreeInView(Snapshot.Value);
 
             Bench.OpenWorktrees(worktree);
             Nav.NavigateTo(Urls.Chat(Bench.SessionId), replace: true);

@@ -1,13 +1,12 @@
 @inherits StateComponent
 @inject Workbench Bench
-@inject AgentDirectory Directory
 @inject ExtensionHost Extensions
 
 @* One of the three panels: a strip of tabs, the app's own first and then any
    extension's that asked for this panel, over what the tab in front shows. A
    tab you have opened stays built while another is in front, hidden rather than
    thrown away, so it keeps its scroll and what it had read; they are all
-   rebuilt when the panel moves to another agent. *@
+   rebuilt when the panel moves to another agent or worktree. *@
 
 <section class="wb-panel" aria-label="@Label">
     <div class="ptabs" role="tablist" aria-label="@Label">
@@ -26,34 +25,38 @@
     </div>
 
     <div class="ptab-body">
-        @if (Agent is not { } agent)
+        @if (Agent is null && Worktree is null)
         {
-            <div class="panel-note faint">@(Bench.SessionId is null ? "Pick an agent to see its work here." : "That agent is not in the list.")</div>
+            <div class="panel-note faint">@(Bench.SessionId is null ? "Pick an agent, or open a worktree from the title bar." : "That agent is not in the list.")</div>
         }
         else if (Tabs.Count == 0)
         {
             <div class="panel-note faint">
-                @(Side == PanelSide.Bottom ? "Nothing to show." : "This agent is not working in a git worktree, so there is nothing to show here.")
+                @(Agent is null
+                    ? "Pick an agent to talk to it here."
+                    : Side == PanelSide.Bottom ? "Nothing to show." : "This agent is not working in a git worktree, so there is nothing to show here.")
             </div>
         }
         else
         {
+            var agent = Agent;
+            var worktree = Worktree;
             @foreach (var tab in Tabs.Where(t => _visited.Contains(t.Key)))
             {
                 var active = tab.Key == ActiveKey;
-                <div class="ptab-layer @(active ? "" : "hidden")" @key="(tab.Key, tab.View?.Generation, agent.SessionId)">
+                <div class="ptab-layer @(active ? "" : "hidden")" @key="(tab.Key, tab.View?.Generation, agent?.SessionId, worktree)">
                     @switch (tab.Key)
                     {
                         case Workbench.FilesTab:
-                            <FileTreePanel WorktreePath="@(agent.WorktreePath!)" />
+                            <FileTreePanel WorktreePath="@(worktree!)" />
                             break;
 
                         case Workbench.SourceControlTab:
-                            <SourceControlPanel WorktreePath="@(agent.WorktreePath!)" SessionId="@agent.SessionId" />
+                            <SourceControlPanel WorktreePath="@(worktree!)" SessionId="@agent?.SessionId" />
                             break;
 
                         case Workbench.ChatTab:
-                            <ChatPanel SessionId="@agent.SessionId" IsVisible="@(active && Bench.Panel(Side).Open)" />
+                            <ChatPanel SessionId="@agent!.SessionId" IsVisible="@(active && Bench.Panel(Side).Open)" />
                             break;
 
                         default:
@@ -61,7 +64,7 @@
                                is built fresh from the new copy's type rather than handed
                                new parameters. *@
                             <div class="panel-scroll ext-view">
-                                <ExtensionViewHost Live="tab.View!" Agent="ApiModel.Agent(agent, State)"
+                                <ExtensionViewHost Live="tab.View!" Agent="ApiModel.Agent(agent!, State)"
                                                    IsVisible="@(active && Bench.Panel(Side).Open)" />
                             </div>
                             break;
@@ -80,7 +83,7 @@
 
     /// <summary>The tabs opened for the agent on screen, which stay built until the panel moves to another.</summary>
     private readonly HashSet<string> _visited = new(StringComparer.Ordinal);
-    private string? _shownSession;
+    private (string?, string?) _shown;
 
     private string Label => Side switch
     {
@@ -89,32 +92,37 @@
         _ => "Bottom panel",
     };
 
-    private ChatTarget? Agent =>
-        Bench.SessionId is { } id ? Directory.Targets(Snapshot.Value).FirstOrDefault(t => t.SessionId == id) : null;
+    private ChatTarget? Agent => Bench.Agent(Snapshot.Value);
+
+    /// <summary>The agent's worktree, or with no agent in view the one left open when it went.</summary>
+    private string? Worktree => Bench.WorktreeInView(Snapshot.Value);
 
     private List<Tab> Tabs
     {
         get
         {
             var tabs = new List<Tab>();
-            if (Agent is not { } agent)
-            {
-                return tabs;
-            }
+            var agent = Agent;
+            var worktree = Worktree;
 
             // The app's own tab leads each panel. The files and the diff need a
-            // worktree; the conversation does not.
+            // worktree, which outlasts its agent; the conversation needs an agent.
             switch (Side)
             {
-                case PanelSide.Left when agent.WorktreePath is not null:
+                case PanelSide.Left when worktree is not null:
                     tabs.Add(new Tab(Workbench.FilesTab, "Files"));
                     break;
-                case PanelSide.Right when agent.WorktreePath is not null:
-                    tabs.Add(new Tab(Workbench.SourceControlTab, "Source control", Count: ChangeCount(agent)));
+                case PanelSide.Right when worktree is not null:
+                    tabs.Add(new Tab(Workbench.SourceControlTab, "Source control", Count: ChangeCount(worktree)));
                     break;
-                case PanelSide.Bottom:
+                case PanelSide.Bottom when agent is not null:
                     tabs.Add(new Tab(Workbench.ChatTab, "Chat"));
                     break;
+            }
+
+            if (agent is null)
+            {
+                return tabs;
             }
 
             var api = ApiModel.Agent(agent, State);
@@ -157,8 +165,8 @@
         }
     }
 
-    private string? ChangeCount(ChatTarget agent) =>
-        agent.WorktreePath is { } path && State.Worktree(path)?.Status is { } s && s.Changed + s.Staged + s.Untracked is > 0 and var n
+    private string? ChangeCount(string path) =>
+        State.Worktree(path)?.Status is { } s && s.Changed + s.Staged + s.Untracked is > 0 and var n
             ? n.ToString(System.Globalization.CultureInfo.InvariantCulture)
             : null;
 
@@ -185,9 +193,10 @@
     /// <summary>Keeps the set of built tabs: cleared for a new agent, and the one in front added.</summary>
     private void Track()
     {
-        if (_shownSession != Bench.SessionId)
+        var shown = (Bench.SessionId, Worktree);
+        if (_shown != shown)
         {
-            _shownSession = Bench.SessionId;
+            _shown = shown;
             _visited.Clear();
         }
 
