@@ -3,8 +3,9 @@
 The app keeps to what is about agents: the conversation, the diff, the files.
 Anything else, such as following a language's test runs, is an extension: a
 small Razor project, built on its own, that the running app loads and adds a tab
-for. The Tests tab is one, in `extensions/DotnetTests`, and it is not shipped
-with the app.
+for. The Tests tab is one, in `extensions/DotnetTests`, and C# navigation in
+the editor is another, in `extensions/CSharpCode`. Neither is shipped with the
+app.
 
 The design and its rationale are in [design/extensions.md](design/extensions.md).
 This file is what exists and what is easy to get wrong.
@@ -58,6 +59,7 @@ does not load.
 | `AddView<T>(id, title, defaultLocation, order, appliesTo)` | A tab in one of the three panels, after the app's own |
 | `AddIndicator<T>(viewId)` | A short count on that tab, such as failing tests |
 | `AddWorker<T>(id)` | Background work while loaded, restarted with backoff if it throws |
+| `AddCodeIntelligence<T>()` | Navigation for a language in the editor: hover, definition, references, callers, colouring. See [code-intelligence.md](code-intelligence.md) |
 | `Services` | The extension's own DI container |
 
 `ViewLocation` says which panel the view is a tab in (see
@@ -107,10 +109,12 @@ sequenceDiagram
     H-->>P: Changed, tabs appear
 ```
 
-**Shared assemblies come from the app.** `ExtensionLoadContext` returns null
-for `AgentsDashboard.Extensions`, `Microsoft.AspNetCore.*`,
-`Microsoft.Extensions.*`, `Microsoft.JSInterop` and `System.*`, so they resolve
-from the default context. Anything else resolves from the extension's own
+**Shared assemblies come from the app.** `ExtensionLoadContext` resolves
+`AgentsDashboard.Extensions`, `Microsoft.AspNetCore.*`,
+`Microsoft.Extensions.*`, `Microsoft.JSInterop` and `System.*` from the default
+context, and falls back to the extension's own copy only when the app has none:
+`System.Composition`, which Roslyn needs, is a package rather than part of the
+shared framework. Anything else resolves from the extension's own
 `.deps.json`, so two extensions can carry different versions of a library.
 A second copy of a shared assembly would make the extension's `IComponent` a
 different type from the app's, and nothing would cast. That is also why an

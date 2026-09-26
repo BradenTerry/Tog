@@ -5,7 +5,6 @@ using AgentsDashboard.App.Components;
 using AgentsDashboard.App.Services;
 using AgentsDashboard.Core.Agents;
 using AgentsDashboard.Core.Claude;
-using AgentsDashboard.Core.Code;
 using AgentsDashboard.Core.Git;
 using AgentsDashboard.Core.Monitoring;
 using AgentsDashboard.Core.Platform;
@@ -69,6 +68,7 @@ builder.Services.AddScoped<Workbench>();
 builder.Services.AddSingleton(_ => AgentBackends.Claude(builder.Environment.ContentRootPath));
 builder.Services.AddSingleton<IAgentLauncher, ProcessAgentLauncher>();
 builder.Services.AddSingleton<HostedAgentStore>();
+builder.Services.AddSingleton<PlanUsageStore>();
 builder.Services.AddSingleton<AgentHost>();
 builder.Services.AddSingleton<IAgentSessionSource>(sp => sp.GetRequiredService<AgentHost>());
 
@@ -84,13 +84,6 @@ builder.Services.AddSingleton<WorktreeCreator>();
 builder.Services.AddSingleton<WorktreeCleanup>();
 builder.Services.AddSingleton<WorktreeInventory>();
 
-// Code
-// Singletons because the whole point of the Roslyn solution is that it stays
-// warm: a scoped one would be loaded again for every circuit, and a load costs
-// seconds and hundreds of megabytes.
-builder.Services.AddSingleton<SolutionLoader>();
-builder.Services.AddSingleton<CodeIntelligence>();
-
 // Extensions
 // The API services are in the app's container as well as each extension's, so
 // an extension's component can @inject them like any other.
@@ -99,6 +92,9 @@ builder.Services.AddSingleton<AgentsDashboard.Extensions.IDashboardView, Dashboa
 builder.Services.AddSingleton<AgentsDashboard.Extensions.INavigation, Navigation>();
 builder.Services.AddSingleton<AgentsDashboard.Extensions.ITextLinker, TextLinker>();
 builder.Services.AddSingleton<ExtensionHost>();
+// Language support is an extension's: this only routes the editor's questions
+// to whichever loaded extension answers for the file.
+builder.Services.AddSingleton<CodeNavigation>();
 
 // Review
 builder.Services.AddSingleton<FeedbackDispatcher>();

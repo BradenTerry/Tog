@@ -1206,6 +1206,9 @@ button.icon-btn:hover { background: var(--surface-2); }
 .status-item { display: inline-flex; align-items: baseline; gap: 6px; min-width: 0; }
 .status-item .mono { font-size: 11.5px; color: var(--text); }
 .status-label { color: var(--text-faint); text-transform: uppercase; font-size: 10.5px; letter-spacing: 0.05em; flex: none; }
+.status-plan { display: inline-flex; gap: 18px; margin-left: auto; flex: none; }
+.plan-limit.warn { color: var(--waiting); }
+.plan-limit.high { color: var(--danger); }
 
 .workbench {
     --left: var(--wb-left, 260px);

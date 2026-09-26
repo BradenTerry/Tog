@@ -1,7 +1,7 @@
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Text;
 
-namespace AgentsDashboard.Core.Code;
+namespace AgentsDashboard.Extensions.CSharpCode;
 
 /// <summary>
 /// One warm Roslyn solution per worktree, and the queries the editor runs
@@ -9,10 +9,19 @@ namespace AgentsDashboard.Core.Code;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Loading is on demand: the first C# file opened in a worktree starts it, and
-/// nothing loads for the worktrees on screen that are never browsed. A load
-/// costs seconds and hundreds of megabytes, so doing it eagerly for every
-/// watched worktree would be the most expensive thing the dashboard does.
+/// Loading is opt-in: nothing loads until the user asks for it in a worktree,
+/// not even when a C# file is opened there. A load costs seconds and hundreds of
+/// megabytes, most worktrees are only ever read as diffs, and navigation is
+/// wanted for the few where a change needs tracing. Queries never start a load;
+/// they answer with nothing until one has been asked for.
+/// </para>
+/// <para>
+/// A load belongs to the worktree, not to whoever asked for it. It runs on a
+/// token of its own that only <see cref="ReloadAsync"/> and <see cref="Unload"/>
+/// cancel, and a caller's token only stops that caller waiting. Tying the load
+/// to the first caller meant closing that editor, as switching agents does,
+/// cancelled a load everyone else was sharing, left it failed, and the next
+/// visit started it again from nothing.
 /// </para>
 /// <para>
 /// The lock covers the per-worktree entry only. A <see cref="Solution"/> is
@@ -21,25 +30,37 @@ namespace AgentsDashboard.Core.Code;
 /// started with rather than blocking.
 /// </para>
 /// </remarks>
-public sealed class CodeIntelligence(SolutionLoader loader)
+public sealed class RoslynCodeIntelligence(SolutionLoader loader) : ICodeIntelligence, IDisposable
 {
     private sealed class Entry
     {
         public Solution? Solution { get; set; }
 
-        public LoadStatus Status { get; set; } = new(LoadState.NotLoaded, null, 0, 0);
+        public CodeLoadStatus Status { get; set; } = new(CodeLoadState.NotLoaded, null, 0, 0);
 
         public Task? Loading { get; set; }
+
+        /// <summary>Cancelled when this load is superseded by a reload or an unload.</summary>
+        public CancellationTokenSource? Lifetime { get; set; }
     }
 
     private readonly Lock _gate = new();
     private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
 
+    /// <inheritdoc />
+    public string Name => "Roslyn";
+
+    /// <inheritdoc />
+    public string Language => "csharp";
+
+    /// <inheritdoc />
+    public bool Handles(string relativePath) => relativePath.EndsWith(".cs", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Raised with the worktree path whenever its load state changes.</summary>
     public event Action<string>? StatusChanged;
 
     /// <summary>Where a worktree's solution is, for the chip in the editor.</summary>
-    public LoadStatus Status(string worktreePath)
+    public CodeLoadStatus Status(string worktreePath)
     {
         var key = Key(worktreePath);
 
@@ -53,8 +74,9 @@ public sealed class CodeIntelligence(SolutionLoader loader)
     /// Start the load if it has not run, or join the one in flight. Returns at
     /// once when the solution is ready, and a failed load is retried rather than
     /// remembered forever: the usual cause is a project that did not build yet.
+    /// Cancelling <paramref name="cancellationToken"/> stops the wait, not the load.
     /// </summary>
-    public Task EnsureLoadedAsync(string worktreePath, CancellationToken cancellationToken)
+    public Task LoadAsync(string worktreePath, CancellationToken cancellationToken)
     {
         var key = Key(worktreePath);
         Task task;
@@ -65,37 +87,55 @@ public sealed class CodeIntelligence(SolutionLoader loader)
 
             switch (entry.Status.State)
             {
-                case LoadState.Ready:
+                case CodeLoadState.Ready:
                     return Task.CompletedTask;
-                case LoadState.Loading when entry.Loading is not null:
-                    return entry.Loading;
+                case CodeLoadState.Loading when entry.Loading is not null:
+                    return entry.Loading.WaitAsync(cancellationToken);
             }
 
-            entry.Status = new LoadStatus(LoadState.Loading, "Loading...", 0, 0);
-            entry.Loading = task = LoadAsync(key, entry, cancellationToken);
+            var lifetime = new CancellationTokenSource();
+            entry.Lifetime = lifetime;
+            entry.Status = new CodeLoadStatus(CodeLoadState.Loading, "Loading...", 0, 0);
+            entry.Loading = task = RunLoadAsync(key, entry, lifetime);
         }
 
         StatusChanged?.Invoke(key);
 
-        return task;
+        return task.WaitAsync(cancellationToken);
     }
 
     /// <summary>Drop the solution and load it again, for when a project file changed.</summary>
     public Task ReloadAsync(string worktreePath, CancellationToken cancellationToken)
     {
+        Unload(worktreePath);
+
+        return LoadAsync(worktreePath, cancellationToken);
+    }
+
+    /// <summary>
+    /// Drop the solution and stop a load in flight, handing back the memory. The
+    /// worktree goes back to not loaded, where queries answer with nothing.
+    /// </summary>
+    public void Unload(string worktreePath)
+    {
         var key = Key(worktreePath);
+        CancellationTokenSource? lifetime;
 
         lock (_gate)
         {
             var entry = EntryFor(key);
+            lifetime = entry.Lifetime;
+            entry.Lifetime = null;
             entry.Solution = null;
             entry.Loading = null;
-            entry.Status = new LoadStatus(LoadState.NotLoaded, null, 0, 0);
+            entry.Status = new CodeLoadStatus(CodeLoadState.NotLoaded, null, 0, 0);
         }
 
-        StatusChanged?.Invoke(key);
+        // Cancelled, not disposed: the load it belonged to may still be reading
+        // the token, and a source with no timer holds nothing worth freeing.
+        lifetime?.Cancel();
 
-        return EnsureLoadedAsync(key, cancellationToken);
+        StatusChanged?.Invoke(key);
     }
 
     /// <summary>
@@ -237,23 +277,40 @@ public sealed class CodeIntelligence(SolutionLoader loader)
     }
 
     /// <summary>
-    /// The loaded solution for a worktree, loading it first. Null when the load
-    /// failed, which is how every query answers with nothing instead of throwing
-    /// the load error again at each keystroke.
+    /// The loaded solution for a worktree, waiting for a load in flight but never
+    /// starting one. Null when nothing is loaded or the load failed, which is how
+    /// every query answers with nothing instead of throwing the load error again
+    /// at each keystroke.
     /// </summary>
     private async Task<(Solution? Solution, string Key)> SolutionForAsync(
         string worktreePath,
         CancellationToken cancellationToken)
     {
         var key = Key(worktreePath);
+        Task? loading;
 
-        try
+        lock (_gate)
         {
-            await EnsureLoadedAsync(key, cancellationToken).ConfigureAwait(false);
+            var entry = EntryFor(key);
+            if (entry.Status.State != CodeLoadState.Loading)
+            {
+                return (entry.Solution, key);
+            }
+
+            loading = entry.Loading;
         }
-        catch (Exception) when (Status(key).State == LoadState.Failed)
+
+        if (loading is not null)
         {
-            return (null, key);
+            try
+            {
+                await loading.WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                // Failed or unloaded; the entry says which, and either way there
+                // is no solution to answer from.
+            }
         }
 
         lock (_gate)
@@ -262,45 +319,61 @@ public sealed class CodeIntelligence(SolutionLoader loader)
         }
     }
 
-    private async Task LoadAsync(string key, Entry entry, CancellationToken cancellationToken)
+    private async Task RunLoadAsync(string key, Entry entry, CancellationTokenSource lifetime)
     {
-        // Off the caller's thread: the first query for a worktree should not wait
-        // on MSBuild before it can even report that loading started.
+        var token = lifetime.Token;
+
+        // Off the caller's thread: the click that asked for it should not wait on
+        // MSBuild before it can even report that loading started.
         await Task.Yield();
 
-        var progress = new Progress<string>(message => SetStatus(key, entry, s =>
-            s.State == LoadState.Loading ? s with { Message = message } : s));
+        var progress = new Progress<string>(message => SetStatus(key, entry, lifetime, s =>
+            s.State == CodeLoadState.Loading ? s with { Message = message } : s));
 
         try
         {
-            var solution = await loader.LoadAsync(key, progress, cancellationToken).ConfigureAwait(false);
+            var solution = await loader.LoadAsync(key, progress, token).ConfigureAwait(false);
             var projects = solution.Projects.Count();
             var documents = solution.Projects.Sum(p => p.DocumentIds.Count);
 
-            SetStatus(key, entry, _ =>
+            SetStatus(key, entry, lifetime, _ =>
             {
                 entry.Solution = solution;
 
-                return new LoadStatus(LoadState.Ready, null, projects, documents);
+                return new CodeLoadStatus(CodeLoadState.Ready, null, projects, documents);
             });
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            // Superseded by a reload or an unload, which has already set the entry.
+            throw;
         }
         catch (Exception ex)
         {
-            SetStatus(key, entry, _ =>
+            SetStatus(key, entry, lifetime, _ =>
             {
                 entry.Solution = null;
 
-                return new LoadStatus(LoadState.Failed, ex.Message, 0, 0);
+                return new CodeLoadStatus(CodeLoadState.Failed, ex.Message, 0, 0);
             });
 
             throw;
         }
     }
 
-    private void SetStatus(string key, Entry entry, Func<LoadStatus, LoadStatus> next)
+    /// <summary>
+    /// Applies a load's outcome, unless the load has been superseded: a load
+    /// that finishes after an unload or a reload must not put its solution back.
+    /// </summary>
+    private void SetStatus(string key, Entry entry, CancellationTokenSource lifetime, Func<CodeLoadStatus, CodeLoadStatus> next)
     {
         lock (_gate)
         {
+            if (!ReferenceEquals(entry.Lifetime, lifetime))
+            {
+                return;
+            }
+
             var updated = next(entry.Status);
             if (updated == entry.Status)
             {
@@ -311,6 +384,26 @@ public sealed class CodeIntelligence(SolutionLoader loader)
         }
 
         StatusChanged?.Invoke(key);
+    }
+
+    /// <summary>
+    /// The extension is unloading: stop every load in flight and let the
+    /// solutions go with it.
+    /// </summary>
+    public void Dispose()
+    {
+        List<CancellationTokenSource> lifetimes;
+
+        lock (_gate)
+        {
+            lifetimes = [.. _entries.Values.Select(e => e.Lifetime).OfType<CancellationTokenSource>()];
+            _entries.Clear();
+        }
+
+        foreach (var lifetime in lifetimes)
+        {
+            lifetime.Cancel();
+        }
     }
 
     private Entry EntryFor(string key)

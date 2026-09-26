@@ -113,6 +113,8 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
     private readonly Lock _gate = new();
     private readonly SemaphoreSlim _connectGate = new(1, 1);
     private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
+    private readonly PlanUsageStore? _planStore;
+    private readonly Dictionary<string, PlanLimit> _plan = new(StringComparer.Ordinal);
     private readonly Timer _flush;
 
     private IAgentProcess? _process;
@@ -122,14 +124,26 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
     private DateTimeOffset? _processStartedAt;
     private bool _dirty;
     private bool _recordChanged;
+    private bool _planChanged;
     private IReadOnlyList<AcpConfigOption> _knownOptions = [];
 
-    public AgentHost(AgentBackend backend, IAgentLauncher launcher, HostedAgentStore store, IClock? clock = null)
+    public AgentHost(
+        AgentBackend backend,
+        IAgentLauncher launcher,
+        HostedAgentStore store,
+        IClock? clock = null,
+        PlanUsageStore? planStore = null)
     {
         _backend = backend;
         _launcher = launcher;
         _store = store;
         _clock = clock ?? new SystemClock();
+        _planStore = planStore;
+
+        foreach (var limit in planStore?.Load() ?? [])
+        {
+            _plan[limit.Window] = limit;
+        }
 
         foreach (var saved in store.Load())
         {
@@ -161,6 +175,28 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
             lock (_gate)
             {
                 return _knownOptions;
+            }
+        }
+    }
+
+    /// <summary>
+    /// The subscription plan's usage limits as Claude last reported them, leaving
+    /// out any whose window has since reset. Empty when signed in with an API key,
+    /// which has no plan limits to report.
+    /// </summary>
+    /// <remarks>
+    /// Claude only reports these when they change, on a turn of an agent hosted
+    /// here, so they are as of the last such turn. Agents run in a terminal do not
+    /// feed them.
+    /// </remarks>
+    public IReadOnlyList<PlanLimit> PlanLimits
+    {
+        get
+        {
+            var now = _clock.Now;
+            lock (_gate)
+            {
+                return _plan.Values.Where(l => l.CurrentAt(now)).OrderBy(l => l.Rank).ToList();
             }
         }
     }
@@ -750,6 +786,19 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
                         _recordChanged = true;
                     }
 
+                    // The bridge passes the plan's rate limits along on the same
+                    // update, but only when the SDK reports that they changed.
+                    if (update.TryGetProperty("_meta", out var meta)
+                        && meta.ValueKind == JsonValueKind.Object
+                        && meta.TryGetProperty("_claude/rateLimit", out var rateLimit))
+                    {
+                        foreach (var limit in PlanLimit.Read(rateLimit, _clock.Now))
+                        {
+                            _plan[limit.Window] = limit.After(_plan.GetValueOrDefault(limit.Window));
+                            _planChanged = true;
+                        }
+                    }
+
                     break;
 
                 case "session_info_update":
@@ -916,6 +965,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
     private void Flush()
     {
         bool save;
+        List<PlanLimit>? plan = null;
         lock (_gate)
         {
             if (!_dirty)
@@ -926,11 +976,28 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
             _dirty = false;
             save = _recordChanged;
             _recordChanged = false;
+            if (_planChanged)
+            {
+                plan = [.. _plan.Values];
+                _planChanged = false;
+            }
         }
 
         if (save)
         {
             Save();
+        }
+
+        if (plan is not null)
+        {
+            try
+            {
+                _planStore?.Save(plan);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                // Only costs the figures showing before the next turn after a restart.
+            }
         }
 
         Changed?.Invoke();

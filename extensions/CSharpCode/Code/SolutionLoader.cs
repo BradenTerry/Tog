@@ -1,7 +1,7 @@
 using System.Runtime.CompilerServices;
 using Microsoft.CodeAnalysis;
 
-namespace AgentsDashboard.Core.Code;
+namespace AgentsDashboard.Extensions.CSharpCode;
 
 /// <summary>
 /// Opens a worktree's C# projects into a Roslyn <see cref="Solution"/>.
@@ -25,8 +25,17 @@ namespace AgentsDashboard.Core.Code;
 /// it, and the workspace stays reachable through the solution, so it lives
 /// exactly as long as the solution the caller keeps and is collected with it.
 /// </para>
+/// <para>
+/// MSBuild is registered for the process, not for this copy of the extension.
+/// The locator hooks the default load context and MSBuild's assemblies land
+/// there, where a reload of the extension cannot take them away, and the
+/// locator refuses to register a second time once they are loaded. So a copy
+/// that finds them already there, left by the copy before it, uses them as they
+/// are, and a copy that registered takes its hook out again when it is disposed
+/// so the hook does not keep the old copy in memory.
+/// </para>
 /// </remarks>
-public sealed class SolutionLoader
+public sealed class SolutionLoader : IDisposable
 {
     private static readonly Lock Gate = new();
 
@@ -107,9 +116,29 @@ public sealed class SolutionLoader
     {
         lock (Gate)
         {
-            if (!Microsoft.Build.Locator.MSBuildLocator.IsRegistered)
+            if (!Microsoft.Build.Locator.MSBuildLocator.IsRegistered && !MsBuildAlreadyLoaded())
             {
                 Microsoft.Build.Locator.MSBuildLocator.RegisterDefaults();
+            }
+        }
+    }
+
+    /// <summary>Whether an earlier copy of this extension already brought MSBuild into the process.</summary>
+    private static bool MsBuildAlreadyLoaded() =>
+        AppDomain.CurrentDomain.GetAssemblies().Any(a =>
+            a.GetName().Name is { } name
+            && name.StartsWith("Microsoft.Build", StringComparison.Ordinal)
+            && name != "Microsoft.Build.Locator");
+
+    /// <summary>The extension is unloading: take the locator's hook out of the default context.</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public void Dispose()
+    {
+        lock (Gate)
+        {
+            if (Microsoft.Build.Locator.MSBuildLocator.IsRegistered)
+            {
+                Microsoft.Build.Locator.MSBuildLocator.Unregister();
             }
         }
     }

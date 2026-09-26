@@ -1,12 +1,14 @@
 @inherits StateComponent
 @inject Workbench Bench
 @inject AgentDirectory Directory
+@inject AgentHost Host
 
 @* Along the bottom of the window, as VS Code's status bar: where the agent in
    view works, each part labelled, so which branch you are looking at is never
-   a guess. *@
+   a guess. On the right, how much of the Claude plan is used, as the last turn
+   reported it. *@
 
-<footer class="statusbar" aria-label="Where the agent works">
+<footer class="statusbar" aria-label="Where the agent works and plan usage">
     @if (Agent is { } agent)
     {
         <span class="status-item" title="@(agent.WorktreePath ?? agent.Cwd)">
@@ -40,16 +42,60 @@
     {
         <span class="status-item faint">No agent selected</span>
     }
+    @if (Limits.Count > 0)
+    {
+        <span class="status-plan">
+            @foreach (var limit in Limits)
+            {
+                <span class="status-item plan-limit @LimitClass(limit)" title="@Tooltip(limit)">
+                    <span class="status-label">@limit.Label</span>
+                    <span>@Figure(limit)</span>
+                    @if (limit.ResetsAt is { } reset)
+                    {
+                        <span class="faint">resets @When(reset)</span>
+                    }
+                </span>
+            }
+        </span>
+    }
 </footer>
 
 @code {
     private ChatTarget? Agent =>
         Bench.SessionId is { } id ? Directory.Targets(Snapshot.Value).FirstOrDefault(t => t.SessionId == id) : null;
 
+    /// <summary>The limits worth a place: a figure to show, or a warning without one.</summary>
+    private IReadOnlyList<PlanLimit> Limits =>
+        Host.PlanLimits.Where(l => l.Percent is not null || l.Blocked || l.Warning).ToList();
+
     protected override void OnInitialized()
     {
         base.OnInitialized();
         Bench.Changed += OnChanged;
+    }
+
+    /// <summary>Red when Claude refuses, amber when it warns or past 75%, the line its own warnings start at.</summary>
+    private static string LimitClass(PlanLimit limit) =>
+        limit.Blocked ? "high" : limit.Warning || limit.Percent >= 75 ? "warn" : "";
+
+    private static string Figure(PlanLimit limit) => limit switch
+    {
+        { Blocked: true } => "limit reached",
+        { Percent: { } percent, AtLeast: true } => $"over {percent}%",
+        { Percent: { } percent } => $"{percent}%",
+        _ => "near limit",
+    };
+
+    private static string Tooltip(PlanLimit limit) =>
+        $"{limit.Label} limit: {Figure(limit)} used"
+        + (limit.ResetsAt is { } reset ? $", resets {When(reset)}" : "")
+        + $". As of {limit.SeenAt.ToLocalTime():ddd h:mm tt}, the last turn that reported it.";
+
+    /// <summary>The time alone within the day, with the weekday past that.</summary>
+    private static string When(DateTimeOffset at)
+    {
+        var local = at.ToLocalTime();
+        return local - DateTimeOffset.Now < TimeSpan.FromHours(20) ? local.ToString("h:mm tt") : local.ToString("ddd h:mm tt");
     }
 
     private void OnChanged() => _ = InvokeAsync(StateHasChanged);
