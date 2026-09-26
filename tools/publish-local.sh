@@ -10,6 +10,12 @@
 # Extensions live in the user's data directory, not the bundle, and are left
 # alone.
 #
+# With the app running its files cannot be swapped, so the build is staged
+# instead, in Contents/Resources/app.next with a .staged marker written last.
+# The app notices the marker and offers Update available in its status bar;
+# the launcher swaps the staged build in on the next start, however the app is
+# started.
+#
 # Usage: tools/publish-local.sh [path/to/Agents Dashboard.app]
 set -euo pipefail
 
@@ -17,15 +23,17 @@ repo="$(cd "$(dirname "$0")/.." && pwd)"
 bundle="${1:-$HOME/Desktop/Agents Dashboard.app}"
 app_dir="$bundle/Contents/Resources/app"
 
+next_dir="$bundle/Contents/Resources/app.next"
+running=false
 if pgrep -f "$app_dir/agents-dashboard" >/dev/null; then
-    echo "The app in $bundle is running. Quit it first, then publish again." >&2
-    exit 1
+    running=true
 fi
 
 staging="$(mktemp -d)"
 trap 'rm -rf "$staging"' EXIT
 
-echo "Publishing $(git -C "$repo" rev-parse --abbrev-ref HEAD) at $(git -C "$repo" rev-parse --short HEAD)"
+commit="$(git -C "$repo" rev-parse --short HEAD)"
+echo "Publishing $(git -C "$repo" rev-parse --abbrev-ref HEAD) at $commit"
 dotnet publish "$repo/src/AgentsDashboard.App" -c Release -o "$staging/app" --nologo -v quiet
 
 acp="$repo/src/AgentsDashboard.App/acp"
@@ -38,22 +46,41 @@ fi
 rm -rf "$staging/app/acp"
 cp -R "$acp" "$staging/app/acp"
 
-# A new bundle gets the launcher and Info.plist; an existing one keeps its own.
+# The launcher is rewritten every time, since it carries the swap below and an
+# older one would never apply a staged build. Info.plist is only written once.
 mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
-if [[ ! -f "$bundle/Contents/MacOS/launcher" ]]; then
-    cat >"$bundle/Contents/MacOS/launcher" <<'LAUNCHER'
+cat >"$bundle/Contents/MacOS/launcher" <<'LAUNCHER'
 #!/bin/zsh
 # Finder launches apps with a bare PATH, so give it the one node, git, claude and dotnet live on.
 export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 export DOTNET_ROOT="${DOTNET_ROOT:-/usr/local/share/dotnet}"
-APP_DIR="$(cd "$(dirname "$0")/../Resources/app" && pwd)"
-cd "$APP_DIR"
+BUNDLE="$(cd "$(dirname "$0")/../.." && pwd)"
+RESOURCES="$BUNDLE/Contents/Resources"
 LOG_DIR="$HOME/Library/Logs/AgentsDashboard"
 mkdir -p "$LOG_DIR"
+
+# A build published while the app was open waits in app.next. It is moved
+# there whole with its marker, so a folder without one is not a staged build
+# and is left alone. If a move fails the old build is put back and started.
+if [[ -f "$RESOURCES/app.next/.staged" ]]; then
+    rm -rf "$RESOURCES/app.previous"
+    if mv "$RESOURCES/app" "$RESOURCES/app.previous"; then
+        if mv "$RESOURCES/app.next" "$RESOURCES/app"; then
+            rm -f "$RESOURCES/app/.staged"
+            rm -rf "$RESOURCES/app.previous"
+            codesign --force --deep -s - "$BUNDLE" 2>/dev/null
+            echo "$(date '+%Y-%m-%d %H:%M:%S') updated to the staged build" >>"$LOG_DIR/app.log"
+        else
+            mv "$RESOURCES/app.previous" "$RESOURCES/app"
+        fi
+    fi
+fi
+
+APP_DIR="$RESOURCES/app"
+cd "$APP_DIR"
 exec "$APP_DIR/agents-dashboard" "$@" >>"$LOG_DIR/app.log" 2>&1
 LAUNCHER
-    chmod +x "$bundle/Contents/MacOS/launcher"
-fi
+chmod +x "$bundle/Contents/MacOS/launcher"
 
 if [[ ! -f "$bundle/Contents/Info.plist" ]]; then
     cat >"$bundle/Contents/Info.plist" <<'PLIST'
@@ -73,6 +100,22 @@ if [[ ! -f "$bundle/Contents/Info.plist" ]]; then
 </dict>
 </plist>
 PLIST
+fi
+
+# Any older staged build is superseded by this one either way.
+rm -rf "$next_dir"
+
+if $running; then
+    # The marker goes in before the move, and the move is a rename, so the app
+    # and the launcher never see a staged build without it or a half-copied one.
+    printf 'commit=%s\nsubject=%s\nstaged=%s\n' \
+        "$commit" "$(git -C "$repo" log -1 --format=%s)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        >"$staging/app/.staged"
+    mv "$staging/app" "$next_dir"
+    # Not signed here: that would rewrite the running binary. The launcher
+    # signs the bundle once it has swapped the build in.
+    echo "The app is running, so the build is staged. Click Update available in its status bar, or it applies on the next start."
+    exit 0
 fi
 
 # Swap the payload in whole, so a failed copy never leaves half an app.

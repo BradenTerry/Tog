@@ -2,11 +2,12 @@
 @inject Workbench Bench
 @inject AgentDirectory Directory
 @inject AgentHost Host
+@inject AppUpdate Update
 
 @* Along the bottom of the window, as VS Code's status bar: where the agent in
    view works, each part labelled, so which branch you are looking at is never
-   a guess. On the right, how much of the Claude plan is used, as the last turn
-   reported it. *@
+   a guess. On the right, a newer build waiting to be started, and how much of
+   the Claude plan is used, as the last turn reported it. *@
 
 <footer class="statusbar" aria-label="Where the agent works and plan usage">
     @if (Agent is { } agent)
@@ -42,6 +43,23 @@
     {
         <span class="status-item faint">No agent selected</span>
     }
+    @if (Update.Staged is { } staged)
+    {
+        <span class="status-update">
+            @if (_confirmingUpdate)
+            {
+                <span>Restart to update? Agents stop and resume when you message them.</span>
+                <button class="status-button primary" @onclick="Restart">Restart</button>
+                <button class="status-button" @onclick="() => _confirmingUpdate = false">Not now</button>
+            }
+            else
+            {
+                <button class="status-button primary" title="@UpdateTooltip(staged)" @onclick="() => _confirmingUpdate = true">
+                    Update available
+                </button>
+            }
+        </span>
+    }
     @if (Limits.Count > 0)
     {
         <span class="status-plan">
@@ -67,6 +85,18 @@
     /// <summary>The limits worth a place: a figure to show, or a warning without one.</summary>
     private IReadOnlyList<PlanLimit> Limits =>
         Host.PlanLimits.Where(l => l.Percent is not null || l.Blocked || l.Warning).ToList();
+
+    private bool _confirmingUpdate;
+
+    private void Restart()
+    {
+        _confirmingUpdate = false;
+        Update.Restart();
+    }
+
+    private static string UpdateTooltip(StagedUpdate staged) =>
+        $"{staged.Commit} {staged.Subject}".Trim()
+        + (staged.StagedAt is { } at ? $". Published {at.ToLocalTime():ddd h:mm tt}." : ".");
 
     protected override void OnInitialized()
     {
