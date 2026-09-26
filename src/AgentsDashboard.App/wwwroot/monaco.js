@@ -21,6 +21,34 @@ const editors = new Map();
 // how a hover in one editor reaches the .NET object that owns it.
 const models = new Map();
 
+// Where each file was scrolled to and where its caret was, by model URI. Kept
+// for the life of the page, because the Files tab is torn down every time you
+// switch to another tab and the editor with it: without this every return to a
+// file would land back at the top.
+const viewStates = new Map();
+
+// The gutter colours VS Code uses for its own change marks.
+const markColours = {
+    added: '#2ea043',
+    modified: '#1b81a8',
+    deleted: '#f85149',
+};
+
+function remember(editor) {
+    const model = editor.getModel();
+    if (model) {
+        viewStates.set(model.uri.toString(), editor.saveViewState());
+    }
+}
+
+function restore(editor) {
+    const model = editor.getModel();
+    const saved = model && viewStates.get(model.uri.toString());
+    if (saved) {
+        editor.restoreViewState(saved);
+    }
+}
+
 // The AMD loader resolves relative paths against the document, and the Files tab
 // lives at /worktree/<escaped path>/files, so a bare "monaco/vs" would be looked
 // for under the worktree segment. Absolute from the base href is the only form
@@ -341,9 +369,13 @@ window.agentsEditor = {
             }
         });
 
+        state.marks = editor.createDecorationsCollection([]);
+
         if (settings.line) {
             editor.revealLineInCenter(settings.line);
             editor.setPosition({ lineNumber: settings.line, column: 1 });
+        } else {
+            restore(editor);
         }
 
         const handle = nextHandle++;
@@ -355,7 +387,7 @@ window.agentsEditor = {
     // opening another file, for a reload after a conflict, and after a save that
     // came back with a new stamp. In all three the editor is now in step with the
     // disk, so anything the user had pending is deliberately gone.
-    setText: (handle, text, stamp, path, absolutePath) => {
+    setText: (handle, text, stamp, path, absolutePath, hasLine) => {
         const state = editors.get(handle);
         if (!state) {
             return;
@@ -373,6 +405,8 @@ window.agentsEditor = {
             // Another file, so another URI: setValue would leave the model named
             // after the file that was open before, and every definition Roslyn
             // reports for the new file would be resolved against the old name.
+            remember(state.editor);
+            state.marks.clear();
             const next = makeModel(monaco, value, path, absolutePath);
 
             models.delete(current.uri.toString());
@@ -380,6 +414,10 @@ window.agentsEditor = {
 
             state.editor.setModel(next);
             current.dispose();
+
+            if (!hasLine) {
+                restore(state.editor);
+            }
         } else {
             state.editor.setValue(value);
 
@@ -397,6 +435,41 @@ window.agentsEditor = {
     },
 
     getText: (handle) => editors.get(handle)?.editor.getValue() ?? '',
+
+    // Changed lines against the diff base, drawn as VS Code draws them: a bar in
+    // the gutter beside the line numbers, a tick in the scrollbar so changes far
+    // down the file can be seen and clicked to, and the same colour in the
+    // minimap. A deletion has no line of its own, so it is a small marker at the
+    // foot of the line above the gap. The decorations move with edits, so the
+    // marks stay on their lines while the file is being changed.
+    setMarks: (handle, marks) => {
+        const state = editors.get(handle);
+        if (!state) {
+            return;
+        }
+
+        const monaco = state.monaco;
+        const model = state.editor.getModel();
+        const last = model ? model.getLineCount() : 0;
+
+        state.marks.set((marks || [])
+            .filter((mark) => mark.line >= 1 && mark.line <= last)
+            .map((mark) => ({
+                range: new monaco.Range(mark.line, 1, mark.line, 1),
+                options: {
+                    isWholeLine: true,
+                    linesDecorationsClassName: 'change-mark change-' + mark.kind,
+                    overviewRuler: {
+                        color: markColours[mark.kind],
+                        position: monaco.editor.OverviewRulerLane.Left,
+                    },
+                    minimap: {
+                        color: markColours[mark.kind],
+                        position: monaco.editor.MinimapPosition.Gutter,
+                    },
+                },
+            })));
+    },
 
     revealLine: (handle, line) => {
         const state = editors.get(handle);
@@ -479,6 +552,7 @@ window.agentsEditor = {
 
         editors.delete(handle);
         clearTimeout(state.syncing);
+        remember(state.editor);
         state.element.removeEventListener('keydown', state.onKeyDown);
 
         const model = state.editor.getModel();

@@ -4,6 +4,7 @@
 @inject ClaudeCli Cli
 @inject Staging Staging
 @inject IJSRuntime Js
+@inject WorktreeViews Views
 @implements IDisposable
 
 <div class="inline" style="margin-bottom: 12px;">
@@ -515,6 +516,10 @@ else if (_diff is { } set)
     {
         _draft = Drafts.Load(WorktreePath);
 
+        var view = Views.For(WorktreePath);
+        _base = view.Base;
+        _customRef = view.CustomRef;
+
         // Reading a diff is several git invocations. During prerendering the
         // result is thrown away and the component initializes again over the
         // circuit, so doing it here would spawn git twice per navigation.
@@ -570,6 +575,14 @@ else if (_diff is { } set)
             var result = await Diffs.ReadAsync(WorktreePath, _base, _customRef, token);
             if (!token.IsCancellationRequested)
             {
+                // Recorded once the base has actually been compared against, not
+                // as a ref is typed, so the Files tab never marks against half a
+                // ref name.
+                if (result.Error is null)
+                {
+                    Views.SetBase(WorktreePath, _base, _customRef);
+                }
+
                 _diff = result;
                 _expanded.Clear();
                 _collapsed.Clear();

@@ -23,44 +23,10 @@ public sealed class DiffReader(IGitCli git)
         string? customRef = null,
         CancellationToken ct = default)
     {
-        string? baseRef;
-        switch (diffBase)
+        var (baseRef, error) = await ResolveBaseAsync(worktreePath, diffBase, customRef, ct).ConfigureAwait(false);
+        if (baseRef is null)
         {
-            case DiffBase.WorkingTree:
-                baseRef = await ResolveHeadAsync(worktreePath, ct).ConfigureAwait(false);
-                break;
-
-            case DiffBase.DefaultBranch:
-                baseRef = await ResolveMergeBaseAsync(worktreePath, ct).ConfigureAwait(false);
-                if (baseRef is null)
-                {
-                    return new DiffSet
-                    {
-                        WorktreePath = worktreePath,
-                        Base = diffBase,
-                        Error = "No default branch to compare against. "
-                                + "Set origin/HEAD, or pick a ref explicitly.",
-                    };
-                }
-
-                break;
-
-            case DiffBase.CustomRef:
-                if (string.IsNullOrWhiteSpace(customRef))
-                {
-                    return new DiffSet
-                    {
-                        WorktreePath = worktreePath,
-                        Base = diffBase,
-                        Error = "No ref given.",
-                    };
-                }
-
-                baseRef = customRef.Trim();
-                break;
-
-            default:
-                throw new ArgumentOutOfRangeException(nameof(diffBase));
+            return new DiffSet { WorktreePath = worktreePath, Base = diffBase, Error = error };
         }
 
         // `git diff <commit>` compares that commit to the working tree, so this
@@ -97,6 +63,101 @@ public sealed class DiffReader(IGitCli git)
             BaseRef = baseRef,
             Files = files,
         };
+    }
+
+    /// <summary>
+    /// One file's changes against the chosen base, with no context lines, for
+    /// marking the lines of a file that is open in the editor.
+    /// </summary>
+    /// <remarks>
+    /// Null when the file has no changes, or when the base cannot be resolved:
+    /// the marks are a hint, and a file with none is shown as it is. An untracked
+    /// file has no diff, so it comes back as one hunk adding every line.
+    /// </remarks>
+    public async Task<DiffFile?> ReadFileAsync(
+        string worktreePath,
+        string relativePath,
+        DiffBase diffBase,
+        string? customRef = null,
+        CancellationToken ct = default)
+    {
+        var (baseRef, _) = await ResolveBaseAsync(worktreePath, diffBase, customRef, ct).ConfigureAwait(false);
+        if (baseRef is null)
+        {
+            return null;
+        }
+
+        var untracked = await git.RunAsync(
+            worktreePath,
+            ["ls-files", "--others", "--exclude-standard", "--", relativePath],
+            ct).ConfigureAwait(false);
+
+        if (untracked.Ok && untracked.StdOut.Trim().Length > 0)
+        {
+            var full = Path.Combine(worktreePath, relativePath);
+            var count = File.Exists(full) ? CountLines(await File.ReadAllTextAsync(full, ct).ConfigureAwait(false)) : 0;
+            return new DiffFile
+            {
+                Path = relativePath,
+                Kind = FileChangeKind.Untracked,
+                Hunks =
+                [
+                    new DiffHunk
+                    {
+                        OldStart = 0,
+                        NewStart = 1,
+                        NewCount = count,
+                        Lines = Enumerable.Range(1, count).Select(n => new DiffLine(DiffLineKind.Added, null, n, "")).ToList(),
+                    },
+                ],
+            };
+        }
+
+        var result = await git.RunAsync(
+            worktreePath,
+            ["-c", "core.quotePath=false", "diff", "--no-color", "--no-ext-diff", "-U0", baseRef, "--", relativePath],
+            ct).ConfigureAwait(false);
+
+        return result.Ok ? UnifiedDiffParser.Parse(result.StdOut).FirstOrDefault() : null;
+    }
+
+    private static int CountLines(string text)
+    {
+        if (text.Length == 0)
+        {
+            return 0;
+        }
+
+        var lines = text.Count(c => c == '\n');
+        return text.EndsWith('\n') ? lines : lines + 1;
+    }
+
+    /// <summary>The ref a base compares against, or null and the reason it has none.</summary>
+    private async Task<(string? Ref, string? Error)> ResolveBaseAsync(
+        string worktreePath,
+        DiffBase diffBase,
+        string? customRef,
+        CancellationToken ct)
+    {
+        switch (diffBase)
+        {
+            case DiffBase.WorkingTree:
+                return (await ResolveHeadAsync(worktreePath, ct).ConfigureAwait(false), null);
+
+            case DiffBase.DefaultBranch:
+                var mergeBase = await ResolveMergeBaseAsync(worktreePath, ct).ConfigureAwait(false);
+                return mergeBase is null
+                    ? (null, "No default branch to compare against. Set origin/HEAD, or pick a ref explicitly.")
+                    : (mergeBase, null);
+
+            case DiffBase.CustomRef:
+                return string.IsNullOrWhiteSpace(customRef)
+                    ? (null, "No ref given.")
+                    : (customRef.Trim(), null);
+
+            default:
+                throw new ArgumentOutOfRangeException(nameof(diffBase));
+        }
     }
 
     /// <summary>

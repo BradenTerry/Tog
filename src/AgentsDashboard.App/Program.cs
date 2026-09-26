@@ -59,6 +59,7 @@ builder.Services.AddSingleton<TranscriptReader>();
 builder.Services.AddSingleton<SubagentReader>();
 builder.Services.AddSingleton(_ => new ClaudeCli());
 builder.Services.AddSingleton<AgentDirectory>();
+builder.Services.AddSingleton<WorktreeViews>();
 
 // Git
 builder.Services.AddSingleton<IGitCli>(_ => new GitCli());

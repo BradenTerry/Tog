@@ -1,7 +1,7 @@
 # Starting, stopping and talking to agents
 
-The Agents tab manages background agents in a worktree: start one, hand it a
-message, stop it, remove it. Everything goes through the Claude CLI's own
+The dashboard manages background agents: **New agent** starts one, the agent
+view hands it a message or stops it. Everything goes through the Claude CLI's own
 commands.
 
 ```mermaid
@@ -30,9 +30,7 @@ send it one, so "start an agent here" is a cheap thing to do.
 Talking to an agent happens in its **Chat** tab, laid out like a messaging app:
 every agent in the sidebar, the ones waiting on you first, and the conversation
 on the right with the box to type in always under it. Enter sends, Shift+Enter
-starts a new line. Every other place an agent appears (a worktree's Agents tab,
-the Needs you rail) links there rather than carrying a composer of its
-own.
+starts a new line. There is no other composer: an agent is only ever talked to from its own view.
 
 The conversation is read from the session's transcript by `ConversationReader`:
 what you typed, what the agent said, background task notices, and its tool calls
@@ -83,9 +81,8 @@ A stopped background agent keeps its conversation but has no process, so it is
 absent from Claude's session registry, which is where the rest of the dashboard
 gets its agents from. The CLI is the only thing that still remembers it.
 
-The Agents tab therefore lists them separately, under **Parked here**, read from
-`claude agents --json --all` and filtered to the ones whose working directory is
-in this worktree. Forgetting an agent you parked would make parking one a
+The sidebar therefore adds them from `claude agents --json --all`, matched to a
+worktree by their working directory, and marks them **Parked**. Forgetting an agent you parked would make parking one a
 mistake.
 
 Which agents count as parked is worked out on each render rather than when the
@@ -96,9 +93,6 @@ reaches the registry, and would otherwise appear in both places at once.
 
 Beyond start, message, stop and remove:
 
-- **Logs**: `claude logs <id>` shows a background session's recent output, on a
-  refresh button rather than a live tail. It only works while the session's
-  daemon is alive, and says so in the CLI's own words when it is not.
 - **Attach**: `claude attach <id>` is the way to actually sit in a session. It
   wants a terminal, so the dashboard copies the line rather than running it.
 - **Respawn**: `claude respawn <id>` restarts a failed session, or one left on an

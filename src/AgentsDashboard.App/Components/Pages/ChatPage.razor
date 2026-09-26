@@ -13,8 +13,8 @@
 
 @* One agent: where it works, and three views of it. The conversation reads like
    every messaging app, newest at the bottom with the box to type in under it.
-   Changes and Files show its worktree, so its work can be reviewed and handed
-   back to it without leaving it. The list of agents is the sidebar. *@
+   Changes, Files and Tests show its worktree, so its work can be reviewed and
+   handed back to it without leaving it. The list of agents is the sidebar. *@
 
 <PageTitle>@(Current?.Label ?? "Chat") - Agents Dashboard</PageTitle>
 
@@ -41,9 +41,6 @@
                 <div class="inline">
                     @if (agent.JobId is { } job && agent.State is ChatState.Active or ChatState.Idle or ChatState.Waiting)
                     {
-                        <button class="ghost small" @onclick="() => { _logsOpen = !_logsOpen; }">
-                            @(_logsOpen ? "Hide logs" : "Logs")
-                        </button>
                         <button class="ghost small" @onclick="() => Act(() => Cli.StopAsync(job))" disabled="@_busy">Stop</button>
                     }
                     @if (agent.JobId is { } failedJob && agent.State == ChatState.Failed)
@@ -89,15 +86,15 @@
                         }
                     </a>
                     <a class="tab @TabClass("files")" href="@Urls.Chat(agent.SessionId, "files")">Files</a>
+                    <a class="tab @TabClass("tests")" href="@Urls.Chat(agent.SessionId, "tests")">
+                        Tests
+                        @if (WorktreeOf(agent)?.LatestRun?.Failed is > 0 and var failing)
+                        {
+                            <span class="count" style="color: var(--danger);">@failing</span>
+                        }
+                    </a>
                 }
             </nav>
-
-            @if (_logsOpen && agent.JobId is { } logsJob)
-            {
-                <div class="chat-logs">
-                    <LogsPanel JobId="@logsJob" @key="logsJob" />
-                </div>
-            }
 
             @if (_notice is { Length: > 0 })
             {
@@ -107,128 +104,151 @@
                 </div>
             }
 
-            @if (CurrentTab == "changes" && WorktreeOf(agent) is { } changesView)
-            {
-                <div class="agent-pane">
-                    <div class="page wide">
-                        <ChangesTab WorktreePath="@changesView.Worktree.Path" View="changesView"
-                                    PreferredRecipient="@agent.JobId" @key="changesView.Worktree.Path" />
-                    </div>
-                </div>
-            }
-            else if (CurrentTab == "files" && agent.WorktreePath is { } filesIn)
-            {
-                <div class="agent-pane">
-                    <div class="page wide">
-                        <FilesTab WorktreePath="@filesIn" InitialFile="@File" InitialLine="@Line" @key="filesIn" />
-                    </div>
-                </div>
-            }
-            else
-            {
-                <div class="chat-thread" @ref="_thread">
-                    @if (_entries.Count == 0 && _pending.Count == 0)
-                    {
-                        <div class="chat-hint">
-                            @(_transcriptMissing
-                                ? "No conversation found for this agent yet. It appears here as soon as the agent writes its transcript."
-                                : "No messages yet. Say what you want it to do.")
-                        </div>
-                    }
-
-                    @foreach (var entry in _entries)
-                    {
-                        switch (entry.Kind)
+            @* Every tab you have opened for this agent stays built, and the ones not
+               in front are hidden rather than thrown away. Rebuilding the Files tab
+               means listing the worktree, reading the file and starting a new
+               editor, which is the flicker switching tabs used to have. Hidden
+               with visibility rather than display, so each keeps its scroll. *@
+            <div class="agent-body">
+                <div class="agent-layer @Layer("chat")">
+                    <div class="chat-thread" @ref="_thread">
+                        @if (_entries.Count == 0 && _pending.Count == 0)
                         {
-                            case ChatKind.You:
-                                <div class="msg you">
-                                    <div class="bubble">@entry.Text</div>
-                                    <span class="msg-meta">You · @When(entry.At)</span>
-                                </div>
-                                break;
-
-                            case ChatKind.Agent:
-                                <div class="msg agent">
-                                    <div class="bubble">
-                                        <FileLinks Text="@entry.Text" WorktreePath="@(agent.WorktreePath ?? agent.Cwd ?? "")" />
-                                    </div>
-                                    <span class="msg-meta">Agent · @When(entry.At)</span>
-                                </div>
-                                break;
-
-                            case ChatKind.Activity:
-                                <details class="activity">
-                                    <summary>@ConversationReader.Describe(entry.Steps)</summary>
-                                    <ul>
-                                        @foreach (var step in entry.Steps)
-                                        {
-                                            <li><span class="mono activity-tool">@step.Tool</span> <span class="activity-what">@step.Summary</span></li>
-                                        }
-                                    </ul>
-                                </details>
-                                break;
-
-                            case ChatKind.Notice:
-                                <div class="chat-notice-line">@entry.Text</div>
-                                break;
+                            <div class="chat-hint">
+                                @(_transcriptMissing
+                                    ? "No conversation found for this agent yet. It appears here as soon as the agent writes its transcript."
+                                    : "No messages yet. Say what you want it to do.")
+                            </div>
                         }
-                    }
 
-                    @foreach (var pending in _pending)
-                    {
-                        <div class="msg you pending @(pending.State == SendState.Failed ? "failed" : "")">
-                            <div class="bubble">@pending.Text</div>
-                            <span class="msg-meta">
-                                @switch (pending.State)
-                                {
-                                    case SendState.Sending:
-                                        <span>Sending. Stopping the agent and handing it your message...</span>
-                                        break;
-                                    case SendState.Sent:
-                                        <span>Delivered. Waiting for the agent to pick it up.</span>
-                                        break;
-                                    default:
-                                        <span class="failed-text">Not sent: @pending.Error</span>
-                                        <button class="ghost small" @onclick="() => Retry(pending)">Edit and retry</button>
-                                        <button class="ghost small" @onclick="() => _pending.Remove(pending)">Dismiss</button>
-                                        break;
-                                }
-                            </span>
-                        </div>
-                    }
+                        @foreach (var entry in _entries)
+                        {
+                            switch (entry.Kind)
+                            {
+                                case ChatKind.You:
+                                    <div class="msg you">
+                                        <div class="bubble">@entry.Text</div>
+                                        <span class="msg-meta">You · @When(entry.At)</span>
+                                    </div>
+                                    break;
 
-                    @if (agent.State == ChatState.Waiting)
-                    {
-                        <div class="chat-waiting">
-                            <span class="dot waiting" aria-hidden="true"></span>
-                            <span>
-                                <strong>Waiting on you.</strong>
-                                @(agent.WaitingFor ?? "It is blocked on a question or a permission prompt.")
-                            </span>
+                                case ChatKind.Agent:
+                                    <div class="msg agent">
+                                        <div class="bubble">
+                                            <FileLinks Text="@entry.Text" WorktreePath="@(agent.WorktreePath ?? agent.Cwd ?? "")"
+                                                       SessionId="@agent.SessionId" />
+                                        </div>
+                                        <span class="msg-meta">Agent · @When(entry.At)</span>
+                                    </div>
+                                    break;
+
+                                case ChatKind.Activity:
+                                    <details class="activity">
+                                        <summary>@ConversationReader.Describe(entry.Steps)</summary>
+                                        <ul>
+                                            @foreach (var step in entry.Steps)
+                                            {
+                                                <li><span class="mono activity-tool">@step.Tool</span> <span class="activity-what">@step.Summary</span></li>
+                                            }
+                                        </ul>
+                                    </details>
+                                    break;
+
+                                case ChatKind.Notice:
+                                    <div class="chat-notice-line">@entry.Text</div>
+                                    break;
+                            }
+                        }
+
+                        @foreach (var pending in _pending)
+                        {
+                            <div class="msg you pending @(pending.State == SendState.Failed ? "failed" : "")">
+                                <div class="bubble">@pending.Text</div>
+                                <span class="msg-meta">
+                                    @switch (pending.State)
+                                    {
+                                        case SendState.Sending:
+                                            <span>Sending. Stopping the agent and handing it your message...</span>
+                                            break;
+                                        case SendState.Sent:
+                                            <span>Delivered. Waiting for the agent to pick it up.</span>
+                                            break;
+                                        default:
+                                            <span class="failed-text">Not sent: @pending.Error</span>
+                                            <button class="ghost small" @onclick="() => Retry(pending)">Edit and retry</button>
+                                            <button class="ghost small" @onclick="() => _pending.Remove(pending)">Dismiss</button>
+                                            break;
+                                    }
+                                </span>
+                            </div>
+                        }
+
+                        @if (agent.State == ChatState.Waiting)
+                        {
+                            <div class="chat-waiting">
+                                <span class="dot waiting" aria-hidden="true"></span>
+                                <span>
+                                    <strong>Waiting on you.</strong>
+                                    @(agent.WaitingFor ?? "It is blocked on a question or a permission prompt.")
+                                </span>
+                            </div>
+                        }
+                        else if (agent.State == ChatState.Active)
+                        {
+                            <div class="chat-working"><span class="dot active" aria-hidden="true"></span> Working...</div>
+                        }
+                    </div>
+
+                    <form class="chat-composer" @onsubmit="Send">
+                        <div class="composer-row">
+                            <textarea @ref="_box" rows="1"
+                                      placeholder="@Placeholder(agent)"
+                                      aria-label="Message for @agent.Label"
+                                      disabled="@(!CanSend(agent))"
+                                      @oninput="e => _draft = e.Value?.ToString() ?? string.Empty"></textarea>
+                            <button type="submit" class="primary"
+                                    disabled="@(_sending || string.IsNullOrWhiteSpace(_draft) || !CanSend(agent))">
+                                @(agent.IsBackground ? "Send" : "Copy")
+                            </button>
                         </div>
-                    }
-                    else if (agent.State == ChatState.Active)
-                    {
-                        <div class="chat-working"><span class="dot active" aria-hidden="true"></span> Working...</div>
-                    }
+                        <div class="composer-hint">@Hint(agent)</div>
+                    </form>
                 </div>
 
-                <form class="chat-composer" @onsubmit="Send">
-                    <div class="composer-row">
-                        <textarea @ref="_box" rows="1"
-                                  placeholder="@Placeholder(agent)"
-                                  aria-label="Message for @agent.Label"
-                                  value="@_draft"
-                                  disabled="@(!CanSend(agent))"
-                                  @oninput="e => _draft = e.Value?.ToString() ?? string.Empty"></textarea>
-                        <button type="submit" class="primary"
-                                disabled="@(_sending || string.IsNullOrWhiteSpace(_draft) || !CanSend(agent))">
-                            @(agent.IsBackground ? "Send" : "Copy")
-                        </button>
+                @if (_visited.Contains("changes") && WorktreeOf(agent) is { } changesView)
+                {
+                    <div class="agent-layer @Layer("changes")">
+                        <div class="agent-pane">
+                            <div class="page wide">
+                                <ChangesTab WorktreePath="@changesView.Worktree.Path" View="changesView"
+                                            PreferredRecipient="@agent.JobId" @key="changesView.Worktree.Path" />
+                            </div>
+                        </div>
                     </div>
-                    <div class="composer-hint">@Hint(agent)</div>
-                </form>
-            }
+                }
+
+                @if (_visited.Contains("files") && agent.WorktreePath is { } filesIn)
+                {
+                    <div class="agent-layer @Layer("files")">
+                        <div class="agent-pane">
+                            <div class="page wide">
+                                <FilesTab WorktreePath="@filesIn" InitialFile="@File" InitialLine="@Line" @key="filesIn" />
+                            </div>
+                        </div>
+                    </div>
+                }
+
+                @if (_visited.Contains("tests") && WorktreeOf(agent) is { } testsView)
+                {
+                    <div class="agent-layer @Layer("tests")">
+                        <div class="agent-pane">
+                            <div class="page wide">
+                                <TestsTab View="testsView" Now="Now" SessionId="@agent.SessionId" @key="testsView.Worktree.Path" />
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
         }
 </section>
 
@@ -261,18 +281,29 @@
     private bool _transcriptMissing;
     private readonly List<Pending> _pending = [];
 
+    /// <summary>
+    /// What is in the message box, as the browser last reported it. The box is
+    /// never written from here on a render: the page re-renders every second, and
+    /// writing a copy that is a keystroke behind back into the box drops what was
+    /// typed in between. Text is put into it only on purpose, through
+    /// <see cref="_putInBox"/>.
+    /// </summary>
     private string _draft = "";
+
+    /// <summary>Text to place in the box after the next render, when there is some.</summary>
+    private string? _putInBox;
     private bool _sending;
     private bool _busy;
-    private bool _logsOpen;
     private bool _copiedAttach;
     private string? _notice;
     private bool _noticeFailed;
 
     private ElementReference _thread;
+
+    /// <summary>The tabs opened for the agent on screen, which stay built until you pick another agent.</summary>
+    private readonly HashSet<string> _visited = new(StringComparer.Ordinal);
     private ElementReference _box;
     private string? _shownSession;
-    private string? _shownTab;
     private int _shownCount = -1;
     private bool _forceScroll;
 
@@ -281,9 +312,11 @@
     private ChatTarget? Current =>
         SessionId is null ? null : Directory.Targets(Snapshot.Value).FirstOrDefault(t => t.SessionId == SessionId);
 
-    private string CurrentTab => Tab is "changes" or "files" ? Tab : "chat";
+    private string CurrentTab => Tab is "changes" or "files" or "tests" ? Tab : "chat";
 
     private string TabClass(string tab) => CurrentTab == tab ? "active" : "";
+
+    private string Layer(string tab) => CurrentTab == tab ? "" : "hidden";
 
     private WorktreeView? WorktreeOf(ChatTarget agent) =>
         agent.WorktreePath is { } path ? State.Worktree(path) : null;
@@ -351,17 +384,14 @@
             _shownSession = SessionId;
             _entries = [];
             _pending.Clear();
-            _logsOpen = false;
             _notice = null;
             _draft = "";
+            _putInBox = "";
             _forceScroll = true;
+            _visited.Clear();
         }
 
-        if (_shownTab != CurrentTab)
-        {
-            _shownTab = CurrentTab;
-            _forceScroll = true;
-        }
+        _visited.Add(CurrentTab);
 
         ReadConversation();
     }
@@ -466,6 +496,7 @@
     {
         _pending.Remove(pending);
         _draft = pending.Text;
+        _putInBox = pending.Text;
     }
 
     private async Task ResetBox()
@@ -520,8 +551,14 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        // The thread and the composer are only drawn on the Chat tab.
-        if (Current is null || CurrentTab != "chat")
+        if (Current is null)
+        {
+            return;
+        }
+
+        // The composer and the thread are always built, but only followed while
+        // the Chat tab is the one in front.
+        if (CurrentTab != "chat")
         {
             return;
         }
@@ -529,6 +566,12 @@
         try
         {
             await Js.InvokeVoidAsync("agentsDashboard.bindComposer", _box);
+
+            if (_putInBox is { } text)
+            {
+                _putInBox = null;
+                await Js.InvokeVoidAsync("agentsDashboard.setComposer", _box, text);
+            }
 
             var count = _entries.Count + _pending.Count;
             if (_forceScroll || count != _shownCount)

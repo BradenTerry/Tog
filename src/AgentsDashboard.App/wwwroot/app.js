@@ -14,6 +14,109 @@ let wired = false;
 let scroller = null;
 let edgeTimer = null;
 
+// How far above the bottom still counts as reading the bottom. Small, so a
+// nudge of the wheel is enough to stop the thread following.
+const PIN_SLACK = 40;
+
+// Wires a chat thread once. Blazor replaces the element when you switch agent
+// or tab, so the flag lives on the element and a new one is wired afresh.
+function followThread(thread) {
+    if (thread.dataset.following) {
+        return;
+    }
+
+    thread.dataset.following = 'true';
+    thread.dataset.pinned = 'true';
+
+    const stick = () => {
+        if (thread.dataset.pinned === 'true') {
+            thread.scrollTop = thread.scrollHeight;
+        }
+    };
+
+    // Only you scrolling can unpin the thread. Layout moves the scroll position
+    // too, the message box growing or a reply being redrawn, and the browser
+    // reports those as scroll events like any other, often a frame late when the
+    // sizes have moved again. So a scroll away from the bottom counts only
+    // shortly after a wheel, a touch, a key or a press on the scrollbar;
+    // anything else puts a pinned thread back at the bottom.
+    let touchedAt = 0;
+    let held = false;
+    const touched = () => { touchedAt = performance.now(); };
+    for (const type of ['wheel', 'touchmove', 'keydown']) {
+        thread.addEventListener(type, touched, { passive: true });
+    }
+
+    // Dragging the scrollbar can go on for longer than the window above, so a
+    // press counts for as long as the button is down.
+    thread.addEventListener('mousedown', () => { held = true; touched(); }, { passive: true });
+    window.addEventListener('mouseup', () => {
+        if (held) {
+            held = false;
+            touched();
+        }
+    }, { passive: true });
+
+    thread.addEventListener('scroll', () => {
+        const distance = thread.scrollHeight - thread.scrollTop - thread.clientHeight;
+        if (distance <= PIN_SLACK) {
+            thread.dataset.pinned = 'true';
+        } else if (held || performance.now() - touchedAt < 1000) {
+            thread.dataset.pinned = 'false';
+        } else {
+            stick();
+        }
+    }, { passive: true });
+
+    new MutationObserver(stick).observe(thread, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['open', 'class'] });
+    new ResizeObserver(stick).observe(thread);
+}
+
+// Where each remembered scroller was, by key, for the life of the page. The tabs
+// that own these scrollers are torn down when you switch away, and a new
+// element comes back in their place.
+const scrollMemory = new Map();
+
+// Keeps an element's scroll position under a key, and puts it back when an
+// element with the same key appears again. Content usually arrives after the
+// element does (a diff is read from git, a tree is listed), so the restore is
+// retried as the content grows, until it lands or you scroll yourself.
+function keepScroll(element, key) {
+    if (!element || element.dataset.keepScroll === key) {
+        return;
+    }
+
+    element.dataset.keepScroll = key;
+    let wanted = scrollMemory.get(key) || 0;
+
+    const settle = () => {
+        if (wanted <= 0) {
+            return;
+        }
+
+        element.scrollTop = wanted;
+        if (Math.abs(element.scrollTop - wanted) < 2) {
+            wanted = 0;
+        }
+    };
+
+    // Any sign of you scrolling ends the restore, so it never fights you.
+    for (const type of ['wheel', 'touchstart', 'keydown', 'mousedown']) {
+        element.addEventListener(type, () => { wanted = 0; }, { passive: true });
+    }
+
+    // Restoring scrolls too, and a half-finished restore is not a position
+    // worth remembering, so only settled positions are recorded.
+    element.addEventListener('scroll', () => {
+        if (wanted <= 0) {
+            scrollMemory.set(key, element.scrollTop);
+        }
+    }, { passive: true });
+
+    new MutationObserver(settle).observe(element, { childList: true, subtree: true });
+    settle();
+}
+
 function lineOf(element) {
     const row = element.closest?.('.diff-line');
     if (!row || row.dataset.line === undefined) {
@@ -190,9 +293,23 @@ function onClick(event) {
 // The chat composer. Enter sends and Shift+Enter starts a new line, the way every
 // messaging app works; a textarea on its own does the opposite. The box grows with
 // what is typed, up to a limit, so a long message is readable before it goes.
+// Measuring the text means letting the box fall back to its natural height for
+// a moment. The row around it is held at its current height while that happens:
+// otherwise the thread above grows for that instant, the browser clamps its
+// scroll, and the scroll event that follows arrives after the box has grown
+// back, reading as you having scrolled up and unpinning the thread.
 function growComposer(box) {
+    const row = box.parentElement;
+    if (row) {
+        row.style.minHeight = row.offsetHeight + 'px';
+    }
+
     box.style.height = 'auto';
     box.style.height = Math.min(box.scrollHeight, 240) + 'px';
+
+    if (row) {
+        row.style.minHeight = '';
+    }
 }
 
 window.agentsDashboard = {
@@ -211,6 +328,12 @@ window.agentsDashboard = {
         });
         growComposer(box);
     },
+    setComposer: (box, text) => {
+        if (box) {
+            box.value = text || '';
+            growComposer(box);
+        }
+    },
     resetComposer: (box) => {
         if (box) {
             box.value = '';
@@ -221,13 +344,25 @@ window.agentsDashboard = {
     // Follows the newest message the way a chat does: pinned to the bottom while
     // you are reading the bottom, left alone once you scroll up to read history.
     // Forced when the thread is first opened or you have just sent something.
+    //
+    // Whether you are pinned is decided by your own scrolling, not measured when
+    // new content arrives: by then a long reply has already pushed the bottom
+    // out of reach and a distance check would read you as having scrolled away.
+    // The observers keep a pinned thread at the bottom through anything that
+    // grows it, a reply being written, a folded step opened, the composer
+    // getting taller, without waiting for the server to say something changed.
+    keepScroll: (element, key) => keepScroll(element, key),
     scrollThread: (thread, force) => {
         if (!thread) {
             return;
         }
 
-        const nearBottom = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 120;
-        if (force || nearBottom) {
+        followThread(thread);
+        if (force) {
+            thread.dataset.pinned = 'true';
+        }
+
+        if (thread.dataset.pinned === 'true') {
             thread.scrollTop = thread.scrollHeight;
         }
     },

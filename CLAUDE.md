@@ -66,11 +66,6 @@ has no status and no pid. Judging by either reads a live agent as stopped, and
 the resume that follows clones the conversation. `pid` can also be JSON null, and
 `JsonElement.TryGetInt32` throws on a null element rather than returning false.
 
-**Worktree URLs are not prefix-comparable.** A linked worktree lives inside the
-primary one, so the primary's URL is a prefix of every other worktree's. Use
-`WorktreeRoute.Shows`, which compares whole paths. A prefix test lights up the
-primary whenever any of its worktrees is selected.
-
 **Grid columns in the diff need `minmax(0, 1fr)`.** A bare `1fr` has an `auto`
 minimum, so one long line pushes the column past its share and scrolls the whole
 page sideways. `.main` also pins `overflow-x: hidden`.
@@ -101,7 +96,7 @@ an unnamed model every cross-file F12 is silently dropped. The C# providers are
 registered once for the page, not per editor: Monaco's registries are global and
 a second registration answers every hover twice.
 
-**The Changes tab controls its own rendering.** The worktree page re-renders every
+**The Changes tab controls its own rendering.** The agent view re-renders every
 second because the monitor publishes a snapshot every second. Re-rendering a diff
 of a few thousand lines at that rate saturates the circuit and the page stops
 answering clicks, so `ChangesTab` overrides `ShouldRender` and every handler calls

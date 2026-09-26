@@ -39,6 +39,10 @@
     [Parameter]
     public bool ReadOnly { get; set; }
 
+    /// <summary>Changed lines, drawn in the gutter and the scrollbar the way VS Code does.</summary>
+    [Parameter]
+    public IReadOnlyList<ChangeMark> Marks { get; set; } = [];
+
     /// <summary>Called with the editor's current text when the user asks to save.</summary>
     [Parameter]
     public EventCallback<string> OnSave { get; set; }
@@ -78,6 +82,7 @@
     private string _shownPath = "";
     private string _shownStamp = "";
     private int? _shownLine;
+    private IReadOnlyList<ChangeMark>? _shownMarks;
     private bool _rendered;
 
     /// <summary>
@@ -154,7 +159,9 @@
         var changed = !string.Equals(Path, _shownPath, StringComparison.Ordinal)
             || !string.Equals(Stamp, _shownStamp, StringComparison.Ordinal);
 
-        if (!changed && Line == _shownLine)
+        var marksChanged = changed || !ReferenceEquals(Marks, _shownMarks);
+
+        if (!changed && !marksChanged && Line == _shownLine)
         {
             return;
         }
@@ -162,12 +169,18 @@
         _shownPath = Path;
         _shownStamp = Stamp;
         _shownLine = Line;
+        _shownMarks = Marks;
 
         try
         {
             if (changed)
             {
-                await Js.InvokeVoidAsync("agentsEditor.setText", handle, Text, Stamp, Path, AbsolutePath);
+                await Js.InvokeVoidAsync("agentsEditor.setText", handle, Text, Stamp, Path, AbsolutePath, Line is not null);
+            }
+
+            if (marksChanged)
+            {
+                await Js.InvokeVoidAsync("agentsEditor.setMarks", handle, MarksForJs());
             }
 
             if (Line is { } line)
@@ -183,6 +196,10 @@
         {
         }
     }
+
+    /// <summary>The marks as the browser takes them: a line and a word for the kind.</summary>
+    private object[] MarksForJs() =>
+        Marks.Select(object (m) => new { line = m.Line, kind = m.Kind.ToString().ToLowerInvariant() }).ToArray();
 
     /// <summary>
     /// The text as the browser currently has it, for a save the keyboard did not

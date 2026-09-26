@@ -19,7 +19,7 @@ you actually need from them are the three things a terminal is worst at.
 
 | Problem | What the dashboard does |
 | --- | --- |
-| An agent is blocked and you do not notice | A **Needs you** rail across every repository, longest-blocked first, with the question Claude recorded and a live timer. An OS notification when one starts waiting. |
+| An agent is blocked and you do not notice | Agents waiting on you sort to the top of the sidebar, longest-blocked first, with the question Claude recorded. An OS notification when one starts waiting. |
 | A `dotnet test` run scrolls past and you cannot tell what is happening | Live pass/fail counts, a progress bar and failures streaming in **while the run is going**, for runs you start and runs an agent starts. See [docs/test-monitoring.md](docs/test-monitoring.md). |
 | Reviewing the agent's work means eyeballing a terminal | A PR-style diff with line comments, submitted in one go as a markdown file the agent can act on, plus staging. See [docs/review.md](docs/review.md) and [docs/staging.md](docs/staging.md). |
 | Starting and steering agents means more terminals | Start, message, stop and remove background agents from the worktree they work in. See [docs/agent-control.md](docs/agent-control.md). |
@@ -30,17 +30,17 @@ you actually need from them are the three things a terminal is worst at.
 - **Sidebar** lists every agent, the ones waiting on you first, with **New agent**
   at the top and **Settings** (the gear) at the bottom.
 - **Agent** shows where the selected agent works (repository, worktree, branch)
-  and has three tabs: **Chat** (its conversation and a box to message it),
+  and has four tabs: **Chat** (its conversation and a box to message it),
   **Changes** (the diff review, changed files as a tree, line and range comments
   handed back to the agent, staging) and **Files** (browse and edit its worktree,
   with hover, go to definition, references and call hierarchy for C#: see
   [docs/code-intelligence.md](docs/code-intelligence.md)). Both are coloured by
-  Monaco: see [docs/syntax.md](docs/syntax.md).
+  Monaco: see [docs/syntax.md](docs/syntax.md). **Tests** shows live runs and
+  history for its worktree. A file path in any of them opens in that agent's
+  Files tab.
 - **New agent** starts one in a repository from Settings, in a new worktree or an
   existing one.
 - **Settings** holds the repositories New agent offers, and the preferences.
-- **Worktree** is still reachable from a file link, with the same tabs plus
-  **Agents** and **Tests** (live runs and history).
 
 A file path an agent mentions in a reply, or a test failure points at in its
 stack trace, is a link: it opens the file in the **Files** tab at that line, with
