@@ -8,11 +8,8 @@
    where the review is sent from. *@
 
 <div class="panel-tools">
-    <select aria-label="What to diff against" value="@Model.Base" @onchange="OnBase">
-        <option value="@DiffBase.WorkingTree">Uncommitted</option>
-        <option value="@DiffBase.DefaultBranch">Whole branch</option>
-        <option value="@DiffBase.CustomRef">Against a ref</option>
-    </select>
+    <Picker AriaLabel="What to diff against" Class="panel-picker" Value="@Model.Base.ToString()" Options="BaseOptions"
+            ValueChanged="OnBase" />
     <span class="spacer"></span>
     <button class="icon-btn" @onclick="() => Bench.OpenChanges(WorktreePath)" title="Open every change in one document" aria-label="Open every change in one document">
         <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
@@ -229,18 +226,10 @@
                   @oninput="e => Model.Summary = e.Value?.ToString() ?? string.Empty"></textarea>
         <label class="stack">
             <span class="faint">Send to</span>
-            <select aria-label="Which agent to send the review to"
-                    value="@(Model.Recipient ?? "")"
-                    @onchange="e => Model.SetRecipient(e.Value?.ToString() is { Length: > 0 } v ? v : null)">
-                <option value="">Nobody, just write the file</option>
-                <option value="@ChangesModel.NewAgent">Start a new agent on it</option>
-                @foreach (var candidate in Model.Recipients)
-                {
-                    <option value="@candidate.SessionId">
-                        @candidate.Label (@(candidate.Running ? "running" : "stopped"))
-                    </option>
-                }
-            </select>
+            <Picker AriaLabel="Which agent to send the review to"
+                    Value="@(Model.Recipient ?? "")"
+                    Options="RecipientOptions"
+                    ValueChanged="v => { Model.SetRecipient(v.Length > 0 ? v : null); Touch(); }" />
         </label>
         <div class="inline">
             <button class="primary" @onclick="Submit" disabled="@(Model.Submitting || Model.Draft.Comments.Count == 0)">
@@ -323,9 +312,24 @@
         StateHasChanged();
     });
 
-    private async Task OnBase(ChangeEventArgs e)
+    private static readonly IReadOnlyList<PickerOption> BaseOptions =
+    [
+        new(nameof(DiffBase.WorkingTree), "Uncommitted", "What is not committed yet"),
+        new(nameof(DiffBase.DefaultBranch), "Whole branch", "Everything since the default branch"),
+        new(nameof(DiffBase.CustomRef), "Against a ref", "Any commit, tag or branch"),
+    ];
+
+    private IReadOnlyList<PickerOption> RecipientOptions =>
+    [
+        new("", "Nobody, just write the file"),
+        new(ChangesModel.NewAgent, "Start a new agent on it"),
+        .. Model.Recipients.Select(c => new PickerOption(c.SessionId, c.Label, c.Running ? "running" : "stopped")),
+    ];
+
+    private async Task OnBase(string value)
     {
-        if (Enum.TryParse<DiffBase>(e.Value?.ToString(), out var next))
+        Touch();
+        if (Enum.TryParse<DiffBase>(value, out var next))
         {
             await Model.SetBase(next);
         }

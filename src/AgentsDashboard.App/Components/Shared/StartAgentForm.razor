@@ -10,7 +10,7 @@
    default is not sent, so the agent's own default stands rather than one pinned
    here; the choices listed are the ones the agent reported, once it has. *@
 
-<div class="stack" style="gap: 10px;">
+<div class="start-form">
     @if (WorktreePath is null)
     {
         @if (Repos.Count == 0)
@@ -22,174 +22,143 @@
         }
         else
         {
-            <div class="inline">
-                <div class="stack" style="gap: 4px; flex: 1;">
-                    <label class="faint" for="start-repo">Repository</label>
-                    @* An explicit value plus onchange rather than @@bind, the same as the
-                       rest of the app: binding will not push a value the component itself
-                       changed back into the DOM. *@
-                    <select id="start-repo" value="@Repo"
-                            @onchange="e => { _repo = e.Value?.ToString() ?? string.Empty; _worktree = string.Empty; _branch = string.Empty; Touch(); }">
-                        @foreach (var root in Repos)
-                        {
-                            <option value="@root">@RepoName(root)</option>
-                        }
-                    </select>
-                </div>
-
-                <div class="stack" style="gap: 4px; flex: 1;">
-                    <label class="faint" for="start-worktree">Worktree</label>
-                    <select id="start-worktree" value="@Worktree"
-                            @onchange="e => { _worktree = e.Value?.ToString() ?? string.Empty; Touch(); }">
-                        <option value="">New worktree</option>
-                        @foreach (var worktree in Worktrees)
-                        {
-                            <option value="@worktree.Worktree.Path">
-                                @(worktree.Worktree.IsPrimary ? "Primary checkout" : worktree.Worktree.Name)
-                                @(worktree.Worktree.Branch is { Length: > 0 } branch ? $" ({branch})" : "")
-                            </option>
-                        }
-                    </select>
-                </div>
-            </div>
-
-            @if (NewWorktree)
-            {
-                <div class="inline">
-                    <div class="stack" style="gap: 4px; flex: 1;">
-                        <label class="faint" for="start-branch">Branch</label>
-                        @* Only branches no worktree has checked out: git will not put
-                           one branch in two worktrees. A remote branch gets a local
-                           branch of the same name that tracks it. *@
-                        <select id="start-branch" value="@Branch?.Ref"
-                                @onchange="e => { _branch = e.Value?.ToString() ?? string.Empty; Touch(); }">
-                            <option value="">New branch</option>
-                            @if (Branches.Any(b => b.Remote is null))
-                            {
-                                <optgroup label="Local">
-                                    @foreach (var branch in Branches.Where(b => b.Remote is null))
-                                    {
-                                        <option value="@branch.Ref">@branch.Name</option>
-                                    }
-                                </optgroup>
-                            }
-                            @if (Branches.Any(b => b.Remote is not null))
-                            {
-                                <optgroup label="Remote">
-                                    @foreach (var branch in Branches.Where(b => b.Remote is not null))
-                                    {
-                                        <option value="@branch.Ref">@branch.Ref</option>
-                                    }
-                                </optgroup>
-                            }
-                        </select>
+            <section class="start-section">
+                <h3 class="start-section-title">Where</h3>
+                <div class="form-grid">
+                    <div class="field">
+                        <label class="field-label" for="start-repo">Repository</label>
+                        <Picker Id="start-repo" Value="@Repo" Options="@RepoOptions"
+                                ValueChanged="v => { _repo = v; _worktree = string.Empty; _branch = string.Empty; Touch(); }" />
                     </div>
 
-                    <div class="stack" style="gap: 4px; flex: 1;">
-                        <label class="faint" for="start-worktree-name">Worktree name (optional)</label>
-                        <input id="start-worktree-name" type="text"
-                               placeholder="@(Branch is null ? "Claude picks one when blank" : "Named after the branch when blank")"
-                               value="@_worktreeName"
-                               @oninput="e => { _worktreeName = e.Value?.ToString() ?? string.Empty; Touch(); }" />
+                    <div class="field">
+                        <label class="field-label" for="start-worktree">Worktree</label>
+                        <Picker Id="start-worktree" Value="@Worktree" Options="@WorktreeOptions"
+                                ValueChanged="v => { _worktree = v; Touch(); }" />
                     </div>
+
+                    @if (NewWorktree)
+                    {
+                        <div class="field">
+                            <label class="field-label" for="start-branch">Branch</label>
+                            @* Only branches no worktree has checked out: git will not put
+                               one branch in two worktrees. A remote branch gets a local
+                               branch of the same name that tracks it. *@
+                            <Picker Id="start-branch" Value="@(Branch?.Ref ?? "")" Options="@BranchOptions"
+                                    ValueChanged="v => { _branch = v; Touch(); }" />
+                        </div>
+
+                        <div class="field">
+                            <label class="field-label" for="start-worktree-name">Worktree name <span class="faint">(optional)</span></label>
+                            <input id="start-worktree-name" type="text"
+                                   placeholder="@(Branch is null ? "Claude picks one when blank" : "Named after the branch when blank")"
+                                   value="@_worktreeName"
+                                   @oninput="e => { _worktreeName = e.Value?.ToString() ?? string.Empty; Touch(); }" />
+                        </div>
+                    }
                 </div>
 
-                <div class="inline">
-                    <button class="small ghost" @onclick="Fetch" disabled="@_fetching"
-                            title="Runs git fetch --all --prune so the remote branches are current">
-                        @(_fetching ? "Fetching..." : "Fetch remote branches")
-                    </button>
-                    <span class="faint">
-                        @if (_fetchError is { } fetchError)
+                @if (NewWorktree)
+                {
+                    <div class="start-hint">
+                        <span class="@(_fetchError is null ? "faint" : "start-error")">
+                            @if (_fetchError is { } fetchError)
+                            {
+                                @($"Fetch failed: {fetchError}")
+                            }
+                            else if (Branch is null)
+                            {
+                                @($"A new branch worktree-<name> from the current HEAD.")
+                            }
+                            else if (Branch.Remote is not null)
+                            {
+                                @($"A new local branch {Branch.Name} tracking {Branch.Ref}.")
+                            }
+                            else
+                            {
+                                @($"Checks out {Branch.Name} in the new worktree.")
+                            }
+                        </span>
+                        <button class="small ghost spacer" @onclick="Fetch" disabled="@_fetching"
+                                title="Runs git fetch --all --prune so the remote branches are current">
+                            <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+                                <path d="M13 8a5 5 0 1 1-1.5-3.55M13 2.5v3h-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                            @(_fetching ? "Fetching..." : "Fetch remote branches")
+                        </button>
+                    </div>
+                }
+                else
+                {
+                    @* An existing worktree has history: the conversations that ran there
+                       before can be picked up where they stopped. *@
+                    <div class="segmented start-mode" role="radiogroup" aria-label="New conversation or resume one">
+                        <button role="radio" aria-checked="@(_resuming ? "false" : "true")"
+                                class="@(_resuming ? "" : "on")" @onclick="() => { _resuming = false; Touch(); }">New conversation</button>
+                        <button role="radio" aria-checked="@(_resuming ? "true" : "false")"
+                                class="@(_resuming ? "on" : "")" @onclick="() => { _resuming = true; Touch(); }">
+                            Resume<span class="count">@Past.Count</span>
+                        </button>
+                    </div>
+
+                    @if (_resuming)
+                    {
+                        @if (Past.Count == 0)
                         {
-                            @($"Fetch failed: {fetchError}")
-                        }
-                        else if (Branch is null)
-                        {
-                            @($"A new branch worktree-<name> from the current HEAD.")
-                        }
-                        else if (Branch.Remote is not null)
-                        {
-                            @($"A new local branch {Branch.Name} tracking {Branch.Ref}.")
+                            <div class="start-hint faint">No earlier conversations in this worktree.</div>
                         }
                         else
                         {
-                            @($"Checks out {Branch.Name} in the new worktree.")
+                            <div class="past-list" role="listbox" aria-label="Conversations to resume">
+                                @foreach (var past in Past)
+                                {
+                                    var running = IsRunning(past.SessionId);
+                                    var picked = past.SessionId == ResumeId;
+                                    <button class="past-item @(picked ? "picked" : "")" role="option" aria-selected="@picked"
+                                            disabled="@running"
+                                            title="@(running ? "Already running: open it from the agent list." : past.SessionId)"
+                                            @onclick="() => { _resumeId = past.SessionId; Touch(); }">
+                                        <span class="past-top">
+                                            <span class="past-title">@(past.Title ?? "Untitled")</span>
+                                            <span class="faint past-when">@(running ? "running" : Fmt.When(past.UpdatedAt, DateTimeOffset.Now))</span>
+                                        </span>
+                                        @if (past.LastPrompt is { Length: > 0 } last)
+                                        {
+                                            <span class="faint past-prompt">@AgentSession.Shorten(last, 140)</span>
+                                        }
+                                    </button>
+                                }
+                            </div>
                         }
-                    </span>
-                </div>
-            }
-            else
-            {
-                @* An existing worktree has history: the conversations that ran there
-                   before can be picked up where they stopped. *@
-                <div class="inline" role="radiogroup" aria-label="New conversation or resume one">
-                    <button class="@(_resuming ? "" : "primary")" @onclick="() => { _resuming = false; Touch(); }">New conversation</button>
-                    <button class="@(_resuming ? "primary" : "")" @onclick="() => { _resuming = true; Touch(); }">
-                        Resume<span class="count">@Past.Count</span>
-                    </button>
-                </div>
-
-                @if (_resuming)
-                {
-                    @if (Past.Count == 0)
-                    {
-                        <div class="row faint">No earlier conversations in this worktree.</div>
-                    }
-                    else
-                    {
-                        <div class="past-list" role="listbox" aria-label="Conversations to resume">
-                            @foreach (var past in Past)
-                            {
-                                var running = IsRunning(past.SessionId);
-                                var picked = past.SessionId == ResumeId;
-                                <button class="past-item @(picked ? "picked" : "")" role="option" aria-selected="@picked"
-                                        disabled="@running"
-                                        title="@(running ? "Already running: open it from the agent list." : past.SessionId)"
-                                        @onclick="() => { _resumeId = past.SessionId; Touch(); }">
-                                    <span class="past-top">
-                                        <span class="past-title">@(past.Title ?? "Untitled")</span>
-                                        <span class="faint past-when">@(running ? "running" : Fmt.When(past.UpdatedAt, DateTimeOffset.Now))</span>
-                                    </span>
-                                    @if (past.LastPrompt is { Length: > 0 } last)
-                                    {
-                                        <span class="faint past-prompt">@AgentSession.Shorten(last, 140)</span>
-                                    }
-                                </button>
-                            }
-                        </div>
                     }
                 }
-            }
+            </section>
         }
     }
 
-    <div class="stack" style="gap: 4px;">
-        <label class="faint" for="start-prompt">@(Resuming ? "Message (optional)" : "Prompt")</label>
-        <textarea id="start-prompt" rows="3"
+    <section class="start-section">
+        <label class="start-section-title" for="start-prompt">@(Resuming ? "Message" : "Prompt") <span class="faint">(optional)</span></label>
+        <textarea id="start-prompt" rows="4" class="start-prompt"
                   placeholder="@(Resuming ? "What should it do next? Leave empty to resume it idle." : "What should it work on? Leave empty to start it idle.")"
                   value="@_prompt"
                   @oninput="e => { _prompt = e.Value?.ToString() ?? string.Empty; Touch(); }"
                   @onkeydown="OnPromptKey"></textarea>
-    </div>
+    </section>
 
-    <div class="inline">
-        @foreach (var (id, label, choice) in Settings3)
-        {
-            var settingId = id;
-            <div class="stack" style="gap: 4px;">
-                <label class="faint" for="@("start-" + settingId)">@label</label>
-                <select id="@("start-" + settingId)" value="@choice"
-                        @onchange="e => { Set(settingId, e.Value?.ToString() ?? string.Empty); Touch(); }">
-                    <option value="">Agent default</option>
-                    @foreach (var option in StartChoices.For(settingId, Host.KnownOptions))
-                    {
-                        <option value="@option.Value">@option.Name</option>
-                    }
-                </select>
-            </div>
-        }
-    </div>
+    <section class="start-section">
+        <h3 class="start-section-title">Options</h3>
+        <div class="form-grid three">
+            @foreach (var (id, label, choice) in Settings3)
+            {
+                var settingId = id;
+                <div class="field">
+                    <label class="field-label" for="@("start-" + settingId)">@label</label>
+                    <Picker Id="@("start-" + settingId)" Value="@choice" Options="@ChoiceOptions(settingId)"
+                            ValueChanged="v => { Set(settingId, v); Touch(); }" />
+                </div>
+            }
+        </div>
+    </section>
 
     @if (_confirmTrust is { } trustRoot)
     {
@@ -210,14 +179,15 @@
         </div>
     }
 
-    <div class="inline">
-        <button class="primary" @onclick="Start" disabled="@(_busy || Where is null || _confirmTrust is not null)">
+    <footer class="start-foot">
+        <span class="faint">
+            @(string.IsNullOrWhiteSpace(_prompt) ? "With no prompt it starts idle." : "Runs Claude in the dashboard.")
+            <kbd>@(OperatingSystem.IsMacOS() ? "Cmd" : "Ctrl")</kbd>+<kbd>Enter</kbd> to start.
+        </span>
+        <button class="primary spacer" @onclick="Start" disabled="@(_busy || Where is null || _confirmTrust is not null)">
             @(_busy ? "Working..." : Resuming ? "Resume agent" : "Start agent")
         </button>
-        <span class="faint">
-            Runs Claude in the dashboard. With no prompt it starts idle and does nothing until you send it one.
-        </span>
-    </div>
+    </footer>
 </div>
 
 @code {
@@ -258,6 +228,31 @@
         ("model", "Model", _model),
         ("effort", "Effort", _effort),
         ("mode", "Permission mode", _permissionMode),
+    ];
+
+    private IReadOnlyList<PickerOption> ChoiceOptions(string id) =>
+    [
+        new("", "Agent default"),
+        .. StartChoices.For(id, Host.KnownOptions).Select(c => new PickerOption(c.Value, c.Name)),
+    ];
+
+    private IReadOnlyList<PickerOption> RepoOptions =>
+        Repos.Select(root => new PickerOption(root, RepoName(root), root)).ToList();
+
+    private IReadOnlyList<PickerOption> WorktreeOptions =>
+    [
+        new("", "New worktree", "A fresh checkout on its own branch"),
+        .. Worktrees.Select(w => new PickerOption(
+            w.Worktree.Path,
+            w.Worktree.IsPrimary ? "Primary checkout" : w.Worktree.Name,
+            w.Worktree.Branch is { Length: > 0 } branch ? branch : null)),
+    ];
+
+    private IReadOnlyList<PickerOption> BranchOptions =>
+    [
+        new("", "New branch", "From the current HEAD"),
+        .. Branches.Where(b => b.Remote is null).Select(b => new PickerOption(b.Ref, b.Name, Group: "Local")),
+        .. Branches.Where(b => b.Remote is not null).Select(b => new PickerOption(b.Ref, b.Ref, Group: "Remote")),
     ];
 
     private void Set(string id, string value)
