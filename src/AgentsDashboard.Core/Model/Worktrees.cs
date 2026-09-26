@@ -38,10 +38,6 @@ public sealed record WorktreeView
     public required string RepoRoot { get; init; }
     public GitStatusInfo? Status { get; init; }
     public IReadOnlyList<AgentSession> Agents { get; init; } = [];
-    public IReadOnlyList<TestRun> TestRuns { get; init; } = [];
-
-    public TestRun? LatestRun => TestRuns.Count > 0 ? TestRuns[0] : null;
-
     public int WaitingCount => Agents.Count(a => a.Status == AgentStatus.Waiting);
     public int ActiveCount => Agents.Count(a => a.Status == AgentStatus.Active);
 }

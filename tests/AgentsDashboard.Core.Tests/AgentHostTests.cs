@@ -272,6 +272,27 @@ public class AgentHostTests
         Assert.Equal(echo, AgentHost.IsPromptEcho(title, prompt));
 
     [Fact]
+    public async Task Keeps_how_full_the_context_window_is_across_a_restart()
+    {
+        var dir = new TempDir();
+        using var _ = dir;
+        var store = new HostedAgentStore(new AppPaths(dir.Path));
+        var agent = new FakeAcpAgent { OnPrompt = async script => { await script.Usage(142_000, 1_000_000); return "end_turn"; } };
+
+        string id;
+        await using (var host = new AgentHost(Backend, agent, store))
+        {
+            id = (await host.StartAsync(new AgentStart("/repo", Prompt: "go"), Ct)).SessionId!;
+            var idle = await Until(host, id, a => a.Context is not null && a.State == HostedState.Idle);
+            Assert.Equal(14, idle.Context!.Percent);
+            await Task.Delay(250, Ct);
+        }
+
+        await using var second = new AgentHost(Backend, new FakeAcpAgent(), store);
+        Assert.Equal(new ContextUsage(142_000, 1_000_000), Assert.Single(second.Agents).Context);
+    }
+
+    [Fact]
     public async Task Removing_takes_it_off_the_list_for_good()
     {
         var dir = new TempDir();

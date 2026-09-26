@@ -1,13 +1,17 @@
 # Agents Dashboard - project notes
 
 A cross-platform Blazor Server desktop app (Photino window over a loopback host)
-for watching Claude Code agents across git worktrees: who needs an answer, what
-their tests are doing, and reviewing their diffs.
+for watching Claude Code agents across git worktrees: who needs an answer, and
+reviewing their diffs. Anything else is an extension.
 
 - `src/AgentsDashboard.Core` - all logic, no ASP.NET dependency. Claude readers,
-  git layer and parsers, TRX reader, review writing, the monitor loop.
-- `src/AgentsDashboard.App` - Blazor Server UI and the Photino window.
-- `tests/AgentsDashboard.Core.Tests` - xUnit v3 on Microsoft.Testing.Platform.
+  git layer and parsers, review writing, the monitor loop, extension discovery.
+- `src/AgentsDashboard.App` - Blazor Server UI, the Photino window, the
+  extension host.
+- `src/AgentsDashboard.Extensions` - the extension API. Versioned: 1.x only adds.
+- `extensions/DotnetTests` - the Tests tab, an extension, not shipped.
+- `templates/extension` - the `dotnet new` template extensions start from.
+- `tests/*` - xUnit v3 on Microsoft.Testing.Platform.
 
 `dotnet build`, `dotnet test`, `dotnet run --project src/AgentsDashboard.App`.
 
@@ -17,8 +21,9 @@ their tests are doing, and reviewing their diffs.
 long rationale lives in `docs/`, one file per subsystem that is easy to get wrong
 twice:
 
-- `docs/test-monitoring.md` - streaming TRX, the process signal, the two clocks,
-  the telemetry installer
+- `docs/extensions.md` - loading, the shared assemblies, reload, consent
+- `docs/test-monitoring.md` - the Tests extension: streaming TRX, the process
+  signal, the two clocks, the telemetry installer
 - `docs/review.md` - diff bases, the comment draft, the submit order
 - `docs/agents.md` - work summaries from transcripts, subagents, notification rules
 - `docs/syntax.md` - Monaco colouring in the diff, the server fallback, the two
@@ -45,7 +50,8 @@ assets in the Development environment, and without them `_framework/blazor.web.j
 
 **`dotnet test` and `--nologo`.** In Microsoft.Testing.Platform mode `dotnet test`
 forwards `--nologo` to the test application, which rejects it and reports zero
-tests with exit code 5. Never pass it. `TestRunner` has a comment saying so.
+tests with exit code 5. Never pass it. `TestRunner` in the Tests extension has a
+comment saying so.
 
 **xunit.v3 needs `UseMicrosoftTestingPlatformRunner`.** Without it the generated
 entry point is the console runner, the TRX extension is never registered, and
@@ -105,6 +111,21 @@ answering clicks, so `ChangesTab` overrides `ShouldRender` and every handler cal
 (`watchDiffWindow`) reports which files those are, and the rest are blocks the
 height they measured at. The file trees draw only their visible rows through
 `Virtualize`, which is why `.tree-row` has a pinned height.
+
+**The app stays minimal; features that are not about agents are extensions.**
+Tests moved out for that reason. A new tab for one language or tool belongs in an
+extension, and if the API cannot express it, the API grows (a minor version).
+
+**Extension types must come from the app's copy.** `ExtensionLoadContext` sends
+`AgentsDashboard.Extensions`, `Microsoft.AspNetCore.*`, `Microsoft.Extensions.*`
+and `System.*` to the default context. Load a second copy of any of them and the
+extension's `IComponent` is a different type from the app's, and nothing casts.
+An extension project references the API with `Private="false"` for the same
+reason.
+
+**`@inject` in an extension resolves from the app's container.** Only the API
+services are registered there. An extension's own services come from
+`Context.Get<T>()`.
 
 ## Conventions
 

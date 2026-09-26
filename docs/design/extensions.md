@@ -1,6 +1,21 @@
 # Extensions
 
-Status: design, not implemented. Nothing in this document exists in the code yet.
+Status: phase 1 is implemented, with the differences below. What exists is
+described in [../extensions.md](../extensions.md); this is the rationale.
+
+Where the implementation differs from this design:
+
+- Tests is **not bundled**. It lives in `extensions/DotnetTests` and is linked
+  like anyone else's, so the published app carries no test code.
+- `AddAgentTab` became `AddView(id, title, defaultLocation, ...)` with a
+  `ViewLocation` enum, so side and bottom panels can be added without breaking
+  extensions. The location is a default; placement is meant to be the user's.
+- Reload on build (phase 2 here) is in, since writing an extension with Claude
+  depends on it. Extension CSS is in too, from an `assets` folder rather than
+  `wwwroot`.
+- Not yet: settings sections, `IRepositoryEdits`, `INotifications`,
+  `IWorktreeState`, `IExtensionSettings`, `IGitReader`, sidebar indicators,
+  Install, New extension in Settings.
 
 The goal: the Tests tab stops being a fixed part of every agent view and becomes
 an extension, and anyone (usually with Claude Code doing the typing) can write

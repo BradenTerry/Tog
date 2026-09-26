@@ -30,12 +30,44 @@ convention, so it is used as a fast path only; a miss falls back to scanning the
 projects directory. A transcript we cannot find costs a work summary, never an
 agent.
 
+## The conversation
+
+`ConversationReader` reads the same transcript as a chat. Tool calls between two
+things said fold into one "Ran 2 commands, read a file" line. File changes made
+with Edit, MultiEdit and Write are pulled out of that fold into a "Files changed"
+fold of their own, with a count, and each file in it opens to its diff. The first
+diff is made from the call's input, which has no line numbers. The tool's result,
+a record or two later, carries a `toolUseResult.structuredPatch` with line
+numbers and context, and replaces it. A failed edit is marked failed.
+
+This only sees changes made with the edit tools. A file changed by a shell
+command (`sed`, a script) shows as the command, the same as in the terminal.
+
 ## Subagents
 
 Subagents run inside the parent agent's process and have no session of their own.
 Claude writes one small file per subagent beside the transcript and removes it
 when the subagent finishes, which makes the directory listing an answer to "what
 is running right now" rather than a tally of everything that ever ran.
+
+## Background work
+
+A subagent, or a shell command started with `run_in_background`, keeps going
+after the turn that started it ends, so an idle agent is not necessarily done.
+The agent view lists that work in a strip above the message box, and the sidebar
+says "2 running in background" under the agent.
+
+Subagents come from the files above. Background commands come from the
+transcript (`TranscriptReader`): the Bash call carries `run_in_background: true`,
+its result carries a `backgroundTaskId`, and when the command ends a
+`<task-notification>` record names the call (`<tool-use-id>`) or the task
+(`<task-id>`). The notice arrives as a user message when the agent is idle and
+as a queued attachment mid-turn, so it is read from the raw line.
+
+Background work dies with the agent process and nothing records that: no notice
+for a command, a leftover file for a subagent. So the monitor ignores anything
+that started before the current agent process did (`ProcessStartedAt`), and
+nothing is listed for a stopped agent.
 
 ## Notifications
 

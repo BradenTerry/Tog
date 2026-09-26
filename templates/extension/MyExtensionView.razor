@@ -1,0 +1,24 @@
+@inherits AgentViewBase
+
+<div class="card">
+    <div class="card-head"><h2>MyExtension</h2></div>
+    @if (Agent.Worktree is { } worktree)
+    {
+        <div class="row">
+            <span class="faint">Worktree</span>
+            <span class="mono truncate">@worktree.Path</span>
+        </div>
+        <div class="row">
+            <span class="faint">Branch</span>
+            <span class="mono">@(worktree.Branch ?? "detached")</span>
+        </div>
+        @if (worktree.Status is { } status)
+        {
+            <div class="row">
+                <span class="chip">@status.Changed changed</span>
+                <span class="chip">@status.Staged staged</span>
+                <span class="chip">@status.Untracked new</span>
+            </div>
+        }
+    }
+</div>

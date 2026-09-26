@@ -11,6 +11,10 @@ public enum ChatState { Waiting, Active, Idle, Parked, Failed }
 /// <param name="CurrentTool">The tool call it is making, by title.</param>
 /// <param name="Permission">A permission it is waiting on you for.</param>
 /// <param name="LabelIsPrompt">The label is its first prompt, standing in until the agent names the conversation.</param>
+/// <param name="Context">How full its context window was when its last turn ended.</param>
+/// <param name="Detached">Its worktree has no branch checked out, only a commit.</param>
+/// <param name="Subagents">Subagents running under it right now.</param>
+/// <param name="BackgroundCommands">Shell commands it started in the background that are still running.</param>
 public sealed record ChatTarget(
     string SessionId,
     string Label,
@@ -29,7 +33,15 @@ public sealed record ChatTarget(
     string LiveText,
     string? CurrentTool,
     PermissionAsk? Permission,
-    IReadOnlyList<AcpConfigOption> Options);
+    IReadOnlyList<AcpConfigOption> Options,
+    ContextUsage? Context,
+    bool Detached = false,
+    IReadOnlyList<Subagent>? Subagents = null,
+    IReadOnlyList<BackgroundCommand>? BackgroundCommands = null)
+{
+    /// <summary>Subagents and background commands still running.</summary>
+    public int BackgroundCount => (Subagents?.Count ?? 0) + (BackgroundCommands?.Count ?? 0);
+}
 
 /// <summary>
 /// The agents the sidebar lists and the agent view opens: the ones the
@@ -92,7 +104,11 @@ public sealed class AgentDirectory(AgentHost host)
                     agent.LiveText,
                     agent.CurrentTool,
                     agent.Permission,
-                    agent.Options);
+                    agent.Options,
+                    agent.Context,
+                    home?.Worktree.Worktree.Detached == true,
+                    seen?.Subagents ?? [],
+                    seen?.BackgroundCommands ?? []);
             })
             .OrderBy(t => t.State)
             // Waiting: blocked longest first, since that one costs the most.
@@ -170,6 +186,7 @@ public sealed class AgentDirectory(AgentHost host)
         // line that keeps rewriting itself to "grep -rn ..." reads as noise. The
         // tool is in the transcript and in the tooltip for whoever wants it.
         ChatState.Active => "Working",
+        ChatState.Idle when target.BackgroundCount > 0 => $"Idle, {target.BackgroundCount} running in background",
         ChatState.Parked => "Stopped",
         ChatState.Failed => "Failed",
         _ => "Idle",

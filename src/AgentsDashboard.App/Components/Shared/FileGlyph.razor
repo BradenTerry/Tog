@@ -1,0 +1,24 @@
+@* A file's icon in a list, on the left of its name. See FileIcons for why these
+   are glyphs rather than an icon font. *@
+
+@{
+    var icon = FileIcons.For(Path);
+}
+<span class="file-icon @icon.Css" aria-hidden="true">
+    @if (icon.Glyph.Length == 0)
+    {
+        <svg viewBox="0 0 16 16" width="14" height="14">
+            <path d="M4 1.5h5.5L13 5v9.5H4z M9.5 1.5V5H13" fill="none" stroke="currentColor"
+                  stroke-width="1.2" stroke-linejoin="round" />
+        </svg>
+    }
+    else
+    {
+        @icon.Glyph
+    }
+</span>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Path { get; set; } = "";
+}

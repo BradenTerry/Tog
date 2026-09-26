@@ -114,6 +114,14 @@ public static class Fmt
         _ => $"{bytes / (1024.0 * 1024):0.#} MB",
     };
 
+    /// <summary>A token count the way context windows are spoken of: 950, 142k, 1M.</summary>
+    public static string Tokens(long tokens) => tokens switch
+    {
+        < 1000 => $"{tokens}",
+        < 1_000_000 => $"{tokens / 1000.0:0.#}k",
+        _ => $"{tokens / 1_000_000.0:0.#}M",
+    };
+
     public static string Count(int n, string noun) => $"{n} {Plural(n, noun, noun + "s")}";
 
     /// <summary>A short, readable git position: "3 ahead, 1 behind".</summary>
@@ -154,14 +162,6 @@ public static class Fmt
 
         return parts.Count == 0 ? null : string.Join(", ", parts);
     }
-
-    public static string RunStateName(TestRunState state) => state switch
-    {
-        TestRunState.Running => "running",
-        TestRunState.Passed => "passed",
-        TestRunState.Failed => "failed",
-        _ => "stopped",
-    };
 
     /// <summary>The last path segment, for a label that must stay short.</summary>
     public static string Leaf(string path) =>

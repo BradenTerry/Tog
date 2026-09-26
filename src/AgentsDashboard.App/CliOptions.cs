@@ -4,11 +4,19 @@ namespace AgentsDashboard.App;
 /// <param name="Browser">Skip the native window and just serve the app.</param>
 /// <param name="Port">A fixed port, when the user wants a stable URL.</param>
 /// <param name="Verbose">Log at information level rather than warnings only.</param>
+/// <param name="Extensions">Extension folders to load for this run only, from <c>--extension</c>.</param>
+/// <param name="NoExtensions">Load no extensions, for when one breaks startup.</param>
 /// <param name="DataDir">
 /// Where the dashboard keeps its own settings, in place of <c>~/.agents-dashboard</c>.
 /// For a demo or a test run that should not see, or change, your real settings.
 /// </param>
-public sealed record CliOptions(bool Browser, int? Port, bool Verbose, string? DataDir = null)
+public sealed record CliOptions(
+    bool Browser,
+    int? Port,
+    bool Verbose,
+    string? DataDir = null,
+    IReadOnlyList<string>? Extensions = null,
+    bool NoExtensions = false)
 {
     public static CliOptions Parse(string[] args)
     {
@@ -16,6 +24,8 @@ public sealed record CliOptions(bool Browser, int? Port, bool Verbose, string? D
         int? port = null;
         var verbose = false;
         string? dataDir = null;
+        var extensions = new List<string>();
+        var noExtensions = false;
 
         for (var i = 0; i < args.Length; i++)
         {
@@ -38,6 +48,18 @@ public sealed record CliOptions(bool Browser, int? Port, bool Verbose, string? D
 
                     break;
 
+                case "--extension":
+                    if (i + 1 < args.Length)
+                    {
+                        extensions.Add(args[++i]);
+                    }
+
+                    break;
+
+                case "--no-extensions":
+                    noExtensions = true;
+                    break;
+
                 case "--data-dir":
                     if (i + 1 < args.Length)
                     {
@@ -48,6 +70,6 @@ public sealed record CliOptions(bool Browser, int? Port, bool Verbose, string? D
             }
         }
 
-        return new CliOptions(browser, port, verbose, dataDir);
+        return new CliOptions(browser, port, verbose, dataDir, extensions, noExtensions);
     }
 }

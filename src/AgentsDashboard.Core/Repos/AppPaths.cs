@@ -21,6 +21,21 @@ public sealed class AppPaths
     /// <summary>One file per worktree holding its unsubmitted review.</summary>
     public string DraftsDir => Path.Combine(Root, "drafts");
 
+    /// <summary>Installed extensions, one folder each.</summary>
+    public string ExtensionsDir => Path.Combine(Root, "extensions");
+
+    /// <summary>
+    /// Copies of extensions as they were loaded. Loading from a copy keeps the
+    /// build output free to be overwritten by the next build.
+    /// </summary>
+    public string ExtensionCacheDir => Path.Combine(Root, "extension-cache");
+
+    /// <summary>Each extension's own data folder.</summary>
+    public string ExtensionDataDir(string id) => Path.Combine(Root, "extension-data", id);
+
+    /// <summary>The extension API assembly, for extensions to compile against.</summary>
+    public string SdkDir => Path.Combine(Root, "sdk");
+
     public void EnsureCreated()
     {
         Directory.CreateDirectory(Root);

@@ -90,6 +90,14 @@ generation fails the bridge falls back to the SDK's session summary, which for a
 session it drives is just the first prompt, flattened and cut at 256 characters
 with an ellipsis. `AgentHost.IsPromptEcho` recognises that and refuses it.
 
+How full the context window is shows under the message box as a percentage,
+amber from 70% and red from 85%. It comes from the bridge's `usage_update`:
+`used` is the last request's input tokens, cached or not, and `size` is the
+model's window as the SDK reports it, so a 1M model reads against 1M. The bridge
+only sends it when a turn ends and after a compaction, so the figure is as of
+the last turn, not live. It is kept in `agents.json` so a stopped agent still
+shows it.
+
 While an agent works, its status line says "Working" with animated dots rather
 than the tool it is in. The tool changes every second or two, so a status that
 names it keeps rewriting itself; the tool is in the tooltip and the transcript.

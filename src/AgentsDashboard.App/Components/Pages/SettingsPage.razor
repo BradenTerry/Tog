@@ -21,7 +21,7 @@
             <div class="row faint">None yet. Add one below, or pick one Claude is already running in.</div>
         }
 
-        @foreach (var root in _settings.RepoRoots)
+        @foreach (var root in ByName(_settings.RepoRoots, r => State.Repo(r)?.Name ?? Fmt.Leaf(r)))
         {
             var known = State.Repo(root);
             <div class="row">
@@ -79,7 +79,7 @@
                 Claude sessions are running in these, but they are not in your list. Add one to start
                 new agents in it.
             </div>
-            @foreach (var repo in Discovered)
+            @foreach (var repo in ByName(Discovered, r => r.Name))
             {
                 <div class="row">
                     <div class="stack" style="flex: 1; min-width: 0;">
@@ -97,7 +97,7 @@
     {
         <div class="card">
             <div class="card-head"><h2>Hidden</h2></div>
-            @foreach (var root in _settings.HiddenRoots)
+            @foreach (var root in ByName(_settings.HiddenRoots, r => r))
             {
                 <div class="row">
                     <span class="mono truncate" style="flex: 1;">@root</span>
@@ -188,6 +188,8 @@
             </select>
         </div>
     </div>
+
+    <ExtensionsCard />
 
     @if (Monitor.LastError is { Length: > 0 } error)
     {
@@ -280,6 +282,13 @@
     /// </summary>
     private void Remove(string root) =>
         Set(_settings with { RepoRoots = _settings.RepoRoots.Where(r => r != root).ToArray() });
+
+    /// <summary>
+    /// A list in name order. The settings file keeps repositories in the order they
+    /// were added, which says nothing to someone looking for one.
+    /// </summary>
+    private static IEnumerable<T> ByName<T>(IEnumerable<T> items, Func<T, string> name) =>
+        items.OrderBy(name, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Repositories the monitor found through live sessions that are not in the list.</summary>
     private IReadOnlyList<RepoView> Discovered =>

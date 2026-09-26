@@ -165,6 +165,7 @@ public sealed class ConversationReader
             switch (Str(root, "type"))
             {
                 case "user":
+                    EditResults(root, content, entries);
                     User(root, content, at, entries);
                     break;
                 case "assistant":
@@ -276,6 +277,22 @@ public sealed class ConversationReader
                     entries.Add(ChatEntry.Said(ChatKind.Agent, at, said.Trim()));
                     break;
 
+                case "tool_use" when EditOf(block) is { } edit:
+                    // A file change belongs to the run like any call, but is kept
+                    // out of its steps: the view folds the files changed on their
+                    // own, since they are what you most often want to look at.
+                    if (entries.Count > 0 && entries[^1].Kind == ChatKind.Activity)
+                    {
+                        var run = entries[^1];
+                        entries[^1] = run with { Edits = [.. run.Edits, edit] };
+                    }
+                    else
+                    {
+                        entries.Add(new ChatEntry(ChatKind.Activity, at, "", []) { Edits = [edit] });
+                    }
+
+                    break;
+
                 case "tool_use":
                     var step = Step(block);
 
@@ -295,6 +312,149 @@ public sealed class ConversationReader
             }
         }
     }
+
+    /// <summary>The most lines one edit shows. A Write of a generated file can be thousands.</summary>
+    public const int MaxEditLines = 400;
+
+    /// <summary>
+    /// An Edit, MultiEdit or Write call as a change, with a first diff made from
+    /// its input. The input has no line numbers; the tool's result, a record
+    /// or two later, carries the real patch and replaces it (<see cref="EditResults"/>).
+    /// </summary>
+    private static ChatEdit? EditOf(JsonElement block)
+    {
+        var name = Str(block, "name");
+        if (name is not ("Edit" or "MultiEdit" or "Write")
+            || Str(block, "id") is not { } id
+            || !block.TryGetProperty("input", out var input)
+            || Str(input, "file_path") is not { } path)
+        {
+            return null;
+        }
+
+        var hunks = new List<ChatHunk>();
+        switch (name)
+        {
+            case "Write":
+                hunks.Add(new ChatHunk(null, 1, Prefixed('+', Str(input, "content"))));
+                break;
+            case "Edit":
+                hunks.Add(Replacement(Str(input, "old_string"), Str(input, "new_string")));
+                break;
+            case "MultiEdit" when input.TryGetProperty("edits", out var edits) && edits.ValueKind == JsonValueKind.Array:
+                hunks.AddRange(edits.EnumerateArray().Select(e => Replacement(Str(e, "old_string"), Str(e, "new_string"))));
+                break;
+        }
+
+        var (capped, truncated) = Cap(hunks);
+        return new ChatEdit(id, path, name == "Write", capped, Truncated: truncated);
+    }
+
+    /// <summary>
+    /// Finishes the edits whose results this user record carries: the patch with
+    /// line numbers in place of the one made from the input, whether a Write made
+    /// the file or replaced it, and whether the tool failed.
+    /// </summary>
+    private static void EditResults(JsonElement root, JsonElement content, List<ChatEntry> entries)
+    {
+        if (content.ValueKind != JsonValueKind.Array)
+        {
+            return;
+        }
+
+        foreach (var block in content.EnumerateArray())
+        {
+            if (Str(block, "type") != "tool_result" || Str(block, "tool_use_id") is not { } id)
+            {
+                continue;
+            }
+
+            // The result follows its call closely, so only the tail is searched.
+            int index = -1, at = -1;
+            for (var i = entries.Count - 1; i >= Math.Max(0, entries.Count - 16) && index < 0; i--)
+            {
+                var found = entries[i].Edits.ToList().FindIndex(e => e.ToolUseId == id);
+                if (found >= 0)
+                {
+                    index = i;
+                    at = found;
+                }
+            }
+
+            if (index < 0)
+            {
+                continue;
+            }
+
+            var edit = entries[index].Edits[at];
+            if (block.TryGetProperty("is_error", out var error) && error.ValueKind == JsonValueKind.True)
+            {
+                edit = edit with { Failed = true };
+            }
+            else if (root.TryGetProperty("toolUseResult", out var result) && result.ValueKind == JsonValueKind.Object)
+            {
+                if (Str(result, "type") is { } kind)
+                {
+                    edit = edit with { Created = kind == "create" };
+                }
+
+                if (result.TryGetProperty("structuredPatch", out var patch)
+                    && patch.ValueKind == JsonValueKind.Array
+                    && patch.GetArrayLength() > 0)
+                {
+                    var hunks = patch.EnumerateArray().Select(h => new ChatHunk(
+                        Int(h, "oldStart"),
+                        Int(h, "newStart"),
+                        h.TryGetProperty("lines", out var lines) && lines.ValueKind == JsonValueKind.Array
+                            ? lines.EnumerateArray().Select(l => l.GetString() ?? "").ToList()
+                            : [])).ToList();
+                    var (capped, truncated) = Cap(hunks);
+                    edit = edit with { Hunks = capped, Truncated = truncated };
+                }
+            }
+
+            var edits = entries[index].Edits.ToArray();
+            edits[at] = edit;
+            entries[index] = entries[index] with { Edits = edits };
+        }
+    }
+
+    private static ChatHunk Replacement(string? before, string? after) =>
+        new(null, null, [.. Prefixed('-', before), .. Prefixed('+', after)]);
+
+    private static List<string> Prefixed(char mark, string? text) =>
+        string.IsNullOrEmpty(text)
+            ? []
+            : text.TrimEnd('\n').Split('\n').Select(l => mark + l.TrimEnd('\r')).ToList();
+
+    private static (IReadOnlyList<ChatHunk> Hunks, bool Truncated) Cap(List<ChatHunk> hunks)
+    {
+        var left = MaxEditLines;
+        var kept = new List<ChatHunk>();
+        foreach (var hunk in hunks)
+        {
+            if (left <= 0)
+            {
+                return (kept, true);
+            }
+
+            if (hunk.Lines.Count > left)
+            {
+                kept.Add(hunk with { Lines = hunk.Lines.Take(left).ToList() });
+                return (kept, true);
+            }
+
+            kept.Add(hunk);
+            left -= hunk.Lines.Count;
+        }
+
+        return (kept, false);
+    }
+
+    private static int? Int(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var n)
+            ? n
+            : null;
 
     /// <summary>One tool call as the few words that say what it did.</summary>
     public static ChatStep Step(JsonElement block)

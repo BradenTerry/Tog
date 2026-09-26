@@ -31,10 +31,13 @@
 
     <button class="ghost" @onclick="Load" disabled="@_loading">@(_loading ? "Loading..." : "Refresh")</button>
 
-    <div class="inline" role="group" aria-label="Staging">
-        <button class="small" @onclick="StageAll" disabled="@_staging">Stage all</button>
-        <button class="small" @onclick="UnstageAll" disabled="@_staging">Unstage all</button>
-    </div>
+    @if (_base != DiffBase.WorkingTree)
+    {
+        <div class="inline" role="group" aria-label="Staging">
+            <button class="small" @onclick="StageAll" disabled="@_staging">Stage all</button>
+            <button class="small" @onclick="UnstageAll" disabled="@_staging">Unstage all</button>
+        </div>
+    }
 
     @if (_diff is { } diff && diff.Error is null)
     {
@@ -80,40 +83,121 @@ else if (_diff is { } set)
 {
     <div class="diff-layout">
         <aside class="card filelist" aria-label="Changed files">
-            <div class="filelist-head">
-                <span class="faint">@Fmt.Count(set.Files.Count, "file")</span>
-                <button class="ghost small spacer" @onclick="ToggleAll">
-                    @(AnyOpen ? "Collapse all" : "Expand all")
-                </button>
-            </div>
+            @if (_base == DiffBase.WorkingTree)
+            {
+                var (staged, unstaged) = Sections(set);
 
-            <PathTreeView TValue="DiffFile"
-                          Node="Tree(set)"
-                          Collapsed="_collapsed"
-                          Selected="@_selected"
-                          OnToggle="ToggleDirectory"
-                          OnSelect="ScrollTo">
-                <FileRow Context="node">
-                    <span class="kind @KindClass(node.Value!.Kind)" title="@node.Value.Kind">
-                        @KindLetter(node.Value.Kind)
-                    </span>
-                    <span class="label">@node.Name</span>
-                    @if (StageOf(node.Path) is { Staged: true } staged)
+                @* Staged above pending, the way VS Code's Source Control view lays
+                   it out. A partly staged file is in both, because it is in both
+                   places. Each section is its own tree with its own folds, since
+                   the same folder can be in both. *@
+                @if (staged.FileCount > 0)
+                {
+                    <div class="scm-head">
+                        <button type="button" class="scm-toggle"
+                                aria-expanded="@(!_stagedFolded ? "true" : "false")"
+                                @onclick="() => { _stagedFolded = !_stagedFolded; Touch(); }">
+                            <svg class="chevron @(_stagedFolded ? "" : "open")" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                                <path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.6"
+                                      stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                            Staged Changes
+                        </button>
+                        <button type="button" class="scm-action" @onclick="() => ToggleAllIn(_stagedOpened, staged)"
+                                title="@(AllDirectories(staged).Any(_stagedOpened.Contains) ? "Collapse all folders" : "Expand all folders")"
+                                aria-label="@(AllDirectories(staged).Any(_stagedOpened.Contains) ? "Collapse all folders" : "Expand all folders")">
+                            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                                @if (AllDirectories(staged).Any(_stagedOpened.Contains))
+                                {
+                                    <path d="M4 6.5 8 3l4 3.5M4 13 8 9.5l4 3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                                }
+                                else
+                                {
+                                    <path d="M4 3 8 6.5 12 3M4 9.5 8 13l4-3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                                }
+                            </svg>
+                        </button>
+                        <button type="button" class="scm-action" @onclick="UnstageAll" disabled="@_staging"
+                                title="Unstage all" aria-label="Unstage all">&minus;</button>
+                        <span class="chip">@staged.FileCount</span>
+                    </div>
+                    @if (!_stagedFolded)
                     {
-                        <span class="staged-dot @(staged.IsFullyStaged ? "full" : "part")"
-                              title="@StageLabel(staged)" aria-hidden="true"></span>
+                        @SectionTree((staged, true))
                     }
-                    @if (CommentCount(node.Path) > 0)
+                }
+
+                <div class="scm-head">
+                    <button type="button" class="scm-toggle"
+                            aria-expanded="@(!_changesFolded ? "true" : "false")"
+                            @onclick="() => { _changesFolded = !_changesFolded; Touch(); }">
+                        <svg class="chevron @(_changesFolded ? "" : "open")" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                                <path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.6"
+                                      stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                        Changes
+                    </button>
+                    <button type="button" class="scm-action" @onclick="() => ToggleAllIn(_changesOpened, unstaged)"
+                            title="@(AllDirectories(unstaged).Any(_changesOpened.Contains) ? "Collapse all folders" : "Expand all folders")"
+                            aria-label="@(AllDirectories(unstaged).Any(_changesOpened.Contains) ? "Collapse all folders" : "Expand all folders")">
+                        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                            @if (AllDirectories(unstaged).Any(_changesOpened.Contains))
+                            {
+                                <path d="M4 6.5 8 3l4 3.5M4 13 8 9.5l4 3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                            }
+                            else
+                            {
+                                <path d="M4 3 8 6.5 12 3M4 9.5 8 13l4-3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                            }
+                        </svg>
+                    </button>
+                    <button type="button" class="scm-action" @onclick="StageAll"
+                            disabled="@(_staging || unstaged.FileCount == 0)"
+                            title="Stage all" aria-label="Stage all">+</button>
+                    <span class="chip">@unstaged.FileCount</span>
+                </div>
+                @if (!_changesFolded)
+                {
+                    @if (unstaged.FileCount == 0)
                     {
-                        <span class="chip accent"
-                              title="@Fmt.Count(CommentCount(node.Path), "comment") on this file">
-                            @CommentCount(node.Path)
+                        <div class="scm-empty faint">Everything is staged.</div>
+                    }
+                    @SectionTree((unstaged, false))
+                }
+            }
+            else
+            {
+                <div class="filelist-head">
+                    <span class="faint">@Fmt.Count(set.Files.Count, "file")</span>
+                    <button class="ghost small spacer" @onclick="ToggleAll">
+                        @(AnyOpen ? "Collapse all" : "Expand all")
+                    </button>
+                </div>
+
+                <PathTreeView TValue="DiffFile"
+                              Node="Tree(set)"
+                              Collapsed="_collapsed"
+                              FoldedByDefault="true"
+                              Selected="@_selected"
+                              OnToggle="ToggleDirectory"
+                              OnSelect="ScrollTo">
+                    <FileRow Context="node">
+                        <span class="label">@node.Name</span>
+                        @if (CommentCount(node.Path) > 0)
+                        {
+                            <span class="chip accent"
+                                  title="@Fmt.Count(CommentCount(node.Path), "comment") on this file">
+                                @CommentCount(node.Path)
+                            </span>
+                        }
+                        <span class="n add">+@node.Value!.Additions</span>
+                        <span class="n del">-@node.Value.Deletions</span>
+                        <span class="kind @KindClass(node.Value.Kind)" title="@node.Value.Kind">
+                            @KindLetter(node.Value.Kind)
                         </span>
-                    }
-                    <span class="n add">+@node.Value.Additions</span>
-                    <span class="n del">-@node.Value.Deletions</span>
-                </FileRow>
-            </PathTreeView>
+                    </FileRow>
+                </PathTreeView>
+            }
         </aside>
 
         <div @ref="_column">
@@ -436,7 +520,7 @@ else if (_diff is { } set)
     private readonly HashSet<string> _expanded = new(StringComparer.Ordinal);
     private readonly HashSet<string> _folded = new(StringComparer.Ordinal);
 
-    /// <summary>Directories the user has folded shut in the tree.</summary>
+    /// <summary>Directories the user has opened in the tree, which starts with every one folded.</summary>
     private readonly HashSet<string> _collapsed = new(StringComparer.Ordinal);
 
     private string? _selected;
@@ -899,6 +983,122 @@ else if (_diff is { } set)
     private static string StageClass(FileStage stage) =>
         stage.IsFullyStaged ? "active" : stage.Staged ? "accent" : "";
 
+    private bool _stagedFolded;
+    private bool _changesFolded;
+
+    /// <summary>Folders opened in each staging section, apart because a folder can be in both.</summary>
+    private readonly HashSet<string> _stagedOpened = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _changesOpened = new(StringComparer.Ordinal);
+
+    private (PathTreeNode<DiffFile> Staged, PathTreeNode<DiffFile> Unstaged)? _sections;
+    private DiffSet? _sectionsForDiff;
+    private IReadOnlyDictionary<string, FileStage>? _sectionsForStages;
+
+    /// <summary>
+    /// The diff's files split the way git holds them: what the index has, and
+    /// what the working tree has beyond it. A file git has not reported yet (the
+    /// status read lags the diff by a moment) counts as pending, which is where
+    /// anything uncommitted starts. Rebuilt only when the diff or the staging
+    /// state is replaced, for the same reason as <see cref="Tree"/>.
+    /// </summary>
+    private (PathTreeNode<DiffFile> Staged, PathTreeNode<DiffFile> Unstaged) Sections(DiffSet set)
+    {
+        if (_sections is { } cached
+            && ReferenceEquals(_sectionsForDiff, set)
+            && ReferenceEquals(_sectionsForStages, _stages))
+        {
+            return cached;
+        }
+
+        var staged = new List<DiffFile>();
+        var unstaged = new List<DiffFile>();
+        foreach (var file in set.Files)
+        {
+            var stage = StageOf(file.Path);
+            if (stage.Staged)
+            {
+                staged.Add(file);
+            }
+
+            if (stage.Unstaged || stage.Untracked || !stage.HasAnything)
+            {
+                unstaged.Add(file);
+            }
+        }
+
+        _sectionsForDiff = set;
+        _sectionsForStages = _stages;
+        _sections = (DiffTree.Build(staged), DiffTree.Build(unstaged));
+        return _sections.Value;
+    }
+
+    /// <summary>
+    /// One staging section as a tree. Every row, folder or file, carries the
+    /// button that moves it to the other section, shown on hover.
+    /// </summary>
+    /// <remarks>
+    /// No line counts here. The diff is against HEAD, so a partly staged file
+    /// would show the same whole-file numbers in both sections, which reads as
+    /// if each section held all of it.
+    /// </remarks>
+    private RenderFragment SectionTree((PathTreeNode<DiffFile> Tree, bool InStaged) section) => __builder =>
+    {
+        var opened = section.InStaged ? _stagedOpened : _changesOpened;
+
+        <PathTreeView TValue="DiffFile"
+                      Node="section.Tree"
+                      Collapsed="opened"
+                      FoldedByDefault="true"
+                      Selected="@_selected"
+                      OnToggle="path => ToggleIn(opened, path)"
+                      OnSelect="ScrollTo">
+            <FileRow Context="node">
+                <span class="label">@node.Name</span>
+                @if (CommentCount(node.Path) > 0)
+                {
+                    <span class="chip accent"
+                          title="@Fmt.Count(CommentCount(node.Path), "comment") on this file">
+                        @CommentCount(node.Path)
+                    </span>
+                }
+                <span class="kind end @KindClass(node.Value!.Kind)" title="@node.Value.Kind">
+                    @KindLetter(node.Value.Kind)
+                </span>
+            </FileRow>
+            <Actions Context="node">
+                @if (section.InStaged)
+                {
+                    <button type="button" class="scm-action" disabled="@_staging"
+                            @onclick="() => Restage(() => Staging.UnstageAsync(WorktreePath, FilesUnder(node)))"
+                            title="Unstage" aria-label="Unstage @node.Path">&minus;</button>
+                }
+                else
+                {
+                    <button type="button" class="scm-action" disabled="@_staging"
+                            @onclick="() => Restage(() => Staging.StageAsync(WorktreePath, FilesUnder(node)))"
+                            title="Stage" aria-label="Stage @node.Path">+</button>
+                }
+            </Actions>
+        </PathTreeView>
+    };
+
+    /// <summary>
+    /// The files a row stands for. A folder is the files of this section under
+    /// it, not the folder path, so staging a folder in Changes cannot sweep in
+    /// something that is only in the other section or not in the diff at all.
+    /// </summary>
+    private static List<string> FilesUnder(PathTreeNode<DiffFile> node) =>
+        node.IsFile ? [node.Path] : node.Children.SelectMany(FilesUnder).ToList();
+
+    private void ToggleIn(HashSet<string> set, string path)
+    {
+        Touch();
+        if (!set.Add(path))
+        {
+            set.Remove(path);
+        }
+    }
+
     private Task Stage(string path) => Restage(() => Staging.StageAsync(WorktreePath, [path]));
 
     private Task Unstage(string path) => Restage(() => Staging.UnstageAsync(WorktreePath, [path]));
@@ -1261,26 +1461,31 @@ else if (_diff is { } set)
     }
 
     /// <summary>True while any directory is open, which decides what the button offers.</summary>
-    private bool AnyOpen => _diff is { } set && AllDirectories(Tree(set)).Any(d => !_collapsed.Contains(d));
+    private bool AnyOpen => _diff is { } set && AllDirectories(Tree(set)).Any(_collapsed.Contains);
 
     private void ToggleAll()
     {
-        Touch();
-        if (_diff is not { } set)
+        if (_diff is { } set)
         {
-            return;
+            ToggleAllIn(_collapsed, Tree(set));
         }
+    }
 
-        if (AnyOpen)
+    /// <summary>
+    /// Folds every folder of a tree shut if any is open, otherwise opens them
+    /// all. The set holds the opened folders, since these trees start folded.
+    /// </summary>
+    private void ToggleAllIn<T>(HashSet<string> opened, PathTreeNode<T> tree)
+    {
+        Touch();
+        var dirs = AllDirectories(tree).ToList();
+        if (dirs.Any(opened.Contains))
         {
-            foreach (var dir in AllDirectories(Tree(set)))
-            {
-                _collapsed.Add(dir);
-            }
+            opened.ExceptWith(dirs);
         }
         else
         {
-            _collapsed.Clear();
+            opened.UnionWith(dirs);
         }
     }
 

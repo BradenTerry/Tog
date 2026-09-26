@@ -1,0 +1,63 @@
+@using AgentsDashboard.App.Extensions
+@using AgentsDashboard.Extensions
+
+@* An extension's view, drawn from a type the app only learned about at runtime.
+   DynamicComponent rather than a route, because routes are fixed when the app
+   starts and an extension can arrive later. The error boundary is what keeps a
+   throwing view from ending the circuit, which in a one-window app is
+   everything. *@
+
+<CascadingValue Value="Live.Context" IsFixed="true">
+    <ErrorBoundary @ref="_boundary">
+        <ChildContent>
+            <DynamicComponent Type="Live.View.Component" Parameters="Parameters" />
+        </ChildContent>
+        <ErrorContent Context="error">
+            <div class="banner danger">
+                <strong>@Live.View.Title failed.</strong>
+                <p class="mono muted" style="margin: 5px 0 8px;">@error.Message</p>
+                <button class="small" @onclick="() => _boundary?.Recover()">Retry</button>
+            </div>
+        </ErrorContent>
+    </ErrorBoundary>
+</CascadingValue>
+
+@code {
+    [Parameter, EditorRequired]
+    public LiveView Live { get; set; } = default!;
+
+    [Parameter, EditorRequired]
+    public AgentContext Agent { get; set; } = default!;
+
+    [Parameter]
+    public bool IsVisible { get; set; }
+
+    private ErrorBoundary? _boundary;
+
+    /// <summary>
+    /// Only the parameters the view declares. DynamicComponent throws for one it
+    /// does not have, and a view need not derive from AgentViewBase.
+    /// </summary>
+    private Dictionary<string, object?> Parameters
+    {
+        get
+        {
+            var parameters = new Dictionary<string, object?>();
+            if (Declares(nameof(AgentViewBase.Agent)))
+            {
+                parameters[nameof(AgentViewBase.Agent)] = Agent;
+            }
+
+            if (Declares(nameof(AgentViewBase.IsVisible)))
+            {
+                parameters[nameof(AgentViewBase.IsVisible)] = IsVisible;
+            }
+
+            return parameters;
+        }
+    }
+
+    private bool Declares(string name) =>
+        Live.View.Component.GetProperty(name) is { } property
+        && property.IsDefined(typeof(ParameterAttribute), inherit: true);
+}

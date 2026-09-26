@@ -573,3 +573,112 @@ window.agentsDashboard = {
         clearPreview();
     },
 };
+
+// The agent list's width, dragged by the handle on its right edge. Done here
+// rather than on the circuit for the same reason as line selection: a drag is a
+// stream of moves, and a round trip for each would lag behind the pointer. The
+// width is a CSS variable on the root element, not a style on the shell, so a
+// Blazor render never puts it back, and it is kept per machine like the fold.
+(() => {
+    const key = 'agentsDashboard.sidebarWidth';
+    const fallback = 300;
+    const min = 200;
+
+    // Never so wide the page beside it has no room left.
+    const max = () => Math.max(min, Math.min(640, Math.round(window.innerWidth * 0.5)));
+    const clamp = (width) => Math.min(max(), Math.max(min, Math.round(width)));
+
+    function current() {
+        const set = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-width'), 10);
+        return Number.isFinite(set) ? set : fallback;
+    }
+
+    function apply(width, save) {
+        const px = clamp(width);
+        document.documentElement.style.setProperty('--sidebar-width', px + 'px');
+        document.querySelectorAll('.sidebar-resize').forEach(handle => {
+            handle.setAttribute('aria-valuenow', String(px));
+            handle.setAttribute('aria-valuemin', String(min));
+            handle.setAttribute('aria-valuemax', String(max()));
+        });
+
+        if (save) {
+            try {
+                localStorage.setItem(key, String(px));
+            } catch {
+            }
+        }
+    }
+
+    function reset() {
+        document.documentElement.style.removeProperty('--sidebar-width');
+        try {
+            localStorage.removeItem(key);
+        } catch {
+        }
+    }
+
+    try {
+        const saved = parseInt(localStorage.getItem(key) ?? '', 10);
+        if (Number.isFinite(saved)) {
+            apply(saved, false);
+        }
+    } catch {
+    }
+
+    document.addEventListener('pointerdown', (event) => {
+        const handle = event.target.closest?.('.sidebar-resize');
+        if (!handle || event.button !== 0) {
+            return;
+        }
+
+        event.preventDefault();
+        const sidebar = handle.closest('.sidebar');
+        const left = sidebar ? sidebar.getBoundingClientRect().left : 0;
+        handle.setPointerCapture(event.pointerId);
+        document.body.classList.add('resizing-sidebar');
+
+        const move = (e) => apply(e.clientX - left, false);
+        const up = () => {
+            handle.removeEventListener('pointermove', move);
+            handle.removeEventListener('pointerup', up);
+            handle.removeEventListener('pointercancel', up);
+            document.body.classList.remove('resizing-sidebar');
+            apply(current(), true);
+        };
+
+        handle.addEventListener('pointermove', move);
+        handle.addEventListener('pointerup', up);
+        handle.addEventListener('pointercancel', up);
+    });
+
+    // Double-click puts it back to the default width.
+    document.addEventListener('dblclick', (event) => {
+        if (event.target.closest?.('.sidebar-resize')) {
+            reset();
+        }
+    });
+
+    // The arrow keys move it too, so the handle is not mouse-only.
+    document.addEventListener('keydown', (event) => {
+        if (!event.target.closest?.('.sidebar-resize')) {
+            return;
+        }
+
+        const step = event.shiftKey ? 64 : 16;
+        if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+            event.preventDefault();
+            apply(current() + (event.key === 'ArrowRight' ? step : -step), true);
+        } else if (event.key === 'Home' || event.key === 'End') {
+            event.preventDefault();
+            apply(event.key === 'End' ? max() : min, true);
+        }
+    });
+
+    // A window made narrower can leave a saved width past half of it.
+    window.addEventListener('resize', () => {
+        if (document.documentElement.style.getPropertyValue('--sidebar-width')) {
+            apply(current(), false);
+        }
+    });
+})();

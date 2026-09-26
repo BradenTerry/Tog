@@ -34,4 +34,26 @@ public sealed record Settings
     /// than in Claude's own config, which the dashboard never writes.
     /// </summary>
     public IReadOnlyList<string> TrustedRoots { get; init; } = [];
+
+    /// <summary>
+    /// Folders the user linked as extensions: usually a project they are writing,
+    /// reloaded on every build.
+    /// </summary>
+    public IReadOnlyList<string> LinkedExtensions { get; init; } = [];
+
+    /// <summary>Per extension id: whether it is on, and what was trusted.</summary>
+    public IReadOnlyDictionary<string, ExtensionState> Extensions { get; init; } =
+        new Dictionary<string, ExtensionState>();
+}
+
+/// <summary>What the user decided about one extension.</summary>
+public sealed record ExtensionState
+{
+    public bool Enabled { get; init; }
+
+    /// <summary>
+    /// The SHA-256 of the entry assembly when an installed extension was enabled.
+    /// A different hash means different code, which is asked about again.
+    /// </summary>
+    public string? TrustedHash { get; init; }
 }

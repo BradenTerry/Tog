@@ -81,6 +81,43 @@ public class ConversationReaderTests
     }
 
     [Fact]
+    public void Collects_the_files_a_run_changed_apart_from_its_other_steps()
+    {
+        var entries = Parse(
+            Assistant(Tool("Bash", """{"command":"ls"}""")),
+            Assistant("""{"type":"tool_use","id":"e1","name":"Edit","input":{"file_path":"/repo/a.cs","old_string":"one","new_string":"two\nthree"}}"""),
+            Assistant("""{"type":"tool_use","id":"w1","name":"Write","input":{"file_path":"/repo/b.md","content":"# B\n\ntext\n"}}"""),
+            Assistant("""{"type":"tool_use","id":"e2","name":"Edit","input":{"file_path":"/repo/a.cs","old_string":"x","new_string":"y"}}"""),
+            Assistant(Text("Done.")));
+
+        Assert.Equal([ChatKind.Activity, ChatKind.Agent], entries.Select(e => e.Kind));
+        var run = entries[0];
+        Assert.Equal(["ls"], run.Steps.Select(s => s.Summary));
+        Assert.Equal(["/repo/a.cs", "/repo/b.md"], run.ChangedFiles.Select(f => f.Key));
+        Assert.Equal((3, 2), (run.ChangedFiles[0].Sum(e => e.Added), run.ChangedFiles[0].Sum(e => e.Removed)));
+        Assert.True(run.Edits[1].Created);
+        Assert.Equal(["+# B", "+", "+text"], run.Edits[1].Hunks[0].Lines);
+    }
+
+    [Fact]
+    public void Takes_the_patch_with_line_numbers_from_the_edits_result()
+    {
+        var call = Assistant("""{"type":"tool_use","id":"e1","name":"Edit","input":{"file_path":"/repo/a.cs","old_string":"one","new_string":"two"}}""");
+        var result = """{"type":"user","isSidechain":false,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"e1","content":"ok"}]},"toolUseResult":{"filePath":"/repo/a.cs","structuredPatch":[{"oldStart":10,"oldLines":3,"newStart":10,"newLines":3,"lines":[" before","-one","+two"," after"]}]}}""";
+        var failedCall = Assistant("""{"type":"tool_use","id":"e2","name":"Edit","input":{"file_path":"/repo/c.cs","old_string":"a","new_string":"b"}}""");
+        var failed = """{"type":"user","isSidechain":false,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"e2","is_error":true,"content":"String not found"}]}}""";
+
+        var entries = Parse(call, result, failedCall, failed);
+
+        var edits = Assert.Single(entries).Edits;
+        var hunk = Assert.Single(edits[0].Hunks);
+        Assert.Equal((10, 10), (hunk.OldStart, hunk.NewStart));
+        Assert.Equal([" before", "-one", "+two", " after"], hunk.Lines);
+        Assert.False(edits[0].Failed);
+        Assert.True(edits[1].Failed);
+    }
+
+    [Fact]
     public void Shows_a_message_sent_mid_turn_where_the_agent_read_it()
     {
         var queued = """{"type":"attachment","isSidechain":false,"timestamp":"2026-09-25T10:00:03Z","attachment":{"type":"queued_command","prompt":[{"type":"text","text":"also fix the title"}],"commandMode":"prompt","origin":{"kind":"human"}}}""";

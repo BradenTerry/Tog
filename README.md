@@ -1,8 +1,8 @@
 # Agents Dashboard
 
 A cross-platform desktop app for watching the Claude Code agents running across
-your git worktrees: which one needs an answer, what its tests are doing, and what
-it has changed.
+your git worktrees: which one needs an answer and what it has changed. Anything
+else, such as following its test runs, is an extension.
 
 Blazor Server in a native window. One process, no dev server, no browser required
 (though `--browser` gives you one, which is how you check on a run from another
@@ -20,30 +20,29 @@ you actually need from them are the three things a terminal is worst at.
 | Problem | What the dashboard does |
 | --- | --- |
 | An agent is blocked and you do not notice | Agents waiting on you sort to the top of the sidebar, longest-blocked first, with the question Claude recorded. An OS notification when one starts waiting. |
-| A `dotnet test` run scrolls past and you cannot tell what is happening | Live pass/fail counts, a progress bar and failures streaming in **while the run is going**, for runs you start and runs an agent starts. See [docs/test-monitoring.md](docs/test-monitoring.md). |
 | Reviewing the agent's work means eyeballing a terminal | A PR-style diff with line comments, submitted in one go as a markdown file the agent can act on, plus staging. See [docs/review.md](docs/review.md) and [docs/staging.md](docs/staging.md). |
 | Starting and steering agents means more terminals | Agents run in the dashboard over the Agent Client Protocol: replies stream in live, and permission prompts are answered in the app. See [docs/agent-control.md](docs/agent-control.md). |
 | Reading an agent's code means guessing what a symbol is | Hover, go to definition, find references and call hierarchy for C#, from Roslyn in-process. See [docs/code-intelligence.md](docs/code-intelligence.md). |
+| You want a view the app does not have | Write an extension: a small Razor project, usually by asking Claude, linked in Settings and reloaded on every build. See [docs/extensions.md](docs/extensions.md). |
 
 ## Screens
 
 - **Sidebar** lists every agent, the ones waiting on you first, with **New agent**
   at the top and **Settings** (the gear) at the bottom.
 - **Agent** shows where the selected agent works (repository, worktree, branch)
-  and has four tabs: **Chat** (its conversation and a box to message it),
+  and has three tabs, plus any extensions add: **Chat** (its conversation and a box to message it),
   **Changes** (the diff review, changed files as a tree, line and range comments
   handed back to the agent, staging) and **Files** (browse and edit its worktree,
   with hover, go to definition, references and call hierarchy for C#: see
   [docs/code-intelligence.md](docs/code-intelligence.md)). Both are coloured by
-  Monaco: see [docs/syntax.md](docs/syntax.md). **Tests** shows live runs and
-  history for its worktree. A file path in any of them opens in that agent's
-  Files tab.
+  Monaco: see [docs/syntax.md](docs/syntax.md). A file path in any of them opens
+  in that agent's Files tab.
 - **New agent** starts one in a repository from Settings, in a new worktree or an
   existing one.
-- **Settings** holds the repositories New agent offers, and the preferences.
+- **Settings** holds the repositories New agent offers, the preferences, and the
+  extensions.
 
-A file path an agent mentions in a reply, or a test failure points at in its
-stack trace, is a link: it opens the file in the **Files** tab at that line, with
+A file path an agent mentions in a reply is a link: it opens the file in the **Files** tab at that line, with
 a second link beside it that opens the same place in VS Code.
 
 ## How it finds things
@@ -66,21 +65,17 @@ flowchart LR
     D["diff"]
   end
 
-  TRX["**/TestResults/**/*.trx"]
-  PS["dotnet test / testhost<br/>in the process table"]
-
   R --> M[MonitorService]
   J --> M
   SA --> M
   W --> M
   S --> M
-  TRX --> T[TestRunTracker]
-  PS --> T
-  T --> M
   M --> ST[DashboardState]
   ST -->|SignalR circuit| UI[Blazor views]
   D --> UI
   UI --> WIN[Photino native window]
+  ST -->|IDashboardView| X[extensions]
+  X -->|views| UI
 ```
 
 Repositories are discovered from the working directory of every live Claude
@@ -91,9 +86,12 @@ group together. Add or hide one under **Repositories**.
 
 | Project | What it holds |
 | --- | --- |
-| `src/AgentsDashboard.Core` | Everything that is not UI: the ACP agent host, the Claude transcript readers, the git layer and its parsers, the TRX reader, review writing, the monitor loop. No ASP.NET dependency, so all of it is testable without a host. |
+| `src/AgentsDashboard.Core` | Everything that is not UI: the ACP agent host, the Claude transcript readers, the git layer and its parsers, review writing, the monitor loop, extension discovery. No ASP.NET dependency, so all of it is testable without a host. |
 | `src/AgentsDashboard.App` | The Blazor Server UI and the Photino window. `Program.cs` starts the host on a free loopback port, then opens the window at it. |
-| `tests/AgentsDashboard.Core.Tests` | xUnit v3 on Microsoft.Testing.Platform. Deliberately: its TRX report streams, so the suite is also a live fixture for the test monitor. |
+| `src/AgentsDashboard.Extensions` | The extension API (1.0), the one assembly an extension compiles against. No reference to Core. |
+| `extensions/DotnetTests` | The Tests tab, as an extension. Not shipped with the app; link it in Settings. |
+| `templates/extension` | `dotnet new agents-dashboard-extension`, with a `CLAUDE.md` for writing one. |
+| `tests/*` | xUnit v3 on Microsoft.Testing.Platform, for Core and for the Tests extension. |
 
 Blazor Server rather than a hybrid webview because its circuit is the push
 channel this app needs: a file watcher on a background thread publishes a
@@ -109,8 +107,7 @@ amounts.
 flowchart TD
   T["every 1s"] --> A["read the running agents<br/>from the ACP host"]
   A --> B["tail transcripts for the work summary"]
-  B --> C["poll the test tracker"]
-  C --> D{"20s elapsed,<br/>or an agent is somewhere<br/>we have not listed?"}
+  B --> D{"20s elapsed,<br/>or an agent is somewhere<br/>we have not listed?"}
   D -->|yes| E["re-list worktrees"]
   D -->|no| F
   E --> F{"per worktree:<br/>poll interval elapsed?"}
@@ -131,6 +128,8 @@ dotnet run --project src/AgentsDashboard.App              # native window
 dotnet run --project src/AgentsDashboard.App -- --browser # print a URL instead
 dotnet run --project src/AgentsDashboard.App -- --port 5000
 dotnet run --project src/AgentsDashboard.App -- --data-dir /tmp/dash # settings kept elsewhere
+dotnet run --project src/AgentsDashboard.App -- --extension "$PWD/extensions/DotnetTests"
+dotnet run --project src/AgentsDashboard.App -- --no-extensions
 ```
 
 The window is Photino over the platform's own webview (WebView2, WKWebView,
@@ -149,8 +148,10 @@ dotnet test
 
 The git layer is tested against the real `git` in throwaway repositories, because
 it is a parser over git's own output and a faked process would only prove the
-parser agrees with the fake. The TRX reader is tested against reports that are
-half-written, since that is the state it spends most of a run reading.
+parser agrees with the fake. The Tests extension's TRX reader is tested against
+reports that are half-written, since that is the state it spends most of a run
+reading.
 
-To watch the test monitor work on its own suite: start the dashboard, open the
-**Tests** tab for this repository, and run `dotnet test` in another terminal.
+To watch the Tests extension follow its own suite: start the dashboard with
+`--extension` pointing at `extensions/DotnetTests`, open **Tests** for this
+repository, and run `dotnet test` in another terminal.

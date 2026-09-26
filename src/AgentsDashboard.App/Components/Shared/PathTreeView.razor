@@ -13,29 +13,34 @@
 <Virtualize Items="Rows" ItemSize="RowHeight" OverscanCount="40" Context="row">
     @{
         var node = row.Node;
+        var open = !node.IsFile && IsOpen(node.Path);
+        var rowClass = node.IsFile ? $"tree-row file {(Selected == node.Path ? "selected" : "")}" : "tree-row dir";
     }
-    @if (node.IsFile)
+    @if (Actions is null)
     {
         <button type="button"
-                class="tree-row file @(Selected == node.Path ? "selected" : "")"
+                class="@rowClass"
                 style="@Indent(row.Depth)"
-                title="@node.Path"
-                @onclick="() => OnSelect.InvokeAsync(node.Path)">
-            @FileRow(node)
+                title="@(node.IsFile ? node.Path : null)"
+                aria-expanded="@(node.IsFile ? null : open.ToString().ToLowerInvariant())"
+                @onclick="() => Activate(node)">
+            @RowContent((node, open))
         </button>
     }
     else
     {
-        var open = !Collapsed.Contains(node.Path);
-        <button type="button"
-                class="tree-row dir"
-                style="@Indent(row.Depth)"
-                aria-expanded="@open.ToString().ToLowerInvariant()"
-                @onclick="() => OnToggle.InvokeAsync(node.Path)">
-            <span class="caret @(open ? "open" : "")" aria-hidden="true"></span>
-            <span class="label">@node.Name</span>
-            <span class="n faint">@node.FileCount</span>
-        </button>
+        @* With actions the row is a plain container: the actions are buttons,
+           and a button cannot sit inside another. *@
+        <div class="@rowClass has-actions" style="@Indent(row.Depth)">
+            <button type="button"
+                    class="tree-hit"
+                    title="@(node.IsFile ? node.Path : null)"
+                    aria-expanded="@(node.IsFile ? null : open.ToString().ToLowerInvariant())"
+                    @onclick="() => Activate(node)">
+                @RowContent((node, open))
+            </button>
+            <span class="tree-actions">@Actions(node)</span>
+        </div>
     }
 </Virtualize>
 
@@ -46,9 +51,23 @@
     [Parameter, EditorRequired]
     public PathTreeNode<TValue> Node { get; set; } = default!;
 
-    /// <summary>Paths of the directories the user has folded shut.</summary>
+    /// <summary>
+    /// Paths of the directories the user has toggled away from the default:
+    /// folded shut, or opened when <see cref="FoldedByDefault"/> is set.
+    /// </summary>
     [Parameter, EditorRequired]
     public HashSet<string> Collapsed { get; set; } = default!;
+
+    /// <summary>
+    /// Every folder starts shut, as VS Code's Source Control view has them, and
+    /// <see cref="Collapsed"/> holds the ones opened. Inverted rather than
+    /// seeded with every folder, so a folder that first appears later (a file
+    /// staged into a new part of the tree) starts shut as well.
+    /// </summary>
+    [Parameter]
+    public bool FoldedByDefault { get; set; }
+
+    private bool IsOpen(string path) => Collapsed.Contains(path) == FoldedByDefault;
 
     /// <summary>The file currently in view, if any.</summary>
     [Parameter]
@@ -57,11 +76,59 @@
     [Parameter, EditorRequired]
     public RenderFragment<PathTreeNode<TValue>> FileRow { get; set; } = default!;
 
+    /// <summary>
+    /// Buttons drawn at the end of a row, file or folder, such as staging it.
+    /// Left null, each row is one button.
+    /// </summary>
+    [Parameter]
+    public RenderFragment<PathTreeNode<TValue>>? Actions { get; set; }
+
     [Parameter]
     public EventCallback<string> OnToggle { get; set; }
 
     [Parameter]
     public EventCallback<string> OnSelect { get; set; }
+
+    private Task Activate(PathTreeNode<TValue> node) =>
+        node.IsFile ? OnSelect.InvokeAsync(node.Path) : OnToggle.InvokeAsync(node.Path);
+
+    private RenderFragment RowContent((PathTreeNode<TValue> Node, bool Open) row) => __builder =>
+    {
+        var node = row.Node;
+        if (node.IsFile)
+        {
+            @* The empty twistie keeps a file's icon under its folder's icon. *@
+            <span class="twistie" aria-hidden="true"></span>
+            <FileGlyph Path="@node.Path" />
+            @FileRow(node)
+        }
+        else
+        {
+            <span class="twistie" aria-hidden="true">
+                <svg class="chevron @(row.Open ? "open" : "")" viewBox="0 0 16 16" width="14" height="14">
+                    <path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.6"
+                          stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+            </span>
+            <span class="file-icon fi-folder" aria-hidden="true">
+                @if (row.Open)
+                {
+                    <svg viewBox="0 0 16 16" width="15" height="15">
+                        <path d="M1.5 3.5h4.5l1.5 1.5h6v2H4L1.5 12.5z" fill="currentColor" opacity="0.55" />
+                        <path d="M1.5 12.5 4 7h11l-2.5 5.5z" fill="currentColor" />
+                    </svg>
+                }
+                else
+                {
+                    <svg viewBox="0 0 16 16" width="15" height="15">
+                        <path d="M1.5 3.5h4.5l1.5 1.5h7v7.5h-13z" fill="currentColor" />
+                    </svg>
+                }
+            </span>
+            <span class="label">@node.Name</span>
+            <span class="n faint">@node.FileCount</span>
+        }
+    };
 
     private readonly record struct Row(PathTreeNode<TValue> Node, int Depth);
 
@@ -85,7 +152,7 @@
         foreach (var child in node.Children)
         {
             rows.Add(new Row(child, depth));
-            if (!child.IsFile && !Collapsed.Contains(child.Path))
+            if (!child.IsFile && IsOpen(child.Path))
             {
                 Walk(child, depth + 1, rows);
             }

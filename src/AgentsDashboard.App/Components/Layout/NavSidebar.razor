@@ -47,6 +47,10 @@
                         </span>
                     </span>
                     <span class="chat-item-where">@target.Where</span>
+                    @if (target.BackgroundCount > 0 && target.State is not (ChatState.Parked or ChatState.Failed))
+                    {
+                        <span class="chat-item-bg">@target.BackgroundCount running in background</span>
+                    }
                     @if (target.WaitingFor is { Length: > 0 } question)
                     {
                         <span class="chat-item-snippet waiting">@AgentSession.Shorten(question, 80)</span>
@@ -83,6 +87,10 @@
             </svg>
         </button>
     </div>
+
+    @* Dragged in app.js: drag to resize, arrow keys to nudge, double-click to reset. *@
+    <div class="sidebar-resize" role="separator" aria-orientation="vertical" aria-label="Resize the agent list"
+         tabindex="0" title="Drag to resize. Double-click to reset."></div>
 </nav>
 
 @code {

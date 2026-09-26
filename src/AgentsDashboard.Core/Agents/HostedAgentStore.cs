@@ -5,7 +5,14 @@ namespace AgentsDashboard.Core.Agents;
 
 /// <summary>An agent the dashboard runs, as remembered between runs.</summary>
 /// <param name="Prompt">Its first prompt, shown in place of a title until the agent names it.</param>
-public sealed record HostedAgentRecord(string SessionId, string Cwd, string? Title, DateTimeOffset AddedAt, string? Prompt = null);
+/// <param name="Context">How full its context window was last reported, so a stopped agent still shows it.</param>
+public sealed record HostedAgentRecord(
+    string SessionId,
+    string Cwd,
+    string? Title,
+    DateTimeOffset AddedAt,
+    string? Prompt = null,
+    ContextUsage? Context = null);
 
 /// <summary>
 /// The agents in the sidebar, kept across restarts.

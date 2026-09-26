@@ -1,5 +1,7 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
+using AgentsDashboard.Core.Model;
 
 namespace AgentsDashboard.Core.Claude;
 
@@ -11,11 +13,13 @@ namespace AgentsDashboard.Core.Claude;
 /// <param name="Skills">Skills the session has invoked, deduped, in first-use order.</param>
 /// <param name="LastPrompt">The most recent prompt sent to the session.</param>
 /// <param name="LastReply">The agent's most recent words, so you can read what it said.</param>
+/// <param name="BackgroundCommands">Shell commands started in the background with no completion notice yet.</param>
 public sealed record TranscriptFacts(
     string? Summary,
     IReadOnlyList<string> Skills,
     string? LastPrompt,
-    string? LastReply = null);
+    string? LastReply = null,
+    IReadOnlyList<BackgroundCommand>? BackgroundCommands = null);
 
 /// <summary>
 /// Reads the two things the registry cannot answer: what the agent says it is
@@ -48,6 +52,12 @@ public sealed class TranscriptReader
         public string? LastReply;
         public readonly List<string> Skills = [];
         public readonly HashSet<string> SkillSet = new(StringComparer.Ordinal);
+
+        /// <summary>Background commands still running, in the order they started.</summary>
+        public readonly List<BackgroundCommand> Background = [];
+
+        /// <summary>Background task id to the Bash call that started it, for a notice that only names the task.</summary>
+        public readonly Dictionary<string, string> TaskCalls = new(StringComparer.Ordinal);
     }
 
     /// <summary>Everything known about this session from its transcript so far.</summary>
@@ -108,7 +118,8 @@ public sealed class TranscriptReader
             cursor.CustomTitle ?? cursor.AiTitle,
             cursor.Skills.ToArray(),
             cursor.LastPrompt,
-            cursor.LastReply);
+            cursor.LastReply,
+            cursor.Background.ToArray());
     }
 
     /// <summary>Drop cursors for sessions that have ended.</summary>
@@ -129,7 +140,25 @@ public sealed class TranscriptReader
         var interesting = line.Contains("\"assistant\"", StringComparison.Ordinal)
             || line.Contains("\"ai-title\"", StringComparison.Ordinal)
             || line.Contains("\"custom-title\"", StringComparison.Ordinal)
-            || line.Contains("\"last-prompt\"", StringComparison.Ordinal);
+            || line.Contains("\"last-prompt\"", StringComparison.Ordinal)
+            || line.Contains("backgroundTaskId", StringComparison.Ordinal)
+            || (cursor.Background.Count > 0 && line.Contains("\"is_error\":true", StringComparison.Ordinal));
+
+        // A finished background command is announced as a task notification.
+        // Read from the raw line rather than a parsed record, because it arrives
+        // as a user message when the agent is idle and as a queued attachment
+        // when it is mid-turn, and the tags are the same either way.
+        if (line.Contains("<task-notification>", StringComparison.Ordinal))
+        {
+            var call = Tag(line, "tool-use-id")
+                       ?? (Tag(line, "task-id") is { } task && cursor.TaskCalls.TryGetValue(task, out var mapped) ? mapped : null);
+            if (call is not null)
+            {
+                cursor.Background.RemoveAll(b => b.ToolUseId == call);
+            }
+
+            return;
+        }
 
         if (!interesting)
         {
@@ -175,8 +204,13 @@ public sealed class TranscriptReader
                     cursor.LastPrompt = ExtractPrompt(root);
                     break;
 
+                case "user":
+                    BackgroundResults(root, cursor);
+                    break;
+
                 case "assistant":
                     CollectSkills(root, cursor);
+                    CollectBackground(root, cursor);
                     if (AssistantText(root) is { } reply)
                     {
                         cursor.LastReply = reply;
@@ -275,6 +309,87 @@ public sealed class TranscriptReader
                 cursor.Skills.Add(value);
             }
         }
+    }
+
+    /// <summary>
+    /// Bash calls made with <c>run_in_background</c>. They return at once, and
+    /// the command goes on running until a task notification says it finished.
+    /// A subagent's calls are its own business and are left out.
+    /// </summary>
+    private static void CollectBackground(JsonElement root, Cursor cursor)
+    {
+        if (root.TryGetProperty("isSidechain", out var side) && side.ValueKind == JsonValueKind.True
+            || !root.TryGetProperty("message", out var message)
+            || !message.TryGetProperty("content", out var content)
+            || content.ValueKind != JsonValueKind.Array)
+        {
+            return;
+        }
+
+        var at = root.TryGetProperty("timestamp", out var ts)
+                 && ts.ValueKind == JsonValueKind.String
+                 && DateTimeOffset.TryParse(ts.GetString(), out var parsed)
+            ? parsed
+            : DateTimeOffset.MinValue;
+
+        foreach (var block in content.EnumerateArray())
+        {
+            if (block.ValueKind != JsonValueKind.Object
+                || Text(block, "type") != "tool_use"
+                || Text(block, "name") != "Bash"
+                || Text(block, "id") is not { } id
+                || !block.TryGetProperty("input", out var input)
+                || !input.TryGetProperty("run_in_background", out var bg)
+                || bg.ValueKind != JsonValueKind.True)
+            {
+                continue;
+            }
+
+            var what = Text(input, "description") ?? Text(input, "command") ?? "Background command";
+            cursor.Background.Add(new BackgroundCommand(id, AgentSession.Shorten(what, 80), at));
+        }
+    }
+
+    /// <summary>
+    /// The result of a background Bash call: it names the task id a later notice
+    /// may use, or says the command never started.
+    /// </summary>
+    private static void BackgroundResults(JsonElement root, Cursor cursor)
+    {
+        if (!root.TryGetProperty("message", out var message)
+            || !message.TryGetProperty("content", out var content)
+            || content.ValueKind != JsonValueKind.Array)
+        {
+            return;
+        }
+
+        foreach (var block in content.EnumerateArray())
+        {
+            if (block.ValueKind != JsonValueKind.Object
+                || Text(block, "type") != "tool_result"
+                || Text(block, "tool_use_id") is not { } id
+                || !cursor.Background.Exists(b => b.ToolUseId == id))
+            {
+                continue;
+            }
+
+            if (block.TryGetProperty("is_error", out var error) && error.ValueKind == JsonValueKind.True)
+            {
+                cursor.Background.RemoveAll(b => b.ToolUseId == id);
+            }
+            else if (root.TryGetProperty("toolUseResult", out var result)
+                     && result.ValueKind == JsonValueKind.Object
+                     && Text(result, "backgroundTaskId") is { } task)
+            {
+                cursor.TaskCalls[task] = id;
+            }
+        }
+    }
+
+    private static string? Tag(string text, string name)
+    {
+        var match = Regex.Match(text, $"<{name}>(.*?)</{name}>");
+        return match.Success && match.Groups[1].Value.Trim() is { Length: > 0 } value ? value : null;
     }
 
     /// <summary>Move back to the start of the line containing <paramref name="from"/>.</summary>

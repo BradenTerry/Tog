@@ -9,11 +9,14 @@
 @inject TranscriptLocator Locator
 @inject ConversationReader Conversations
 @inject IJSRuntime Js
+@inject ChatDrafts Drafts
+@inject ExtensionHost Extensions
 
 @* One agent: where it works, and three views of it. The conversation reads like
    every messaging app, newest at the bottom with the box to type in under it.
-   Changes, Files and Tests show its worktree, so its work can be reviewed and
-   handed back to it without leaving it. The list of agents is the sidebar. *@
+   Changes and Files show its worktree, so its work can be reviewed and handed
+   back to it without leaving it. Extensions add tabs after those. The list of
+   agents is the sidebar. *@
 
 <PageTitle>@(Current?.Label ?? "Chat") - Agents Dashboard</PageTitle>
 
@@ -72,7 +75,13 @@
                 }
                 @if (agent.Branch is { Length: > 0 } branch)
                 {
-                    <span class="chip mono">@branch</span>
+                    <span class="where-item"><span class="faint">Branch</span> <strong class="mono">@branch</strong></span>
+                }
+                else if (agent.Detached)
+                {
+                    <span class="where-item" title="No branch is checked out: commits made here belong to no branch">
+                        <span class="faint">Branch</span> <strong>none (detached HEAD)</strong>
+                    </span>
                 }
                 <span class="mono faint truncate where-path" title="@(agent.WorktreePath ?? agent.Cwd)">@(agent.WorktreePath ?? agent.Cwd)</span>
             </div>
@@ -89,11 +98,14 @@
                         }
                     </a>
                     <a class="tab @TabClass("files")" href="@Urls.Chat(agent.SessionId, "files")">Files</a>
-                    <a class="tab @TabClass("tests")" href="@Urls.Chat(agent.SessionId, "tests")">
-                        Tests
-                        @if (WorktreeOf(agent)?.LatestRun?.Failed is > 0 and var failing)
+                }
+                @foreach (var extView in ViewsFor(agent))
+                {
+                    <a class="tab @TabClass(extView.View.Key)" href="@Urls.Chat(agent.SessionId, extView.View.Key)">
+                        @extView.View.Title
+                        @if (Extensions.IndicatorFor(extView.View, ApiAgent(agent)) is { } indicator)
                         {
-                            <span class="count" style="color: var(--danger);">@failing</span>
+                            <span class="count @ToneClass(indicator.Tone)" title="@indicator.Tooltip">@indicator.Text</span>
                         }
                     </a>
                 }
@@ -146,15 +158,97 @@
                                     break;
 
                                 case ChatKind.Activity:
-                                    <details class="activity">
-                                        <summary>@ConversationReader.Describe(entry.Steps)</summary>
-                                        <ul>
-                                            @foreach (var step in entry.Steps)
+                                    @if (entry.Steps.Count > 0)
+                                    {
+                                        <details class="activity">
+                                            <summary>@ConversationReader.Describe(entry.Steps)</summary>
+                                            <ul>
+                                                @foreach (var step in entry.Steps)
+                                                {
+                                                    <li><span class="mono activity-tool">@step.Tool</span> <span class="activity-what">@step.Summary</span></li>
+                                                }
+                                            </ul>
+                                        </details>
+                                    }
+                                    @if (entry.Edits.Count > 0)
+                                    {
+                                        var runKey = entry.Edits[0].ToolUseId;
+                                        var files = entry.ChangedFiles;
+                                        var runOpen = _open.Contains(runKey);
+                                        @* Opened and closed on the server rather than by the browser's own
+                                           details toggle, so the file list and its diffs are only built
+                                           while you are looking at them: the view redraws every second. *@
+                                        <details class="activity files-changed" open="@runOpen">
+                                            <summary @onclick="() => Toggle(runKey)" @onclick:preventDefault>
+                                                Files changed <span class="count">@files.Count</span>
+                                                <span class="edit-add">+@entry.Edits.Sum(e => e.Added)</span>
+                                                <span class="edit-del">-@entry.Edits.Sum(e => e.Removed)</span>
+                                            </summary>
+                                            @if (runOpen)
                                             {
-                                                <li><span class="mono activity-tool">@step.Tool</span> <span class="activity-what">@step.Summary</span></li>
+                                                <div class="files-changed-list">
+                                                    @foreach (var file in files)
+                                                    {
+                                                        var fileKey = runKey + "|" + file.Key;
+                                                        var fileOpen = _open.Contains(fileKey);
+                                                        var relative = RelativeTo(agent, file.Key);
+                                                        <details class="changed-file" open="@fileOpen">
+                                                            <summary @onclick="() => Toggle(fileKey)" @onclick:preventDefault>
+                                                                <span class="mono changed-path" title="@file.Key">@relative</span>
+                                                                @if (file.All(e => e.Failed))
+                                                                {
+                                                                    <span class="faint">failed</span>
+                                                                }
+                                                                else
+                                                                {
+                                                                    @if (file.Any(e => e.Created))
+                                                                    {
+                                                                        <span class="faint">new</span>
+                                                                    }
+                                                                    <span class="edit-add">+@file.Sum(e => e.Added)</span>
+                                                                    <span class="edit-del">-@file.Sum(e => e.Removed)</span>
+                                                                }
+                                                            </summary>
+                                                            @if (fileOpen)
+                                                            {
+                                                                <div class="edit-diff mono">
+                                                                    @foreach (var edit in file.Where(e => !e.Failed))
+                                                                    {
+                                                                        @foreach (var hunk in edit.Hunks)
+                                                                        {
+                                                                            var oldLine = hunk.OldStart;
+                                                                            var newLine = hunk.NewStart;
+                                                                            <div class="edit-hunk"></div>
+                                                                            @foreach (var line in hunk.Lines)
+                                                                            {
+                                                                                var mark = line.Length > 0 ? line[0] : ' ';
+                                                                                // Removed lines are numbered in the old file, the
+                                                                                // rest in the new one, as in the Changes tab.
+                                                                                var number = mark == '-' ? oldLine : newLine;
+                                                                                <div class="edit-line @(mark == '+' ? "add" : mark == '-' ? "del" : "")">
+                                                                                    <span class="edit-ln">@number</span><span class="edit-text">@(line.Length > 0 ? line[1..] : "")</span>
+                                                                                </div>
+                                                                                if (mark != '+' && oldLine is not null) { oldLine++; }
+                                                                                if (mark != '-' && newLine is not null) { newLine++; }
+                                                                            }
+                                                                        }
+                                                                        @if (edit.Truncated)
+                                                                        {
+                                                                            <div class="edit-more faint">Longer than @ConversationReader.MaxEditLines lines; the rest is left out.</div>
+                                                                        }
+                                                                    }
+                                                                </div>
+                                                                @if (!file.All(e => e.Failed) && relative != file.Key)
+                                                                {
+                                                                    <a class="small changed-open" href="@Urls.AgentFile(agent.SessionId, relative, FirstLine(file))">Open in Files</a>
+                                                                }
+                                                            }
+                                                        </details>
+                                                    }
+                                                </div>
                                             }
-                                        </ul>
-                                    </details>
+                                        </details>
+                                    }
                                     break;
 
                                 case ChatKind.Notice:
@@ -188,7 +282,7 @@
 
                         @* What the agent is saying right now, before its transcript has it:
                            streamed over ACP as it is written. *@
-                        @if (agent.LiveText is { Length: > 0 } live && agent.State is ChatState.Active or ChatState.Waiting)
+                        @if (_liveShown is { Length: > 0 } live)
                         {
                             <div class="msg agent live">
                                 <div class="bubble">
@@ -233,19 +327,57 @@
                         }
                     </div>
 
+                    @* Work that goes on outside the turn: a subagent or a background
+                       command keeps running after the agent says it is done, and an
+                       idle agent with work in flight is not finished. *@
+                    @if (agent.BackgroundCount > 0 && agent.State is not (ChatState.Parked or ChatState.Failed))
+                    {
+                        <div class="background-strip" aria-label="Running in the background">
+                            <span class="background-head">
+                                <WorkingDots /> Running in the background <span class="count">@agent.BackgroundCount</span>
+                            </span>
+                            @foreach (var sub in agent.Subagents ?? [])
+                            {
+                                <span class="background-item" title="@sub.Description">
+                                    <span class="background-kind">@(sub.AgentType ?? "Subagent")</span>
+                                    <span class="background-what">@(sub.Description ?? "Subagent")</span>
+                                    <span class="faint nums">@Fmt.Duration(Snapshot.Value.TakenAt - sub.StartedAt)</span>
+                                </span>
+                            }
+                            @foreach (var command in agent.BackgroundCommands ?? [])
+                            {
+                                <span class="background-item" title="@command.Description">
+                                    <span class="background-kind">Command</span>
+                                    <span class="background-what">@command.Description</span>
+                                    <span class="faint nums">@Fmt.Duration(Snapshot.Value.TakenAt - command.StartedAt)</span>
+                                </span>
+                            }
+                        </div>
+                    }
+
                     <form class="chat-composer" @onsubmit="Send">
                         <div class="composer-row">
                             <textarea @ref="_box" rows="1"
                                       placeholder="@Placeholder(agent)"
                                       aria-label="Message for @agent.Label"
                                       disabled="@(!CanSend(agent))"
-                                      @oninput="e => _draft = e.Value?.ToString() ?? string.Empty"></textarea>
+                                      @oninput="e => { _draft = e.Value?.ToString() ?? string.Empty; Drafts.Set(agent.SessionId, _draft); }"></textarea>
                             <button type="submit" class="primary"
                                     disabled="@(_sending || string.IsNullOrWhiteSpace(_draft) || !CanSend(agent))">
                                 Send
                             </button>
                         </div>
-                        <div class="composer-hint">@Hint(agent)</div>
+                        <div class="composer-foot">
+                            <span class="composer-hint">@Hint(agent)</span>
+                            @if (agent.Context is { } context)
+                            {
+                                @* As of the last turn's end: the agent only reports it then. *@
+                                <span class="context-meter @ContextClass(context)"
+                                      title="@($"{Fmt.Tokens(context.Used)} of {Fmt.Tokens(context.Size)} tokens in context, as of the last turn")">
+                                    @context.Percent% context
+                                </span>
+                            }
+                        </div>
                     </form>
                 </div>
 
@@ -272,12 +404,15 @@
                     </div>
                 }
 
-                @if (_visited.Contains("tests") && WorktreeOf(agent) is { } testsView)
+                @foreach (var extView in ViewsFor(agent).Where(v => _visited.Contains(v.View.Key)))
                 {
-                    <div class="agent-layer @Layer("tests")">
+                    @* Keyed by generation as well, so a reloaded extension's view
+                       is built fresh from the new copy's type rather than handed
+                       new parameters. *@
+                    <div class="agent-layer @Layer(extView.View.Key)" @key="(extView.View.Key, extView.Generation, agent.SessionId)">
                         <div class="agent-pane">
                             <div class="page wide">
-                                <TestsTab View="testsView" Now="Now" SessionId="@agent.SessionId" @key="testsView.Worktree.Path" />
+                                <ExtensionViewHost Live="extView" Agent="ApiAgent(agent)" IsVisible="@(CurrentTab == extView.View.Key)" />
                             </div>
                         </div>
                     </div>
@@ -315,6 +450,28 @@
     private bool _transcriptMissing;
     private readonly List<Pending> _pending = [];
 
+    /// <summary>The "Files changed" folds and the files in them that are open, by key.</summary>
+    private readonly HashSet<string> _open = new(StringComparer.Ordinal);
+
+    private void Toggle(string key)
+    {
+        if (!_open.Remove(key))
+        {
+            _open.Add(key);
+        }
+    }
+
+    /// <summary>A changed file's path relative to the agent's worktree, or as given when it is outside it.</summary>
+    private static string RelativeTo(ChatTarget agent, string path)
+    {
+        var root = agent.WorktreePath ?? agent.Cwd;
+        return path.StartsWith(root + "/", StringComparison.Ordinal) ? path[(root.Length + 1)..] : path;
+    }
+
+    /// <summary>Where a file's first change starts, to open the Files tab there.</summary>
+    private static int? FirstLine(IEnumerable<ChatEdit> edits) =>
+        edits.SelectMany(e => e.Hunks).Select(h => h.NewStart).FirstOrDefault(n => n is not null);
+
     /// <summary>
     /// What is in the message box, as the browser last reported it. The box is
     /// never written from here on a render: the page re-renders every second, and
@@ -345,7 +502,42 @@
     private ChatTarget? Current =>
         SessionId is null ? null : Directory.Targets(Snapshot.Value).FirstOrDefault(t => t.SessionId == SessionId);
 
-    private string CurrentTab => Tab is "changes" or "files" or "tests" ? Tab : "chat";
+    private string CurrentTab =>
+        Tab is "changes" or "files" || (Tab is not null && Extensions.Views.Any(v => v.View.Key == Tab)) ? Tab : "chat";
+
+    /// <summary>The extension views that apply to this agent. A view that throws deciding is left out.</summary>
+    private IEnumerable<LiveView> ViewsFor(ChatTarget agent)
+    {
+        var api = ApiAgent(agent);
+        foreach (var live in Extensions.Views)
+        {
+            bool applies;
+            try
+            {
+                applies = live.View.AppliesTo?.Invoke(api) ?? true;
+            }
+            catch (Exception)
+            {
+                applies = false;
+            }
+
+            if (applies)
+            {
+                yield return live;
+            }
+        }
+    }
+
+    private AgentsDashboard.Extensions.AgentContext ApiAgent(ChatTarget agent) => ApiModel.Agent(agent, State);
+
+    private static string ToneClass(AgentsDashboard.Extensions.Tone tone) => tone switch
+    {
+        AgentsDashboard.Extensions.Tone.Danger => "danger",
+        AgentsDashboard.Extensions.Tone.Warning => "warning",
+        AgentsDashboard.Extensions.Tone.Success => "success",
+        AgentsDashboard.Extensions.Tone.Info => "info",
+        _ => "",
+    };
 
     private string TabClass(string tab) => CurrentTab == tab ? "active" : "";
 
@@ -370,12 +562,20 @@
         _ => "Message the agent...",
     };
 
+    /// <summary>Amber from 70%, red from 85%: Claude compacts the conversation on its own not far past that.</summary>
+    private static string ContextClass(ContextUsage context) => context.Percent switch
+    {
+        >= 85 => "high",
+        >= 70 => "warn",
+        _ => "",
+    };
+
     private static string Hint(ChatTarget target)
     {
         const string Keys = "Enter to send, Shift+Enter for a new line.";
         return target.State switch
         {
-            ChatState.Active or ChatState.Waiting => Keys + " It is working: your message is queued as its next turn.",
+            ChatState.Active or ChatState.Waiting => Keys + " It is working: it reads your message between steps.",
             ChatState.Parked => Keys + " Its session has ended: sending resumes it with its conversation kept.",
             ChatState.Failed => Keys + " Sending starts it again with its conversation kept.",
             _ => Keys + " It picks up from where the conversation left off.",
@@ -390,6 +590,7 @@
         base.OnInitialized();
         State.Changed += OnSnapshot;
         Directory.Changed += OnDirectoryChanged;
+        Extensions.Changed += OnExtensionsChanged;
     }
 
     /// <summary>The host heard from the agent: new streamed text, a tool call, a permission prompt.</summary>
@@ -406,9 +607,13 @@
             _shownSession = SessionId;
             _entries = [];
             _pending.Clear();
+            _open.Clear();
+            _lastLive = null;
+            _liveShown = null;
             _notice = null;
-            _draft = "";
-            _putInBox = "";
+            // Each agent keeps what you had typed to it.
+            _draft = SessionId is null ? "" : Drafts.Get(SessionId);
+            _putInBox = _draft;
             _forceScroll = true;
             _visited.Clear();
         }
@@ -422,6 +627,8 @@
     /// Keeps the open conversation current. Runs on the monitor's tick, so a
     /// working agent's replies appear as it writes them.
     /// </summary>
+    private void OnExtensionsChanged() => _ = InvokeAsync(StateHasChanged);
+
     private void OnSnapshot() => _ = InvokeAsync(() =>
     {
         ReadConversation();
@@ -444,6 +651,7 @@
         }
 
         _entries = Conversations.Read(target.SessionId, path);
+        _liveShown = LiveToShow(target);
 
         // A delivered message stops being "pending" once the transcript has it.
         _pending.RemoveAll(p => p.State == SendState.Sent && _entries.Any(e =>
@@ -451,6 +659,65 @@
             && e.At >= p.SentAt.AddMinutes(-1)
             && string.Equals(e.Text.Trim(), p.Text.Trim(), StringComparison.Ordinal)));
     }
+
+    /// <summary>The streamed reply drawn under the thread, if any.</summary>
+    private string? _liveShown;
+
+    /// <summary>The last streamed text seen, and when, kept after the host clears it.</summary>
+    private string? _lastLive;
+    private DateTimeOffset _lastLiveAt;
+
+    /// <summary>
+    /// The reply being written, held on screen until the transcript has it.
+    /// </summary>
+    /// <remarks>
+    /// The host clears its live text at the next tool call or the end of the turn,
+    /// because the agent has written the message to its transcript by then. The
+    /// thread only rereads the transcript on the monitor's next tick, up to a
+    /// second later, so taking the host's word for it made the message vanish and
+    /// come back. Instead the last live text stays until a message in the thread
+    /// matches it, and the live copy steps aside as soon as the transcript has it,
+    /// so the two are never shown at once. A few seconds is the limit, in case the
+    /// transcript words it differently enough never to match.
+    /// </remarks>
+    private string? LiveToShow(ChatTarget target)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var live = target.State is ChatState.Active or ChatState.Waiting ? target.LiveText : "";
+        if (live.Length > 0)
+        {
+            _lastLive = live;
+            _lastLiveAt = now;
+        }
+        else if (_lastLive is not null && now - _lastLiveAt > TimeSpan.FromSeconds(5))
+        {
+            _lastLive = null;
+        }
+
+        var shown = live.Length > 0 ? live : _lastLive;
+        if (shown is null)
+        {
+            return null;
+        }
+
+        var flat = Flat(shown);
+        var written = _entries
+            .Where(e => e.Kind == ChatKind.Agent)
+            .TakeLast(3)
+            .Select(e => Flat(e.Text))
+            .Any(text => text.Contains(flat, StringComparison.Ordinal));
+
+        if (written)
+        {
+            _lastLive = null;
+            return null;
+        }
+
+        return shown;
+    }
+
+    private static string Flat(string text) =>
+        string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 
     private async Task Send()
     {
@@ -468,6 +735,7 @@
         var pending = new Pending(text);
         _pending.Add(pending);
         _draft = "";
+        Drafts.Set(target.SessionId, "");
         _sending = true;
         _forceScroll = true;
         StateHasChanged();
@@ -494,6 +762,10 @@
         _pending.Remove(pending);
         _draft = pending.Text;
         _putInBox = pending.Text;
+        if (Current is { } target)
+        {
+            Drafts.Set(target.SessionId, _draft);
+        }
     }
 
     private async Task ResetBox()
@@ -516,9 +788,12 @@
 
         var result = await action();
 
+        // Only a failure is worth a banner. When stopping a turn or ending a
+        // session works, the agent's state and the chat already say so, and a
+        // second "Stopping the turn." on top of that is just something to dismiss.
         _busy = false;
         _noticeFailed = !result.Ok;
-        _notice = result.Message;
+        _notice = result.Ok ? null : result.Message;
         Monitor.InvalidateWorktrees();
     }
 
@@ -567,6 +842,7 @@
         {
             State.Changed -= OnSnapshot;
             Directory.Changed -= OnDirectoryChanged;
+            Extensions.Changed -= OnExtensionsChanged;
         }
 
         base.Dispose(disposing);
