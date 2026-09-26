@@ -25,7 +25,11 @@ app_dir="$bundle/Contents/Resources/app"
 
 next_dir="$bundle/Contents/Resources/app.next"
 running=false
-if pgrep -f "$app_dir/agents-dashboard" >/dev/null; then
+# ps rather than pgrep: pgrep can come back empty for every process in a
+# sandboxed shell, and saying "not running" when it is would replace the files
+# of an app that is serving from them. The executable, matched whole, so the
+# grep's own command line (which holds the path) cannot match itself.
+if ps -axo comm= | grep -qxF "$app_dir/agents-dashboard"; then
     running=true
 fi
 
