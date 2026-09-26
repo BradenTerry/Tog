@@ -96,6 +96,7 @@ builder.Services.AddSingleton(new ExtensionOptions(options.Extensions ?? [], opt
 builder.Services.AddSingleton<AgentsDashboard.Extensions.IDashboardView, DashboardViewAdapter>();
 builder.Services.AddSingleton<AgentsDashboard.Extensions.INavigation, Navigation>();
 builder.Services.AddSingleton<AgentsDashboard.Extensions.ITextLinker, TextLinker>();
+builder.Services.AddScoped<AgentsDashboard.Extensions.IEditorTabs, EditorTabs>();
 builder.Services.AddSingleton<ExtensionHost>();
 // Language support is an extension's: this only routes the editor's questions
 // to whichever loaded extension answers for the file.

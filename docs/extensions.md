@@ -78,6 +78,11 @@ manifest; one built against 1.0 still loads and lands on the right. Views are
 written against `AgentViewBase` and nothing about where they are drawn, so
 moving one to another panel needs no change to it.
 
+`IEditorTabs` (API 1.2) opens a file as a tab in the window's editor, read-only
+when it is outside the worktree, such as a report the extension wrote to its
+data folder. It is scoped to the window, so a view `@inject`s it; the
+extension's own services are shared by every window and cannot.
+
 ## Agent tools
 
 `AddAgentTool<T>()` (API 1.2) gives the agents a tool: an `IAgentTool` with a
