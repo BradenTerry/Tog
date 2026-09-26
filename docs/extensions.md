@@ -69,7 +69,7 @@ does not load.
 | --- | --- | --- |
 | `RightPanel` | After Source control. The default | 1.1 |
 | `LeftPanel` | After Files | 1.1 |
-| `BottomPanel` | After Chat, beside the agent list | 1.1 |
+| `BottomPanel` | After Chat | 1.1 |
 | `AgentTab` | The 1.0 agent view's tab strip, which is gone. Drawn in the right panel | 1.0 |
 
 An extension that names one of the panels needs `"apiVersion": "1.1"` in its

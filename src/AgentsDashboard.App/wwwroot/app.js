@@ -470,7 +470,7 @@ function growComposer(box) {
     }
 }
 
-// Slash commands in the composer: typing a slash at the start of the box lists
+// Slash commands in the composer: typing a slash at the start of a word lists
 // the commands the agent takes (its skills, your custom commands, its own) and
 // narrows them as you type. It all happens here rather than on the circuit, so
 // the list keeps up with typing. The server only hands over the commands, and
@@ -479,7 +479,9 @@ function growComposer(box) {
 //
 // Tab completes the name and leaves the caret after it for an argument. Enter
 // does the same for a command that takes an argument, and sends one that does
-// not, the way the terminal runs it.
+// not, the way the terminal runs it. Only a command at the start of the message
+// is run as one; further in, it is text the agent reads, which is how a skill
+// is asked for mid-sentence, so there Enter only completes.
 const commandMenus = new WeakMap();
 let commandMenuCount = 0;
 
@@ -493,12 +495,22 @@ function commandState(box) {
     return state;
 }
 
-// The name being typed, when the caret is still inside the first word and that
-// word is a slash command.
+// The slash word the caret is at the end of, and where it starts. Only a slash
+// at the start of the box or after a space counts, so a path is left alone.
+function commandToken(box) {
+    const caret = box.selectionStart ?? box.value.length;
+    const match = /(^|\s)\/(\S*)$/.exec(box.value.slice(0, caret));
+    if (!match) {
+        return null;
+    }
+
+    const start = match.index + match[1].length;
+    const end = start + 1 + (/^\S*/.exec(box.value.slice(start + 1))?.[0].length ?? 0);
+    return { query: match[2].toLowerCase(), start, end };
+}
+
 function commandQuery(box) {
-    const before = box.value.slice(0, box.selectionStart ?? box.value.length);
-    const match = /^\/(\S*)$/.exec(before);
-    return match ? match[1].toLowerCase() : null;
+    return commandToken(box)?.query ?? null;
 }
 
 function closeCommands(box) {
@@ -574,7 +586,9 @@ function drawCommands(box) {
 
     const foot = document.createElement('div');
     foot.className = 'command-foot';
-    foot.textContent = 'Tab to complete, Enter to run, Esc to close';
+    foot.textContent = commandToken(box)?.start === 0
+        ? 'Tab to complete, Enter to run, Esc to close'
+        : 'Tab or Enter to complete, Esc to close';
 
     state.menu.replaceChildren(...items, foot);
     box.setAttribute('aria-expanded', 'true');
@@ -589,10 +603,17 @@ function acceptCommand(box, run) {
         return;
     }
 
-    // Replaces the first word, keeping anything already typed after it.
-    const rest = box.value.replace(/^\/\S*/, '').replace(/^\s+/, '');
-    const send = run && !command.hint && rest.length === 0;
-    const head = '/' + command.name + (send ? '' : ' ');
+    // Replaces the slash word, keeping everything around it.
+    const token = commandToken(box);
+    if (!token) {
+        closeCommands(box);
+        return;
+    }
+
+    const before = box.value.slice(0, token.start);
+    const rest = box.value.slice(token.end).replace(/^\s+/, '');
+    const send = run && token.start === 0 && !command.hint && rest.length === 0;
+    const head = before + '/' + command.name + (send ? '' : ' ');
     box.value = head + rest;
     box.setSelectionRange(head.length, head.length);
     closeCommands(box);
@@ -851,7 +872,6 @@ window.agentsDashboard = {
         left: { name: '--wb-left', axis: 'x', min: 160, max: () => window.innerWidth * 0.4 },
         right: { name: '--wb-right', axis: 'x', min: 200, max: () => window.innerWidth * 0.45 },
         bottom: { name: '--wb-bottom', axis: 'y', min: 120, max: () => window.innerHeight - 180 },
-        agents: { name: '--wb-agents', axis: 'x', min: 180, max: () => window.innerWidth * 0.4 },
     };
 
     const storageKey = (sash) => 'agentsDashboard.' + sash.name.slice(2);
@@ -878,7 +898,6 @@ window.agentsDashboard = {
             left: '.wb-left',
             right: '.wb-right',
             bottom: '.wb-bottom',
-            agents: '.agent-list',
         }[which]);
     }
 
@@ -914,9 +933,8 @@ window.agentsDashboard = {
     }
 
     // How far the pointer has moved, turned into the panel's new size. The left
-    // panel grows as the pointer goes right; the right panel, the agent list and
-    // the bottom panel grow as it goes left or up, since they sit on the far side
-    // of their border.
+    // panel grows as the pointer goes right; the right panel and the bottom panel
+    // grow as it goes left or up, since they sit on the far side of their border.
     function sizeFrom(which, start, startSize, event) {
         const sash = sashes[which];
         const delta = sash.axis === 'x' ? event.clientX - start : event.clientY - start;

@@ -7,8 +7,8 @@
 @inject AgentsDashboard.Core.Platform.OpenRequests Requests
 
 @* The window, laid out like VS Code: files on the left, source control on the
-   right, the editor in the middle with the conversation under it, and the list
-   of agents at the right of that bottom panel. The page is what the editor
+   right, the editor in the middle with the conversation under it. The agents
+   are listed from the title bar. The page is what the editor
    shows: an agent's documents, or Settings. The borders between the parts are
    dragged in app.js; their sizes are CSS variables it sets on the root. *@
 
@@ -32,9 +32,6 @@
                  aria-label="Resize the bottom panel" tabindex="0" title="Drag to resize. Double-click to reset."></div>
             <section class="wb-bottom" aria-hidden="@(!Bench.Bottom.Open ? "true" : null)">
                 <WorkbenchPanel Side="PanelSide.Bottom" />
-                <div class="sash sash-v" data-sash="agents" role="separator" aria-orientation="vertical"
-                     aria-label="Resize the agent list" tabindex="0" title="Drag to resize. Double-click to reset."></div>
-                <AgentList />
             </section>
         </div>
 
