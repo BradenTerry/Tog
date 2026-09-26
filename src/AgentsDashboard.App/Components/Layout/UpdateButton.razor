@@ -1,0 +1,43 @@
+@inherits StateComponent
+@inject AppUpdate Update
+
+@* In the title bar when a newer build is waiting. Its own component, and a
+   state one, so it re-renders on the monitor's tick: a child with no
+   parameters is otherwise never drawn again. Restarting ends the agents'
+   processes, so it asks first. *@
+
+@if (Update.Staged is { } staged)
+{
+    <span class="title-update" title="@Tooltip(staged)">
+        @if (_failed)
+        {
+            <span class="faint">Could not restart. Quit and reopen to update.</span>
+        }
+        else if (_confirming)
+        {
+            <span class="faint">Restart to update?</span>
+            <button type="button" class="primary small" @onclick="Restart">Restart</button>
+            <button type="button" class="ghost small" @onclick="() => _confirming = false">Not now</button>
+        }
+        else
+        {
+            <button type="button" class="primary small" @onclick="() => _confirming = true">Update available</button>
+        }
+    </span>
+}
+
+@code {
+    private bool _confirming;
+    private bool _failed;
+
+    private void Restart()
+    {
+        _confirming = false;
+        _failed = !Update.Restart();
+    }
+
+    private static string Tooltip(StagedUpdate staged) =>
+        $"{staged.Commit} {staged.Subject}".Trim()
+        + (staged.StagedAt is { } at ? $". Published {at.ToLocalTime():ddd h:mm tt}." : ".")
+        + " Restarting stops the agents; each resumes when you message it.";
+}

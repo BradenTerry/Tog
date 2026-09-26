@@ -4,31 +4,27 @@ using Photino.NET;
 
 namespace AgentsDashboard.App.Services;
 
-/// <summary>A build waiting next to the running one, as <c>tools/publish-local.sh</c> described it.</summary>
-public sealed record StagedUpdate(string Commit, string Subject, DateTimeOffset? StagedAt);
-
 /// <summary>
-/// Notices a newer build staged beside the running one, and restarts into it.
+/// Notices a newer build published beside the running one, and restarts into it.
 /// </summary>
 /// <remarks>
 /// The app cannot replace its own files while it runs, so publishing does not
-/// try: with the app open, <c>tools/publish-local.sh</c> writes the new build to
-/// <c>Contents/Resources/app.next</c> with a marker file, and the bundle's
-/// launcher swaps it in on the next start, whoever starts it. All this service
-/// does is see the marker and, when asked, quit and start the app again. The
-/// relaunch is a small shell loop outside this process, because nothing inside
-/// it survives the quit.
+/// try: with the app open, <c>tools/publish-local.sh</c> adds the new build and
+/// names it in <c>next</c>, and the bundle's launcher makes it current on the
+/// next start, whoever starts it. See <see cref="AppInstall"/> for why the
+/// builds live outside the bundle. All this service does is see <c>next</c>
+/// and, when asked, quit and start the app again. The relaunch is a small shell
+/// loop outside this process, because nothing inside it survives the quit.
 /// <para>
-/// Only a copy running from an app bundle, in its own window, can do this. Run
-/// from a build output or with <c>--browser</c> there is nothing to swap and no
-/// window to close, and <see cref="Staged"/> stays null.
+/// Only a copy started by a bundle's launcher, in its own window, can do this.
+/// Run from a build output or with <c>--browser</c> there is nothing to swap and
+/// no window to close, and <see cref="Staged"/> stays null.
 /// </para>
 /// </remarks>
 public sealed class AppUpdate : IDisposable
 {
     private readonly ILogger<AppUpdate> _log;
-    private readonly string? _bundle;
-    private readonly string? _marker;
+    private readonly AppInstall? _install;
     private readonly Timer? _timer;
     private PhotinoWindow? _window;
     private volatile StagedUpdate? _staged;
@@ -36,15 +32,12 @@ public sealed class AppUpdate : IDisposable
     public AppUpdate(ILogger<AppUpdate> log)
     {
         _log = log;
-
-        if (AppBundle.Locate(AppContext.BaseDirectory) is { } bundle)
+        _install = AppInstall.FromEnvironment(Environment.GetEnvironmentVariable);
+        if (_install is not null)
         {
-            _bundle = bundle.Bundle;
-            _marker = bundle.Marker;
-
             // A file check every few seconds; a watcher would be finer than an
-            // update needs, and would have to survive the folder being replaced.
-            _timer = new Timer(_ => Check(), null, TimeSpan.Zero, TimeSpan.FromSeconds(5));
+            // update needs.
+            _timer = new Timer(_ => _staged = _install.ReadStaged(), null, TimeSpan.Zero, TimeSpan.FromSeconds(5));
         }
     }
 
@@ -56,25 +49,31 @@ public sealed class AppUpdate : IDisposable
     /// <summary>
     /// Starts a helper that waits for this process to end and opens the bundle
     /// again, then closes the window, which shuts the app down as a quit would.
-    /// The launcher does the swap on the way up.
+    /// The launcher makes the staged build current on the way up.
     /// </summary>
     public bool Restart()
     {
-        if (_bundle is null || _window is not { } window)
+        if (_install is null || _window is not { } window)
         {
             return false;
         }
 
         try
         {
-            var psi = new ProcessStartInfo("/bin/zsh") { UseShellExecute = false };
+            // Started from the home folder: the helper outlives this process, and
+            // this process's own working directory is no business of its.
+            var psi = new ProcessStartInfo("/bin/zsh")
+            {
+                UseShellExecute = false,
+                WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            };
             foreach (var arg in (string[])
                      [
                          "-c",
                          "while kill -0 \"$1\" 2>/dev/null; do sleep 0.2; done; open \"$2\"",
                          "relaunch",
                          Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                         _bundle,
+                         _install.Bundle,
                      ])
             {
                 psi.ArgumentList.Add(arg);
@@ -82,43 +81,19 @@ public sealed class AppUpdate : IDisposable
 
             using var _ = Process.Start(psi);
         }
-        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException)
+        catch (Exception e)
         {
+            // Anything at all: a restart that cannot start its helper must leave
+            // the app running, not take the circuit down with it.
             _log.LogWarning(e, "Could not start the relaunch helper");
             return false;
         }
 
         _log.LogInformation("Restarting into the staged build");
+
         // Called from the circuit; the window belongs to the main thread.
         window.Invoke(window.Close);
         return true;
-    }
-
-    private void Check()
-    {
-        try
-        {
-            _staged = File.Exists(_marker) ? Parse(File.ReadAllLines(_marker!)) : null;
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        {
-            // Mid-write or mid-swap; the next check sees how it ended.
-        }
-    }
-
-    /// <summary>The marker is <c>key=value</c> lines: commit, subject, staged.</summary>
-    internal static StagedUpdate Parse(IEnumerable<string> lines)
-    {
-        var values = lines
-            .Select(l => l.Split('=', 2))
-            .Where(p => p.Length == 2)
-            .GroupBy(p => p[0].Trim(), StringComparer.Ordinal)
-            .ToDictionary(g => g.Key, g => g.Last()[1].Trim(), StringComparer.Ordinal);
-
-        return new StagedUpdate(
-            values.GetValueOrDefault("commit") ?? "unknown",
-            values.GetValueOrDefault("subject") ?? "",
-            DateTimeOffset.TryParse(values.GetValueOrDefault("staged"), out var at) ? at : null);
     }
 
     public void Dispose() => _timer?.Dispose();
