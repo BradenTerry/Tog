@@ -1,0 +1,24 @@
+@page "/settings"
+@inherits StateComponent
+@inject Workbench Bench
+@inject AgentDirectory Directory
+@inject NavigationManager Nav
+
+@* Settings is a tab in the editor now. The address still works, for the links
+   that say "add them in Settings": it opens the tab over the agent that was on
+   screen and goes back to it. *@
+
+@code {
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender && RendererInfo.IsInteractive)
+        {
+            var worktree = Bench.SessionId is { } id
+                ? Directory.Targets(Snapshot.Value).FirstOrDefault(t => t.SessionId == id)?.WorktreePath
+                : null;
+
+            Bench.OpenSettings(worktree);
+            Nav.NavigateTo(Urls.Chat(Bench.SessionId), replace: true);
+        }
+    }
+}

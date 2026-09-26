@@ -13,10 +13,11 @@
         {
             <span class="chip waiting" title="@Fmt.Count(Snapshot.Waiting.Count, "agent") waiting on you">@Snapshot.Waiting.Count waiting</span>
         }
-        <a class="icon-btn spacer @(IsAt("new") ? "active" : "")" href="new" title="New agent" aria-label="New agent">
+        <button type="button" class="icon-btn spacer @(Bench.NewAgentOpen ? "active" : "")" @onclick="Bench.OpenNewAgent"
+                title="New agent" aria-label="New agent" aria-haspopup="dialog">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"
                  stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
-        </a>
+        </button>
     </div>
 
     <div class="chat-list-items">
@@ -70,8 +71,6 @@
 
     private string Relative => Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0];
 
-    private bool IsAt(string page) => Relative == page;
-
     /// <summary>The selection is shown only while an agent's view is the page, not over Settings.</summary>
     private bool IsAtAgent => Relative.Length == 0 || Relative.StartsWith("chat", StringComparison.Ordinal);
 
@@ -80,6 +79,7 @@
         base.OnInitialized();
         Nav.LocationChanged += OnLocationChanged;
         Directory.Changed += OnDirectoryChanged;
+        Bench.Changed += OnDirectoryChanged;
     }
 
     private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e) =>
@@ -93,6 +93,7 @@
         {
             Nav.LocationChanged -= OnLocationChanged;
             Directory.Changed -= OnDirectoryChanged;
+            Bench.Changed -= OnDirectoryChanged;
         }
 
         base.Dispose(disposing);

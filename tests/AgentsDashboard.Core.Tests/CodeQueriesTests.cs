@@ -95,6 +95,40 @@ public class CodeQueriesTests
     }
 
     [Fact]
+    public async Task Classify_tells_types_methods_parameters_and_locals_apart()
+    {
+        var runs = await CodeQueries.ClassifyAsync(Sample(), Absolute("B.cs"), TestContext.Current.CancellationToken);
+
+        string KindAt(string snippet)
+        {
+            var (line, column) = At(BCs, snippet);
+            return Assert.Single(runs, r => r.Line == line && r.Column == column).Kind;
+        }
+
+        Assert.Equal("class", KindAt("Runner"));
+        Assert.Equal("method", KindAt("Run()"));
+        Assert.Equal("class", KindAt("Calculator()"));
+        Assert.Equal("variable", KindAt("c.Twice"));
+        Assert.Equal("method", KindAt("Twice"));
+        Assert.Equal("namespace", KindAt("Repo;"));
+    }
+
+    [Fact]
+    public async Task Classify_leaves_keywords_to_the_editor_and_answers_in_order()
+    {
+        var runs = await CodeQueries.ClassifyAsync(Sample(), Absolute("A.cs"), TestContext.Current.CancellationToken);
+
+        var (line, column) = At(ACs, "public int Add");
+        Assert.DoesNotContain(runs, r => r.Line == line && r.Column == column);
+        Assert.Equal(runs.OrderBy(r => r.Line).ThenBy(r => r.Column), runs);
+        Assert.Contains(runs, r => r.Kind == "parameter");
+    }
+
+    [Fact]
+    public async Task Classify_a_file_outside_the_solution_is_empty() =>
+        Assert.Empty(await CodeQueries.ClassifyAsync(Sample(), Absolute("Missing.cs"), TestContext.Current.CancellationToken));
+
+    [Fact]
     public async Task Hover_shows_a_signature_and_the_doc_summary()
     {
         var (line, column) = At(ACs, "Add(int a, int b)");

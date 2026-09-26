@@ -32,14 +32,6 @@ else
                 }
             </span>
             <span class="spacer"></span>
-            @if (agent.Context is { } context)
-            {
-                @* As of the last turn's end: the agent only reports it then. *@
-                <span class="context-meter @ContextClass(context)"
-                      title="@($"{Fmt.Tokens(context.Used)} of {Fmt.Tokens(context.Size)} tokens in context, as of the last turn")">
-                    @context.Percent% context
-                </span>
-            }
             @if (agent.State is ChatState.Active or ChatState.Waiting)
             {
                 <button class="ghost small" @onclick="() => Act(() => Host.CancelAsync(agent.SessionId))" disabled="@_busy"
@@ -305,6 +297,17 @@ else
             </div>
             <div class="composer-foot">
                 <span class="composer-hint">@Hint(agent)</span>
+                @if (agent.Context is { } context)
+                {
+                    @* Under the Send button, where you are when you decide whether
+                       to keep going or start afresh. As of the last turn's end:
+                       the agent only reports it then. *@
+                    <span class="context-meter @ContextClass(context)"
+                          title="@($"{Fmt.Tokens(context.Used)} of {Fmt.Tokens(context.Size)} tokens in context, as of the last turn")">
+                        <span class="context-bar" aria-hidden="true"><span style="width: @(Math.Clamp(context.Percent, 0, 100))%"></span></span>
+                        @context.Percent% context
+                    </span>
+                }
             </div>
         </form>
     </div>

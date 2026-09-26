@@ -1,6 +1,6 @@
 # Code intelligence
 
-The editor shows what a symbol is, where it is defined, where it is used and
+The editor colours what each name is, and shows what a symbol is, where it is defined, where it is used and
 who calls it. VS Code gets that from a language server running beside the
 editor. The dashboard is already a .NET process, so it gets it from Roslyn
 in-process instead, which means no second process to install, start or keep
@@ -107,3 +107,24 @@ as a clicked reference would.
   open is out of scope for a dashboard that offers changes rather than makes
   them.
 - **Other languages.** A general language server bridge is a different project.
+
+## Colouring names
+
+Monaco's C# grammar colours keywords, strings, numbers and comments as you type,
+but it cannot tell a type from a method from a local, which is most of what
+makes C# read differently in VS Code. VS Code gets that from its language server
+as semantic tokens, and the editor does the same from Roslyn: a
+`DocumentSemanticTokensProvider` for C# asks `CodeEditor.Classify`, which runs
+`Classifier.GetClassifiedSpansAsync` over the document and keeps only the spans
+that name a symbol (`CodeQueries.ClassifyAsync`). Keywords and literals stay
+with the grammar, so they are coloured at once and never wait on the server.
+
+- The colours are Dark+ and Light+, in two themes `monaco.js` defines over
+  Monaco's own (`agents-dark`, `agents-light`). The built-in themes have no rules
+  for semantic token types, so without them nothing would change colour.
+- An edit still waiting on the typing pause is pushed to the solution before
+  asking, so the answer is for the text on screen. An answer that comes back
+  after another edit is dropped rather than painted onto moved lines.
+- The first request waits for the solution to load, so a C# file opened cold is
+  plain for the few seconds MSBuild takes, then colours.
+

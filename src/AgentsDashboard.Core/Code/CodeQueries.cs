@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.Classification;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.FindSymbols;
@@ -11,7 +12,8 @@ namespace AgentsDashboard.Core.Code;
 
 /// <summary>
 /// The four questions the editor asks about a position in a C# file: what is
-/// this, where is it defined, where is it used, who calls it.
+/// this, where is it defined, where is it used, who calls it. And one about the
+/// whole file: what kind of thing each name in it is, for colouring.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -21,9 +23,9 @@ namespace AgentsDashboard.Core.Code;
 /// </para>
 /// <para>
 /// Coordinates cross this boundary one-based, as Monaco uses them. There are
-/// exactly two places that convert: <see cref="ToLinePosition"/> going in and
-/// <see cref="ToLocation"/> coming out. Nothing else does arithmetic on a line
-/// or a column.
+/// exactly three places that convert: <see cref="ToLinePosition"/> going in, and
+/// <see cref="ToLocation"/> and <see cref="ToRun"/> coming out. Nothing else does
+/// arithmetic on a line or a column.
 /// </para>
 /// </remarks>
 public static class CodeQueries
@@ -621,6 +623,87 @@ public static class CodeQueries
         (_, null) => type,
         _ => $"{type}.{member}",
     };
+
+    /// <summary>
+    /// The Roslyn classifications that name a symbol, and the kind the editor
+    /// colours each as.
+    /// </summary>
+    /// <remarks>
+    /// Only names. Monaco's own C# grammar already colours keywords, strings,
+    /// numbers and comments as you type, with nothing to wait for; what it cannot
+    /// know is whether <c>Foo</c> is a type, a method or a local, which is the
+    /// part that looks wrong next to VS Code. The kinds are Monaco's semantic token
+    /// types, so the theme can colour them by name.
+    /// </remarks>
+    private static readonly Dictionary<string, string> NameKinds = new(StringComparer.Ordinal)
+    {
+        [ClassificationTypeNames.NamespaceName] = "namespace",
+        [ClassificationTypeNames.ClassName] = "class",
+        [ClassificationTypeNames.RecordClassName] = "class",
+        [ClassificationTypeNames.DelegateName] = "class",
+        [ClassificationTypeNames.ModuleName] = "class",
+        [ClassificationTypeNames.StructName] = "struct",
+        [ClassificationTypeNames.RecordStructName] = "struct",
+        [ClassificationTypeNames.InterfaceName] = "interface",
+        [ClassificationTypeNames.EnumName] = "enum",
+        [ClassificationTypeNames.EnumMemberName] = "enumMember",
+        [ClassificationTypeNames.TypeParameterName] = "typeParameter",
+        [ClassificationTypeNames.MethodName] = "method",
+        [ClassificationTypeNames.ExtensionMethodName] = "method",
+        [ClassificationTypeNames.PropertyName] = "property",
+        [ClassificationTypeNames.EventName] = "event",
+        [ClassificationTypeNames.FieldName] = "field",
+        [ClassificationTypeNames.ConstantName] = "field",
+        [ClassificationTypeNames.ParameterName] = "parameter",
+        [ClassificationTypeNames.LocalName] = "variable",
+        [ClassificationTypeNames.LabelName] = "label",
+    };
+
+    /// <summary>
+    /// Every name in a file with the kind of symbol it is, in file order. Empty
+    /// when the file is not part of the solution.
+    /// </summary>
+    public static async Task<IReadOnlyList<ClassifiedRun>> ClassifyAsync(
+        Solution solution,
+        string path,
+        CancellationToken cancellationToken)
+    {
+        if (solution.GetDocumentIdsWithFilePath(path).FirstOrDefault() is not { } id
+            || solution.GetDocument(id) is not { } document)
+        {
+            return [];
+        }
+
+        var text = await document.GetTextAsync(cancellationToken).ConfigureAwait(false);
+        var spans = await Classifier
+            .GetClassifiedSpansAsync(document, new TextSpan(0, text.Length), cancellationToken)
+            .ConfigureAwait(false);
+
+        var runs = new List<ClassifiedRun>();
+        foreach (var span in spans)
+        {
+            if (NameKinds.TryGetValue(span.ClassificationType, out var kind)
+                && ToRun(text, span.TextSpan, kind) is { } run)
+            {
+                runs.Add(run);
+            }
+        }
+
+        // The classifier answers in file order already, but Monaco rejects tokens
+        // that go backwards, so this is not left to chance.
+        runs.Sort((a, b) => a.Line != b.Line ? a.Line.CompareTo(b.Line) : a.Column.CompareTo(b.Column));
+        return runs;
+    }
+
+    /// <summary>A span as a one-based run, or null when it crosses a line, which no name does.</summary>
+    private static ClassifiedRun? ToRun(SourceText text, TextSpan span, string kind)
+    {
+        var start = text.Lines.GetLinePosition(span.Start);
+        var end = text.Lines.GetLinePosition(span.End);
+        return start.Line == end.Line && span.Length > 0
+            ? new ClassifiedRun(start.Line + 1, start.Character + 1, span.Length, kind)
+            : null;
+    }
 
     /// <summary>
     /// Worktree-relative with forward slashes, so a location addresses a file the

@@ -141,6 +141,7 @@
         }
 
         Bench.Changed += OnBenchChanged;
+        Bench.FilesChanged += OnFilesChanged;
         _view = Views.For(WorktreePath);
         if (_view.Collapsed is { } remembered)
         {
@@ -171,6 +172,27 @@
         Touch();
         StateHasChanged();
     });
+
+    /// <summary>
+    /// Lists the worktree again when a file appears or goes, which an edit to a
+    /// file already listed does not do, so the agent's typing does not relist.
+    /// </summary>
+    private void OnFilesChanged(string worktreePath, IReadOnlySet<string> paths)
+    {
+        if (!string.Equals(worktreePath, WorktreePath, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var known = _files.Select(f => f.Path).ToHashSet(StringComparer.Ordinal);
+        var moved = paths.Any(p => p != ".git"
+            && known.Contains(p) != File.Exists(System.IO.Path.Combine(WorktreePath, p)));
+
+        if (moved)
+        {
+            _ = Load();
+        }
+    }
 
     private async Task Load()
     {
@@ -296,6 +318,7 @@
     public void Dispose()
     {
         Bench.Changed -= OnBenchChanged;
+        Bench.FilesChanged -= OnFilesChanged;
         _load?.Cancel();
         _load?.Dispose();
     }

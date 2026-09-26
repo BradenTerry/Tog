@@ -15,8 +15,10 @@
     <Routes @rendermode="Interactive" />
     <script src="_framework/blazor.web.js"></script>
     <script src="app.js"></script>
-    <!-- Registers window.agentsEditor. Monaco itself is not fetched until a page
-         creates an editor, so only an open file pays for it. -->
+    <!-- Register window.agentsTextmate and window.agentsEditor. Monaco itself is
+         not fetched until a page creates an editor, so only an open file pays for
+         it, and a grammar only when a file in its language is opened. -->
+    <script src="textmate.js"></script>
     <script src="monaco.js"></script>
 </body>
 

@@ -2,11 +2,11 @@
 @inject IJSRuntime Js
 @implements IDisposable
 
-@* The worktree's whole diff as one document in the editor, where lines are
-   picked and commented on. Source control in the right panel lists the same
-   files and scrolls this to one; the two share a ChangesModel. *@
+@* A diff in the editor, where lines are picked and commented on: one file's,
+   opened by clicking it in Source control, or the whole worktree's in one
+   document. Source control and every diff share the worktree's ChangesModel. *@
 
-<div class="doc-scroll doc-diff">
+<div class="doc-scroll doc-diff" data-diff-doc @ref="_root">
     @if (Model.Loading && Model.Diff is null)
     {
         <div class="empty"><p>Reading the diff...</p></div>
@@ -25,6 +25,13 @@
             <p>Pick what to diff against in Source control.</p>
         </div>
     }
+    else if (File is not null && Model.Diff is { } whole && !whole.Files.Any(f => f.Path == File))
+    {
+        <div class="empty">
+            <h2>No changes</h2>
+            <p><span class="mono">@File</span> has no changes against @(Model.Base == DiffBase.WorkingTree ? "the last commit" : "that base").</p>
+        </div>
+    }
     else if (Model.Diff is { Files.Count: 0 })
     {
         <div class="empty">
@@ -39,9 +46,9 @@
     else if (Model.Diff is { } set)
     {
         <div @ref="_column">
-            @foreach (var file in set.Files)
+            @foreach (var file in Shown(set))
             {
-                <article class="card diff-file" id="@Anchor(file.Path)" data-diff-file="@file.Path" @key="file.Path">
+                <article class="card diff-file" id="@(File is null ? Anchor(file.Path) : null)" data-diff-file="@file.Path" @key="file.Path">
                     <div class="card-head diff-file-head">
                         <span class="chip" title="@file.Kind">@KindLetter(file.Kind)</span>
                         <span class="mono truncate" title="@file.Path">
@@ -234,6 +241,15 @@
     [Parameter, EditorRequired]
     public string WorktreePath { get; set; } = "";
 
+    /// <summary>The one file to show, or null for every file in the diff.</summary>
+    [Parameter]
+    public string? File { get; set; }
+
+    private ElementReference _root;
+
+    private IEnumerable<DiffFile> Shown(DiffSet set) =>
+        File is null ? set.Files : set.Files.Where(f => f.Path == File);
+
     private ChangesModel Model => Bench.Changes(WorktreePath);
 
     /// <summary>
@@ -280,9 +296,13 @@
     /// which are unique within a file. Filled per file the first time that file
     /// is drawn, so a diff nobody has expanded costs nothing.
     /// </summary>
-    private readonly Dictionary<(string File, int? Old, int? New), IReadOnlyList<Segment>> _colours = [];
+    private readonly Dictionary<(string File, int? Old, int? New), (string Text, IReadOnlyList<Segment> Segments)> _colours = [];
 
-    private readonly HashSet<string> _coloured = new(StringComparer.Ordinal);
+    /// <summary>The files coloured, with the fingerprint of the diff they were coloured for.</summary>
+    private readonly Dictionary<string, int> _coloured = new(StringComparer.Ordinal);
+
+    /// <summary>Each file's fingerprint in the diff on screen.</summary>
+    private readonly Dictionary<string, int> _fingerprints = new(StringComparer.Ordinal);
 
     /// <summary>Files drawn but not yet coloured, handed to Monaco after the render.</summary>
     private readonly List<string> _toColour = [];
@@ -356,6 +376,14 @@
     });
 
     /// <summary>Starts the per-file state over when the model has read a new diff.</summary>
+    /// <remarks>
+    /// The diff is read again whenever the agent writes, so a new one is usually
+    /// the old one with a file or two moved. Everything about the files that did
+    /// not change stays: which are drawn, how tall they measured, their colours,
+    /// and a comment being written. Starting over would blank the screen under
+    /// you on every edit, and the browser would not say again which files are near
+    /// it, since the same elements are still where they were.
+    /// </remarks>
     private void Adopt()
     {
         var diff = Model.Diff;
@@ -364,16 +392,62 @@
             return;
         }
 
+        var first = _shown is null;
         _shown = diff;
-        _expanded.Clear();
-        _colours.Clear();
-        _coloured.Clear();
-        _toColour.Clear();
-        _editing = null;
-        if (diff is not null)
+        if (diff is null)
+        {
+            return;
+        }
+
+        var paths = diff.Files.Select(f => f.Path).ToHashSet(StringComparer.Ordinal);
+        foreach (var file in diff.Files)
+        {
+            var hash = Fingerprint(file);
+            if (_coloured.TryGetValue(file.Path, out var was) && was != hash)
+            {
+                // Coloured for other lines: asked for again when next drawn, and
+                // measured again, since its height moved with its lines.
+                _coloured.Remove(file.Path);
+                _heights.Remove(file.Path);
+            }
+
+            _fingerprints[file.Path] = hash;
+        }
+
+        _toColour.RemoveAll(p => !paths.Contains(p));
+        _live.IntersectWith(paths);
+        _expanded.IntersectWith(paths);
+        if (_editing is { } editing && !paths.Contains(editing.File))
+        {
+            _editing = null;
+        }
+
+        if (first)
         {
             FoldPastBudget(diff);
         }
+        else
+        {
+            foreach (var file in Shown(diff).Where(f => File is null && LineCount(f) > LargeFileLines))
+            {
+                _folded.Add(file.Path);
+            }
+        }
+    }
+
+    /// <summary>What a file's diff says, cheaply, to tell a file that changed from one that did not.</summary>
+    private static int Fingerprint(DiffFile file)
+    {
+        var hash = new HashCode();
+        foreach (var line in file.Hunks.SelectMany(h => h.Lines))
+        {
+            hash.Add(line.Kind);
+            hash.Add(line.OldLine);
+            hash.Add(line.NewLine);
+            hash.Add(line.Text, StringComparer.Ordinal);
+        }
+
+        return hash.ToHashCode();
     }
 
     /// <summary>
@@ -386,13 +460,14 @@
         _live.Clear();
         _heights.Clear();
 
-        foreach (var file in set.Files.Where(f => LineCount(f) > LargeFileLines))
+        // A file opened on its own was asked for by name, so it is never folded.
+        foreach (var file in Shown(set).Where(f => File is null && LineCount(f) > LargeFileLines))
         {
             _folded.Add(file.Path);
         }
 
         var spent = 0;
-        foreach (var file in set.Files)
+        foreach (var file in Shown(set))
         {
             if (spent > 0 && spent >= FirstPaintLines)
             {
@@ -446,8 +521,9 @@
     /// </summary>
     private IReadOnlyList<Segment> Coloured(string path, DiffLine line)
     {
-        if (_coloured.Add(path) && Model.Diff?.Files.FirstOrDefault(f => f.Path == path) is { } file)
+        if (!_coloured.ContainsKey(path) && Model.Diff?.Files.FirstOrDefault(f => f.Path == path) is { } file)
         {
+            _coloured[path] = _fingerprints.GetValueOrDefault(path);
             if (_monacoFailed)
             {
                 ColourOnServer(file);
@@ -458,7 +534,12 @@
             }
         }
 
-        return _colours.GetValueOrDefault((path, line.OldLine, line.NewLine), []);
+        // A run is kept with the text it was made for. Until a changed file's new
+        // colours arrive, a line that moved keeps nothing rather than another
+        // line's colours.
+        return _colours.TryGetValue((path, line.OldLine, line.NewLine), out var kept) && kept.Text == line.Text
+            ? kept.Segments
+            : [];
     }
 
     /// <summary>
@@ -566,7 +647,7 @@
                     continue;
                 }
 
-                _colours[(file.Path, line.OldLine, line.NewLine)] = Split(line.Text, runs.Ends[i], runs.Classes[i]);
+                _colours[(file.Path, line.OldLine, line.NewLine)] = (line.Text, Split(line.Text, runs.Ends[i], runs.Classes[i]));
             }
         }
     }
@@ -624,7 +705,7 @@
                 var runs = highlighter.Next(line.Text);
                 if (b % 2 == 0 || line.Kind == DiffLineKind.Removed)
                 {
-                    _colours[(file.Path, line.OldLine, line.NewLine)] = runs;
+                    _colours[(file.Path, line.OldLine, line.NewLine)] = (line.Text, runs);
                 }
             }
         }
@@ -680,7 +761,7 @@
             _self = DotNetObjectReference.Create(this);
             try
             {
-                await Js.InvokeVoidAsync("agentsDashboard.startDiffSelection", _self);
+                await Js.InvokeVoidAsync("agentsDashboard.startDiffSelection", _root, _self);
             }
             catch (JSException)
             {
@@ -709,7 +790,7 @@
 
         // A file picked in Source control. Taken only once the diff it is in has
         // been drawn, since before that there is nothing to scroll to.
-        if (_column.Id is not null && Model.Diff is { } diff && Model.PendingScroll is { } wanted
+        if (File is null && _column.Id is not null && Model.Diff is { } diff && Model.PendingScroll is { } wanted
             && diff.Files.Any(f => f.Path == wanted))
         {
             Model.TakeScroll();
@@ -888,7 +969,7 @@
 
         // The listeners in app.js outlive this component, so the reference they
         // call back through has to be taken away with it.
-        _ = Js.InvokeVoidAsync("agentsDashboard.stopDiffSelection").AsTask()
+        _ = Js.InvokeVoidAsync("agentsDashboard.stopDiffSelection", _root).AsTask()
             .ContinueWith(t => _ = t.Exception, TaskScheduler.Default);
 
         _self?.Dispose();

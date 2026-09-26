@@ -1,31 +1,17 @@
 @page "/new"
-@inherits StateComponent
+@inject Workbench Bench
 @inject NavigationManager Nav
 
-<PageTitle>New agent - Agents Dashboard</PageTitle>
-
-<div class="page">
-    <div class="page-head"><h1>New agent</h1></div>
-    <p class="page-sub">
-        Pick one of your repositories and whether it works in a fresh worktree or an existing one.
-        Repositories are set up in <a href="settings">Settings</a>.
-    </p>
-
-    @if (_result is { Ok: false } failed)
-    {
-        <div class="banner danger" style="margin-bottom: 14px;">@failed.Message</div>
-    }
-
-    <div class="card">
-        <div class="card-body">
-            <StartAgentForm OnStarted="r => _result = r" OnStartedAgent="Open" />
-        </div>
-    </div>
-</div>
+@* New agent is a dialog now. The address still works: it puts the dialog up
+   over the agent that was on screen. *@
 
 @code {
-    private HostResult? _result;
-
-    /// <summary>Opens the agent just started, or resumed.</summary>
-    private void Open(string sessionId) => Nav.NavigateTo(Urls.Chat(sessionId));
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender && RendererInfo.IsInteractive)
+        {
+            Nav.NavigateTo(Urls.Chat(Bench.SessionId), replace: true);
+            Bench.OpenNewAgent();
+        }
+    }
 }

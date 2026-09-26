@@ -1,9 +1,36 @@
 # Syntax colouring
 
-Code in the diff is coloured by Monaco's tokenizer, the same one the editor
-and VS Code use, so a file looks the same in the diff and the editor and every language Monaco
-ships is covered. The diff itself is still rendered on the server; Monaco only
-answers which class each run of a line gets.
+Code in the diff is coloured by the same tokenizer as the editor, so a file
+looks the same in both. The diff itself is still rendered on the server; Monaco
+only answers which class each run of a line gets.
+
+## VS Code's grammars
+
+Monaco ships hand-written grammars of its own, and for Razor that grammar knows
+little of the C# and markup inside a file. So for the languages listed in
+`textmate.js`, Monaco's tokenizer is replaced by VS Code's: `vscode-textmate`
+running the TextMate grammars VS Code runs, with Oniguruma (as WASM) for the
+regular expressions they are written in. Razor's grammar embeds the C#, HTML,
+CSS and JavaScript ones, so a `.razor` file reads as it does in VS Code.
+
+- **Vendored, not committed.** `tools/vendor-textmate.sh` fetches the tokenizer,
+  the regex engine and the `tm-grammars` collection (about 260 grammars, 13 MB)
+  into `wwwroot/textmate` on the first build, with an index of grammar by scope
+  name. Without them the editor keeps Monaco's grammars and still colours.
+- **Loaded through Monaco's AMD loader.** Both scripts are UMD builds. With
+  Monaco's loader on the page they register as anonymous AMD modules, so a plain
+  script tag would trip over the anonymous `define`; `textmate.js` loads them
+  with `require` instead.
+- **Lazy.** The tokenizer loads with Monaco. A grammar, and each one it embeds,
+  is fetched the first time a file in its language needs colouring, through a
+  `registerTokensProviderFactory` per language, which also replaces Monaco's own.
+- **Scopes to colours.** A token's most specific scope (`entity.name.tag.html`)
+  is its Monaco token, and the themes in `monaco.js` carry Dark+ and Light+ rules
+  for the scope names. Monaco matches a rule by dotted prefix, so one rule for
+  `entity.name.tag` covers every language's tags.
+- **C# gets both.** The grammar colours C# as you type, and Roslyn's semantic
+  tokens then tell types, methods and locals apart on top of it (see
+  [code-intelligence.md](code-intelligence.md)), which is how VS Code does it.
 
 ## Monaco as a tokenizer, not a renderer
 

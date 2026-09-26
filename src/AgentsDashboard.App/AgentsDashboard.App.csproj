@@ -46,6 +46,17 @@
     </ItemGroup>
   </Target>
 
+  <!-- VS Code's TextMate tokenizer and grammars for the editor, vendored and served like Monaco above. -->
+  <Target Name="VendorTextmate"
+          BeforeTargets="ResolveCurrentProjectStaticWebAssetsInputs;BeforeBuild"
+          Condition="!Exists('$(MSBuildThisFileDirectory)wwwroot\textmate\index.json')">
+    <Message Importance="high" Text="Vendoring the TextMate tokenizer and grammars into wwwroot/textmate" />
+    <Exec Command="bash tools/vendor-textmate.sh" WorkingDirectory="$(MSBuildThisFileDirectory)../.." />
+    <ItemGroup>
+      <Content Include="wwwroot\textmate\**" Exclude="@(Content)" />
+    </ItemGroup>
+  </Target>
+
   <!--
     The Claude ACP bridge, a Node package the app launches to run Claude. It is
     not served to the browser, so unlike Monaco it needs no static web assets

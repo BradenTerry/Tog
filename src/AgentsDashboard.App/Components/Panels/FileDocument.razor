@@ -37,7 +37,6 @@
                         @onclick="() => SetPreview(true)" title="Show the file as it reads, unsaved changes included">Preview</button>
             </div>
         }
-        <a class="btn ghost small" href="@VsCodeLink" title="Open this file in VS Code">Open in VS Code</a>
         <span class="faint nums">@Status</span>
     </div>
 
@@ -119,6 +118,8 @@
                         OnSave="Save"
                         OnDirtyChanged="SetUnsaved"
                         OnNavigate="Navigate"
+                        OnJumpedWithin="line => Bench.RecordJump(WorktreePath, Doc.Key, line)"
+                        RevealKey="@_reveal"
                         OnReferences="ShowReferences"
                         OnCallHierarchy="ShowCallHierarchy"
                         OnTextChanged="PushText" />
@@ -165,6 +166,10 @@
 
     /// <summary>The line last taken from the document, so the same request is not revealed twice.</summary>
     private int? _docLine;
+    private int _docReveal;
+
+    /// <summary>Bumped to reveal a line again that the caret has since left.</summary>
+    private int _reveal;
 
     /// <summary>
     /// Set when the file was opened with no line. The first change is the
@@ -216,9 +221,6 @@
         _file is { IsBinary: false, Truncated: false, Error: null } file
         && (file.Path.EndsWith(".md", StringComparison.OrdinalIgnoreCase)
             || file.Path.EndsWith(".markdown", StringComparison.OrdinalIgnoreCase));
-
-    private string VsCodeLink =>
-        WorktreeFiles.Resolve(WorktreePath, Path) is { } full ? EditorLinks.VsCode(full, null) : "";
 
     /// <summary>
     /// What the bar says about the file. A save is worth confirming for a few
@@ -273,10 +275,12 @@
 
         Code.StatusChanged += OnCodeStatusChanged;
         Views.BaseChanged += OnBaseChanged;
+        Bench.FilesChanged += OnFilesChanged;
         _view = Views.For(WorktreePath);
         _preview = _view.MarkdownPreview;
 
         _docLine = Doc.Line;
+        _docReveal = Doc.Reveal;
         _line = Doc.Line;
         _landOnChange = Doc.Line is null;
         Read();
@@ -286,10 +290,12 @@
     {
         // A link to a line in a file that is already open moves the caret rather
         // than rereading the file, which would throw away whatever is being edited.
-        if (Doc.Line != _docLine)
+        if (Doc.Line != _docLine || Doc.Reveal != _docReveal)
         {
             _docLine = Doc.Line;
+            _docReveal = Doc.Reveal;
             _line = Doc.Line;
+            _reveal++;
             Touch();
         }
     }
@@ -384,6 +390,32 @@
 
         Touch();
         StateHasChanged();
+    }
+
+    /// <summary>
+    /// The file changed on disk, most often because the agent edited it. With
+    /// nothing unsaved here the editor follows; with unsaved work it is left
+    /// alone, and saving says it changed underneath, as it always has. The
+    /// app's own save lands here too, and finds the stamp it just wrote.
+    /// </summary>
+    private void OnFilesChanged(string worktreePath, IReadOnlySet<string> paths)
+    {
+        if (!string.Equals(worktreePath, WorktreePath, StringComparison.Ordinal) || _unsaved || _file is null)
+        {
+            return;
+        }
+
+        if (paths.Contains(Path) && Files.ReadText(WorktreePath, Path) is { } disk && disk.Stamp != _stamp)
+        {
+            Code.RefreshDocumentFromDisk(WorktreePath, Path);
+            Read();
+            StateHasChanged();
+        }
+        else if (paths.Contains(".git"))
+        {
+            // A commit or a stage moves what the gutter marks against.
+            _ = ReadMarks();
+        }
     }
 
     private void OnBaseChanged(string worktreePath)
@@ -596,7 +628,7 @@
     /// that is the only form a Monaco URI has, and everything here works in
     /// worktree-relative paths.
     /// </summary>
-    private void Navigate((string AbsolutePath, int Line, int Column) target)
+    private void Navigate((string AbsolutePath, int Line, int Column, int FromLine) target)
     {
         Touch();
 
@@ -610,6 +642,7 @@
         }
 
         _outside = null;
+        Bench.RecordJump(WorktreePath, Doc.Key, target.FromLine);
         OpenAt(relative, target.Line);
     }
 
@@ -633,6 +666,7 @@
     private void Pick(CodeLocation location)
     {
         Touch();
+        Bench.RecordJump(WorktreePath, Doc.Key, _line);
         OpenAt(location.Path, location.Line);
     }
 
@@ -652,6 +686,7 @@
         if (string.Equals(path, Path, StringComparison.Ordinal))
         {
             _line = line;
+            _reveal++;
             return;
         }
 
@@ -674,6 +709,7 @@
     {
         Code.StatusChanged -= OnCodeStatusChanged;
         Views.BaseChanged -= OnBaseChanged;
+        Bench.FilesChanged -= OnFilesChanged;
         _self?.Dispose();
         _codeLoad?.Cancel();
         _codeLoad?.Dispose();

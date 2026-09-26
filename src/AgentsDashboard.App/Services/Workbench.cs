@@ -39,6 +39,27 @@ public sealed class Workbench(IServiceProvider services) : IDisposable
     /// <summary>A panel was shown, hidden or switched tab, which is worth remembering.</summary>
     public event Action? LayoutChanged;
 
+    /// <summary>
+    /// Files changed on disk in the worktree in view, with their worktree-relative
+    /// paths; <c>.git</c> stands for the index or HEAD. Raised on the circuit.
+    /// </summary>
+    public event Action<string, IReadOnlySet<string>>? FilesChanged;
+
+    /// <summary>
+    /// Passes on a change the layout's watcher saw, and reads the worktree's diff
+    /// again if anything has shown it, so Source control and the open diffs follow
+    /// the agent's edits without a refresh.
+    /// </summary>
+    public void NotifyFilesChanged(string worktreePath, IReadOnlySet<string> paths)
+    {
+        if (_changes.TryGetValue(worktreePath, out var model) && (model.Diff is not null || model.Loading))
+        {
+            _ = model.Load();
+        }
+
+        FilesChanged?.Invoke(worktreePath, paths);
+    }
+
     /// <summary>The agent every panel follows. Kept while a page that is not an agent's is open.</summary>
     public string? SessionId { get; private set; }
 
@@ -66,6 +87,27 @@ public sealed class Workbench(IServiceProvider services) : IDisposable
         ViewLocation.BottomPanel => PanelSide.Bottom,
         _ => PanelSide.Right,
     };
+
+    /// <summary>Whether the New agent dialog is up over the window.</summary>
+    public bool NewAgentOpen { get; private set; }
+
+    public void OpenNewAgent()
+    {
+        if (!NewAgentOpen)
+        {
+            NewAgentOpen = true;
+            Raise();
+        }
+    }
+
+    public void CloseNewAgent()
+    {
+        if (NewAgentOpen)
+        {
+            NewAgentOpen = false;
+            Raise();
+        }
+    }
 
     public void Select(string? sessionId)
     {
@@ -144,15 +186,25 @@ public sealed class Workbench(IServiceProvider services) : IDisposable
     /// tree does not leave a tab behind for every file looked at. Keeping it,
     /// a double click, an edit or a link, makes the tab stay.
     /// </summary>
-    public void OpenFile(string worktreePath, string path, int? line = null, bool keep = false)
+    public void OpenFile(string worktreePath, string path, int? line = null, bool keep = false) =>
+        Open(worktreePath, DocKind.File, path, line, keep);
+
+    /// <summary>
+    /// Opens one file's changes, the way clicking a file in VS Code's Source
+    /// Control view does: a tab of its own, previewed like a file until kept.
+    /// </summary>
+    public void OpenDiff(string worktreePath, string path, bool keep = false) =>
+        Open(worktreePath, DocKind.Diff, path, null, keep);
+
+    private void Open(string worktreePath, DocKind kind, string path, int? line, bool keep)
     {
         var group = Editors(worktreePath);
-        var key = EditorDoc.FileKey(path);
+        var key = EditorDoc.KeyFor(kind, path);
         var doc = group.Find(key);
 
         if (doc is null)
         {
-            doc = new EditorDoc(key, DocKind.File, path) { Preview = !keep };
+            doc = new EditorDoc(key, kind, path) { Preview = !keep };
             int? preview = keep ? null : group.Docs.FindIndex(d => d.Preview);
             if (preview is >= 0)
             {
@@ -177,7 +229,7 @@ public sealed class Workbench(IServiceProvider services) : IDisposable
         Raise();
     }
 
-    /// <summary>Opens the worktree's whole diff, scrolled to a file when one is given.</summary>
+    /// <summary>Opens the worktree's whole diff, every file in one document, scrolled to a file when one is given.</summary>
     public void OpenChanges(string worktreePath, string? file = null)
     {
         var group = Editors(worktreePath);
@@ -190,6 +242,91 @@ public sealed class Workbench(IServiceProvider services) : IDisposable
         if (file is not null)
         {
             Changes(worktreePath).RequestScroll(file);
+        }
+
+        Raise();
+    }
+
+    /// <summary>
+    /// Opens Settings as a tab among the agent's documents, so it closes like one
+    /// and leaves you on the agent. Without an agent in view the tabs are kept
+    /// under the empty worktree, which is where the editor looks then.
+    /// </summary>
+    public void OpenSettings(string? worktreePath)
+    {
+        var group = Editors(worktreePath ?? "");
+        if (group.Find(EditorDoc.SettingsKey) is null)
+        {
+            group.Docs.Insert(group.InsertAt(), new EditorDoc(EditorDoc.SettingsKey, DocKind.Settings, null));
+        }
+
+        group.ActiveKey = EditorDoc.SettingsKey;
+        Raise();
+    }
+
+    /// <summary>
+    /// Records where a jump left from: go to definition, into another file or
+    /// down the same one, or a row picked in the references panel. Going back
+    /// returns there. A new jump drops whatever going back had left to go
+    /// forward to, as in a browser.
+    /// </summary>
+    public void RecordJump(string worktreePath, string key, int? line)
+    {
+        var group = Editors(worktreePath);
+        group.Back.Add(new NavPoint(key, line));
+        if (group.Back.Count > EditorGroup.HistoryLimit)
+        {
+            group.Back.RemoveAt(0);
+        }
+
+        group.Forward.Clear();
+    }
+
+    /// <summary>Back to where the last jump left from. The line is where the caret is now, for coming forward again.</summary>
+    public void GoBack(string worktreePath, int? line) => Step(Editors(worktreePath), line, back: true);
+
+    public void GoForward(string worktreePath, int? line) => Step(Editors(worktreePath), line, back: false);
+
+    private void Step(EditorGroup group, int? line, bool back)
+    {
+        var from = back ? group.Back : group.Forward;
+        var to = back ? group.Forward : group.Back;
+        if (from.Count == 0)
+        {
+            return;
+        }
+
+        var target = from[^1];
+        from.RemoveAt(from.Count - 1);
+        if (group.ActiveKey is { } current)
+        {
+            to.Add(new NavPoint(current, line));
+        }
+
+        // A tab closed since the jump comes back, as VS Code reopens it: going
+        // back is to the place, not only to the tab.
+        if (group.Find(target.Key) is not { } doc)
+        {
+            var path = target.Key[(target.Key.IndexOf(':') + 1)..];
+            doc = target.Key.StartsWith("diff:", StringComparison.Ordinal)
+                ? new EditorDoc(target.Key, DocKind.Diff, path)
+                : target.Key.StartsWith("file:", StringComparison.Ordinal)
+                    ? new EditorDoc(target.Key, DocKind.File, path)
+                    : null;
+
+            if (doc is null)
+            {
+                return;
+            }
+
+            group.Docs.Insert(group.InsertAt(), doc);
+        }
+
+        group.ActiveKey = doc.Key;
+        if (target.Line is not null)
+        {
+            doc.Line = target.Line;
+            doc.Reveal++;
         }
 
         Raise();
@@ -294,8 +431,17 @@ public sealed class PanelState(string tab)
 
 public enum DocKind
 {
+    /// <summary>A file, in an editor.</summary>
     File,
+
+    /// <summary>Every change in the worktree, in one document.</summary>
     Changes,
+
+    /// <summary>One file's changes.</summary>
+    Diff,
+
+    /// <summary>The app's settings, which belong to no file.</summary>
+    Settings,
 }
 
 /// <summary>A worktree's open documents, in the order they were opened.</summary>
@@ -308,6 +454,15 @@ public sealed class EditorGroup
     public EditorDoc? Active => ActiveKey is null ? null : Find(ActiveKey);
 
     public EditorDoc? Find(string key) => Docs.FirstOrDefault(d => d.Key == key);
+
+    /// <summary>How many jumps back are kept. Past this the oldest go, which nobody walks back to.</summary>
+    internal const int HistoryLimit = 50;
+
+    /// <summary>Where jumps left from, most recent last.</summary>
+    internal List<NavPoint> Back { get; } = [];
+
+    /// <summary>Where going back left from, for going forward again.</summary>
+    internal List<NavPoint> Forward { get; } = [];
 
     /// <summary>Pinned tabs first, then the rest, each in the order opened.</summary>
     public IEnumerable<EditorDoc> InTabOrder => Docs.Where(d => d.Pinned).Concat(Docs.Where(d => !d.Pinned));
@@ -324,14 +479,17 @@ public sealed class EditorGroup
 public sealed class EditorDoc(string key, DocKind kind, string? path)
 {
     public const string ChangesKey = "changes";
+    public const string SettingsKey = "settings";
 
     public static string FileKey(string path) => "file:" + path;
+
+    public static string KeyFor(DocKind kind, string path) => kind == DocKind.Diff ? "diff:" + path : FileKey(path);
 
     public string Key { get; } = key;
 
     public DocKind Kind { get; } = kind;
 
-    /// <summary>The worktree-relative path of a file document.</summary>
+    /// <summary>The worktree-relative path of a file or a file's diff.</summary>
     public string? Path { get; } = path;
 
     public bool Pinned { get; set; }
@@ -344,5 +502,16 @@ public sealed class EditorDoc(string key, DocKind kind, string? path)
     /// <summary>The line a link asked for, revealed when it changes.</summary>
     public int? Line { get; set; }
 
-    public string Title => Kind == DocKind.Changes ? "Changes" : Path![(Path!.LastIndexOf('/') + 1)..];
+    /// <summary>Bumped to reveal <see cref="Line"/> again when it has not changed but the caret has moved off it.</summary>
+    public int Reveal { get; set; }
+
+    public string Title => Kind switch
+    {
+        DocKind.Changes => "Changes",
+        DocKind.Settings => "Settings",
+        _ => Path![(Path!.LastIndexOf('/') + 1)..],
+    };
 }
+
+/// <summary>A place in the editor: a tab, and the line the caret was on when known.</summary>
+public sealed record NavPoint(string Key, int? Line);

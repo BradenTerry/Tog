@@ -8,13 +8,13 @@ ask for, and to the right panel when they do not ask.
 
 ```mermaid
 flowchart TB
-    T["Title bar: where the agent works, who is waiting, panel toggles, Settings"]
+    T["Title bar: who is waiting, panel toggles, Settings"]
     subgraph W[" "]
         direction LR
         L["Left panel<br/>Files + extensions"]
         subgraph C["Centre"]
             direction TB
-            E["Editor<br/>file tabs, the Changes diff<br/>(or Settings, New agent)"]
+            E["Editor<br/>files, diffs, Settings"]
             subgraph B["Bottom panel"]
                 direction LR
                 CH["Chat + extensions"]
@@ -23,15 +23,26 @@ flowchart TB
         end
         R["Right panel<br/>Source control + extensions"]
     end
+    S["Status bar: directory, worktree, branch"]
     T --- W
+    W --- S
 ```
 
 ## Who owns what
 
 `MainLayout` draws the frame, and the routed page is what the editor shows.
-`ChatPage` (`/chat/<session>`) is the editor for one agent. Settings and New
-agent take the editor's place, and the panels stay on the last agent while they
-are open.
+`ChatPage` (`/chat/<session>`) is the editor for one agent, and it is always
+there, even with no agent picked, so a tab that belongs to no file has somewhere
+to open:
+
+- **Settings** is a tab, opened from the gear, closed like any other, and the
+  agent stays selected under it. With no agent picked its tab is kept under the
+  empty worktree.
+- **New agent** is a modal dialog over the window, opened from the + in the
+  agent list. Escape, its close button or a click outside close it, and so does
+  going to a page that is not an agent's.
+- `/settings` and `/new` still work as addresses: each opens its tab or dialog
+  over the agent that was on screen and goes back to `/chat/<session>`.
 
 The panels do not pass parameters to each other. They talk through `Workbench`,
 a scoped service (one per window) that holds:
@@ -75,20 +86,70 @@ text. A `display: none` box would lose Monaco's size.
   switching back finds it as it was. This lives in memory for the life of the
   window, like `WorktreeViews`. A new window starts empty.
 
-## Changes: a list on the right, the diff in the middle
+## Following the agent's edits
+
+The layout watches the files of the worktree in view (`WorktreeChanges` in
+Core), so the diffs and the editor keep up with an agent as it works without a
+refresh.
+
+- **Gathered, then reported once.** An edit is several file events and a build
+  is thousands. Changes are collected until the worktree has been quiet for
+  400 ms, then reported as one set of paths.
+- **What counts.** Build output and packages (`bin`, `obj`, `node_modules`) do
+  not. Inside the git directory only the index and HEAD do, reported as `.git`,
+  since those are what move when the agent stages or commits. A linked
+  worktree's git directory is elsewhere, named in its `.git` file, so it is
+  watched as well.
+- **What follows.** `Workbench.NotifyFilesChanged` reads the diff again for
+  Source control and every open diff. An open file with nothing unsaved rereads
+  itself from disk; with unsaved work it is left alone, and saving reports the
+  conflict as before. The Files tree lists again only when a file appears or
+  goes.
+- **The diff keeps its place.** A new diff is usually the old one with a file or
+  two moved, so `DiffDocument` keeps everything about the files that did not
+  change: which are drawn, their measured heights, their colours, and a comment
+  being written. Resetting would blank the screen on every edit, and the browser
+  would not report the files near it again, since the same elements are still
+  where they were.
+
+## Going back
+
+The mouse's back and forward buttons walk the jumps go to definition has made,
+into another file or down the same one, and rows picked in the references
+panel, as they do in VS Code. Ctrl+- and Ctrl+Shift+- do the same from the
+keyboard.
+
+- **Where a jump left from** is recorded on the worktree's `EditorGroup`: the
+  tab, and the caret line Monaco reports as it jumps. Going back adds the place
+  you leave to the forward list, and a new jump clears that list, as a browser's
+  history does. Fifty are kept.
+- **A tab closed since** is reopened, because going back is to a place, not
+  only to a tab.
+- **The buttons' default is stopped** in `app.js`, on the press and the release
+  both, since engines differ on which one navigates. Left alone they would go
+  back in the browser's history, which here is the agent you were on before.
+- **Going back to the same line** still moves the caret: `EditorDoc.Reveal` is
+  bumped with the line, and `CodeEditor` reveals when either changes.
+
+## Changes: a list on the right, diffs in the middle
 
 The Changes tab used to be one component holding a file list and the diff. It is
 now two components that share a `ChangesModel`:
 
 - **`SourceControlPanel`** (right) chooses the base, lists the files the way git
   holds them (staged above pending), stages and unstages, and sends the review.
-- **`DiffDocument`** (editor) draws the whole diff, where lines are picked and
-  commented on.
+- **`DiffDocument`** (editor) draws a diff, where lines are picked and commented
+  on.
 
-Clicking a file in Source control opens the Changes document and scrolls it to
-that file. The request is held on the model as `PendingScroll` rather than raised
-as an event, because the document may not exist yet when the click lands. It
-takes the request once the diff that contains the file has been drawn. See
+Clicking a file in Source control opens a tab with that file's changes alone, as
+VS Code does, previewed like a file until kept. The toolbar's other button opens
+every change in one document, which is where a jump to a file is held on the
+model as `PendingScroll`: the document may not exist yet when the click lands.
+
+Several diffs can be open at once, so the line-picking drag in `app.js` is not
+wired to one component. Each `DiffDocument` registers its root element
+(`data-diff-doc`) with its own reference, and a drag reports to the document it
+started in and walks only that document's rows. See
 [review.md](review.md) and [staging.md](staging.md) for what the two do.
 
 ## Rendering

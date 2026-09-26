@@ -167,6 +167,24 @@ public sealed class CodeIntelligence(SolutionLoader loader)
                 .ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// What kind of symbol every name in a file is, so the editor can colour
+    /// types, methods and locals apart. Empty until the solution is loaded.
+    /// </summary>
+    public async Task<IReadOnlyList<ClassifiedRun>> ClassifyAsync(
+        string worktreePath,
+        string relativeFile,
+        CancellationToken cancellationToken)
+    {
+        var (solution, key) = await SolutionForAsync(worktreePath, cancellationToken).ConfigureAwait(false);
+
+        return solution is null
+            ? []
+            : await CodeQueries
+                .ClassifyAsync(solution, Absolute(key, relativeFile), cancellationToken)
+                .ConfigureAwait(false);
+    }
+
     /// <summary>Where the symbol at a position is declared.</summary>
     public async Task<IReadOnlyList<CodeLocation>> DefinitionAsync(
         string worktreePath,

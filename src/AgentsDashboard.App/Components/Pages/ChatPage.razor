@@ -16,28 +16,35 @@
 
 <PageTitle>@(Current?.Label ?? "Agents") - Agents Dashboard</PageTitle>
 
-@if (Current is not { } agent)
-{
-    <div class="empty editor-empty">
-        <h2>@(SessionId is null ? "Pick an agent" : "Agent not found")</h2>
-        <p>
-            @(SessionId is null
-                ? "Choose an agent in the list at the bottom right to read its conversation, its files and its changes."
-                : "It may have been removed, or it has not reached the registry yet.")
-        </p>
-    </div>
+@* Always the editor, so a tab that belongs to no file, Settings, has somewhere
+   to open even with no agent picked. Without a worktree its tabs are kept
+   under the empty one, and what would be the "nothing open" hint says why
+   there are no files. *@
+@{
+    var worktree = Current?.WorktreePath ?? "";
 }
-else if (agent.WorktreePath is not { } worktree)
-{
-    <div class="empty editor-empty">
-        <h2>No worktree</h2>
-        <p>This agent is not working in a git worktree, so there are no files or changes to show. Its conversation is below.</p>
-    </div>
-}
-else
-{
-    <EditorArea WorktreePath="@worktree" @key="worktree" />
-}
+<EditorArea WorktreePath="@worktree" @key="worktree">
+    <Empty>
+        @if (Current is null)
+        {
+            <div class="empty editor-empty">
+                <h2>@(SessionId is null ? "Pick an agent" : "Agent not found")</h2>
+                <p>
+                    @(SessionId is null
+                        ? "Choose an agent in the list at the bottom right to read its conversation, its files and its changes."
+                        : "It may have been removed, or it has not reached the registry yet.")
+                </p>
+            </div>
+        }
+        else if (worktree.Length == 0)
+        {
+            <div class="empty editor-empty">
+                <h2>No worktree</h2>
+                <p>This agent is not working in a git worktree, so there are no files or changes to show. Its conversation is below.</p>
+            </div>
+        }
+    </Empty>
+</EditorArea>
 
 @code {
     [Parameter]

@@ -24,6 +24,13 @@ public sealed record CodeLocation(
 /// <param name="Summary">The XML doc summary, tags stripped and whitespace collapsed.</param>
 public sealed record HoverInfo(string Signature, string? Summary);
 
+/// <summary>A name in a file and the kind of symbol it is, for colouring.</summary>
+/// <param name="Line">One-based, as the editor counts.</param>
+/// <param name="Column">One-based.</param>
+/// <param name="Length">In UTF-16 code units, as the editor measures.</param>
+/// <param name="Kind">A Monaco semantic token type: class, method, parameter and so on.</param>
+public sealed record ClassifiedRun(int Line, int Column, int Length, string Kind);
+
 /// <summary>One end of a call relationship: a symbol and where the calls are.</summary>
 /// <param name="Location">Where the symbol itself is declared.</param>
 /// <param name="CallSites">The individual calls, in the caller's file.</param>

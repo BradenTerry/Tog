@@ -4,8 +4,8 @@
 
 @* The right panel's Source control: what to compare against, the changed files
    split the way git holds them, and the review drafted on the diff. A file
-   opens the diff in the editor at that file; the diff is where lines are
-   commented on, and this is where the review is sent from. *@
+   opens its own changes in the editor, where lines are commented on; this is
+   where the review is sent from. *@
 
 <div class="panel-tools">
     <select aria-label="What to diff against" value="@Model.Base" @onchange="OnBase">
@@ -14,7 +14,7 @@
         <option value="@DiffBase.CustomRef">Against a ref</option>
     </select>
     <span class="spacer"></span>
-    <button class="icon-btn" @onclick="() => Bench.OpenChanges(WorktreePath)" title="Open the whole diff" aria-label="Open the whole diff">
+    <button class="icon-btn" @onclick="() => Bench.OpenChanges(WorktreePath)" title="Open every change in one document" aria-label="Open every change in one document">
         <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
             <path d="M3 2.5h6l3 3v8H3zM6 7h4M8 5v4M6 11h4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
@@ -122,7 +122,8 @@
                           FoldedByDefault="true"
                           Selected="@_selected"
                           OnToggle="path => ToggleIn(_opened, path)"
-                          OnSelect="Show">
+                          OnSelect="path => Show(path, keep: false)"
+                          OnKeep="path => Show(path, keep: true)">
                 <FileRow Context="node">
                     <span class="label">@node.Name</span>
                     @CommentChip(node.Path)
@@ -289,11 +290,15 @@
         }
     }
 
-    private void Show(string path)
+    /// <summary>
+    /// A file's own changes in a tab, previewed until kept, as VS Code's Source
+    /// Control view opens them. The whole diff is the button in the toolbar.
+    /// </summary>
+    private void Show(string path, bool keep)
     {
         Touch();
         _selected = path;
-        Bench.OpenChanges(WorktreePath, path);
+        Bench.OpenDiff(WorktreePath, path, keep);
     }
 
     private async Task Submit()
@@ -438,7 +443,8 @@
                       FoldedByDefault="true"
                       Selected="@_selected"
                       OnToggle="path => ToggleIn(opened, path)"
-                      OnSelect="Show">
+                      OnSelect="path => Show(path, keep: false)"
+                      OnKeep="path => Show(path, keep: true)">
             <FileRow Context="node">
                 <span class="label">@node.Name</span>
                 @CommentChip(node.Path)

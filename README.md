@@ -30,26 +30,32 @@ you actually need from them are the three things a terminal is worst at.
 The window is laid out like VS Code, and every panel follows the agent you
 picked. See [docs/workbench.md](docs/workbench.md).
 
-- **Title bar** shows where the agent works (repository, worktree, branch), who is
-  waiting on you, three buttons that fold the left, bottom and right panels, and
-  **Settings** (the gear).
+- **Title bar** shows who is waiting on you, three buttons that fold the left,
+  bottom and right panels, and the gear, which opens **Settings** as a tab in the
+  editor.
+- **Status bar** along the bottom labels where the selected agent works: its
+  directory, worktree and branch.
 - **Left panel: Files**, the agent's worktree as a tree. A click opens a file in
   the editor as a preview tab; a double click keeps it.
 - **Editor** in the middle: a tab per open file, pinnable, each a Monaco editor
   with hover, go to definition, references and call hierarchy for C# (see
-  [docs/code-intelligence.md](docs/code-intelligence.md)), plus the **Changes**
-  document, the diff with line and range comments handed back to the agent.
+  [docs/code-intelligence.md](docs/code-intelligence.md)), plus diffs: a changed
+  file's own, or every change in one, with line and range comments handed back
+  to the agent.
   Both are coloured by Monaco: see [docs/syntax.md](docs/syntax.md).
 - **Right panel: Source control**, what to diff against, the changed files split
-  into staged and pending, staging, and the review to send.
-- **Bottom panel: Chat**, the conversation and a box to message the agent, with
-  the list of **Agents** down its right side, the ones waiting on you first, and
-  **New agent**.
+  into staged and pending (a click opens that file's diff), staging, and the
+  review to send. It follows the agent's edits as they land, as do open files.
+- **Bottom panel: Chat**, under the editor: the conversation and a box to
+  message the agent, with the list of **Agents** down its right side, the ones
+  waiting on you first, and **New agent**, which opens as a dialog.
 - Extensions add tabs to any of the three panels, the right one by default.
 - **New agent** starts one in a repository from Settings, in a new worktree or an
   existing one.
 - **Settings** holds the repositories New agent offers, the preferences, and the
   extensions.
+- The mouse's back and forward buttons (or Ctrl+- and Ctrl+Shift+-) walk back and
+  forth through the jumps go to definition and references have made.
 
 A file path an agent mentions in a reply is a link: it opens the file in the editor at that line, with
 a second link beside it that opens the same place in VS Code.

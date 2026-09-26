@@ -56,7 +56,18 @@
     /// path, which is the only form the rest of the app deals in.
     /// </summary>
     [Parameter]
-    public EventCallback<(string AbsolutePath, int Line, int Column)> OnNavigate { get; set; }
+    public EventCallback<(string AbsolutePath, int Line, int Column, int FromLine)> OnNavigate { get; set; }
+
+    /// <summary>A definition in this same file, which Monaco moved to itself; the line it left, for going back.</summary>
+    [Parameter]
+    public EventCallback<int> OnJumpedWithin { get; set; }
+
+    /// <summary>
+    /// Changed to reveal <see cref="Line"/> again when it has not changed, as
+    /// going back to a line the caret has since left needs to.
+    /// </summary>
+    [Parameter]
+    public int RevealKey { get; set; }
 
     [Parameter]
     public EventCallback<IReadOnlyList<CodeLocation>> OnReferences { get; set; }
@@ -82,6 +93,7 @@
     private string _shownPath = "";
     private string _shownStamp = "";
     private int? _shownLine;
+    private int _shownReveal;
     private IReadOnlyList<ChangeMark>? _shownMarks;
     private bool _rendered;
 
@@ -133,6 +145,7 @@
             _shownPath = Path;
             _shownStamp = Stamp;
             _shownLine = Line;
+            _shownReveal = RevealKey;
 
             // Parameters can have moved on while Monaco was being fetched, which
             // takes long enough on a cold load for a click to land in the middle.
@@ -161,7 +174,7 @@
 
         var marksChanged = changed || !ReferenceEquals(Marks, _shownMarks);
 
-        if (!changed && !marksChanged && Line == _shownLine)
+        if (!changed && !marksChanged && Line == _shownLine && RevealKey == _shownReveal)
         {
             return;
         }
@@ -169,6 +182,7 @@
         _shownPath = Path;
         _shownStamp = Stamp;
         _shownLine = Line;
+        _shownReveal = RevealKey;
         _shownMarks = Marks;
 
         try
@@ -241,6 +255,41 @@
     }
 
     /// <summary>
+    /// The kind of every name in the file, for Monaco's semantic colouring. Sent
+    /// as the distinct kinds and a flat run of numbers, four per name (line,
+    /// column, length, index into the kinds), because a large file has thousands
+    /// of names and an object apiece would be most of the message.
+    /// </summary>
+    [JSInvokable]
+    public async Task<object?> Classify()
+    {
+        if (!IsCSharp)
+        {
+            return null;
+        }
+
+        var runs = await Query(token => Code.ClassifyAsync(WorktreePath, Path, token), []);
+        var kinds = new List<string>();
+        var data = new int[runs.Count * 4];
+        for (var i = 0; i < runs.Count; i++)
+        {
+            var kind = kinds.IndexOf(runs[i].Kind);
+            if (kind < 0)
+            {
+                kind = kinds.Count;
+                kinds.Add(runs[i].Kind);
+            }
+
+            data[i * 4] = runs[i].Line;
+            data[(i * 4) + 1] = runs[i].Column;
+            data[(i * 4) + 2] = runs[i].Length;
+            data[(i * 4) + 3] = kind;
+        }
+
+        return new { kinds, data };
+    }
+
+    /// <summary>
     /// Definitions for Monaco, which wants absolute paths: it addresses files by
     /// URI, and a worktree-relative one would be resolved against the page.
     /// </summary>
@@ -267,8 +316,11 @@
 
     /// <summary>A definition in another file, handed over by Monaco's editor opener.</summary>
     [JSInvokable]
-    public Task OpenLocation(string absolutePath, int line, int column) =>
-        OnNavigate.InvokeAsync((absolutePath, line, column));
+    public Task OpenLocation(string absolutePath, int line, int column, int fromLine) =>
+        OnNavigate.InvokeAsync((absolutePath, line, column, fromLine));
+
+    [JSInvokable]
+    public Task JumpedWithin(int fromLine) => OnJumpedWithin.InvokeAsync(fromLine);
 
     [JSInvokable]
     public async Task ShowReferences(int line, int column)

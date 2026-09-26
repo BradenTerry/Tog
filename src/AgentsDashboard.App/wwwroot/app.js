@@ -9,7 +9,10 @@
 // once, on release, what was selected.
 
 let drag = null;
-let dotnet = null;
+// Each diff document on the page, and the component its picks are reported to.
+// There can be several, a tab per changed file, so a drag answers to the one it
+// started in rather than to whichever registered last.
+const diffOwners = new WeakMap();
 let wired = false;
 let scroller = null;
 let edgeTimer = null;
@@ -321,12 +324,13 @@ function paint(to) {
     }
 }
 
-// Every line of this file, both sides, in the order they are drawn: the drag
-// walks rows rather than line numbers, because the two sides number themselves
-// independently. Collected once so a move does not walk the whole page.
-function rowsFor(file) {
+// Every line of this file in the document the drag started in, both sides, in
+// the order they are drawn: the drag walks rows rather than line numbers,
+// because the two sides number themselves independently. Collected once so a
+// move does not walk the whole page.
+function rowsFor(file, owner) {
     const rows = [];
-    for (const element of document.querySelectorAll('.diff-line')) {
+    for (const element of owner.querySelectorAll('.diff-line')) {
         if (element.dataset.file === file) {
             const line = Number.parseInt(element.dataset.line, 10);
             if (!Number.isNaN(line)) {
@@ -348,14 +352,15 @@ function onDown(event) {
     }
 
     const start = lineOf(event.target);
-    if (!start) {
+    const owner = event.target.closest('[data-diff-doc]');
+    if (!start || !owner || !diffOwners.has(owner)) {
         return;
     }
 
     // Stops the browser starting a text selection across the diff as you drag.
     event.preventDefault();
 
-    drag = { file: start.file, rows: rowsFor(start.file), from: 0, to: 0, extend: event.shiftKey };
+    drag = { file: start.file, rows: rowsFor(start.file, owner), from: 0, to: 0, extend: event.shiftKey, reference: diffOwners.get(owner) };
 
     const anchor = indexOf(start.row);
     if (anchor < 0) {
@@ -419,6 +424,7 @@ function onUp() {
 
     const file = drag.file;
     const extend = drag.extend;
+    const reference = drag.reference;
     const picked = span(drag.to);
     drag = null;
     clearInterval(edgeTimer);
@@ -429,7 +435,7 @@ function onUp() {
     clearPreview();
 
     const lines = picked.rows.map(row => row.line);
-    dotnet?.invokeMethodAsync(
+    reference.invokeMethodAsync(
         'SelectLines', file, picked.side, Math.min(...lines), Math.max(...lines), extend);
 }
 
@@ -553,8 +559,8 @@ window.agentsDashboard = {
     scrollTo: (id) => {
         document.getElementById(id)?.scrollIntoView({ block: 'start' });
     },
-    startDiffSelection: (reference) => {
-        dotnet = reference;
+    startDiffSelection: (element, reference) => {
+        diffOwners.set(element, reference);
         if (wired) {
             return;
         }
@@ -565,14 +571,62 @@ window.agentsDashboard = {
         document.addEventListener('mouseup', onUp, true);
         document.addEventListener('click', onClick, true);
     },
-    stopDiffSelection: () => {
-        dotnet = null;
-        drag = null;
+    stopDiffSelection: (element) => {
+        if (element) {
+            diffOwners.delete(element);
+        }
+
+        if (drag && element && element.contains(drag.rows[0]?.element)) {
+            drag = null;
+        }
+
+        if (drag) {
+            return;
+        }
+
         clearInterval(edgeTimer);
         edgeTimer = null;
         clearPreview();
     },
 };
+
+// Back and forward through the jumps go to definition has made, on the mouse's
+// side buttons as in VS Code, and on its keys (Ctrl+- and Ctrl+Shift+-). The
+// buttons would otherwise go back in the browser's history, which here means to
+// the agent you were on before, so their default is stopped on the press and
+// the release alike: which of the two navigates differs between engines.
+(() => {
+    let reference = null;
+
+    function go(forward) {
+        const line = window.agentsEditor?.visibleCaret?.() ?? null;
+        reference?.invokeMethodAsync(forward ? 'Forward' : 'Back', line).catch(() => { });
+    }
+
+    for (const type of ['mousedown', 'mouseup', 'auxclick']) {
+        document.addEventListener(type, (event) => {
+            if (!reference || (event.button !== 3 && event.button !== 4)) {
+                return;
+            }
+
+            event.preventDefault();
+            event.stopPropagation();
+            if (type === 'mouseup') {
+                go(event.button === 4);
+            }
+        }, true);
+    }
+
+    document.addEventListener('keydown', (event) => {
+        if (reference && event.ctrlKey && !event.metaKey && !event.altKey && event.code === 'Minus') {
+            event.preventDefault();
+            event.stopPropagation();
+            go(event.shiftKey);
+        }
+    }, true);
+
+    window.agentsDashboard.watchNavigation = (ref) => { reference = ref; };
+})();
 
 // The borders between the panels, dragged. Done here rather than on the circuit
 // for the same reason as line selection: a drag is a stream of moves, and a round

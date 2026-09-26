@@ -70,7 +70,14 @@ function ensureLoaded() {
             // resolves the JSON, CSS, HTML and TypeScript workers next to the
             // bundle. Same origin here, so there is nothing to override.
             window.require.config({ paths: { vs: asset('monaco/vs') } });
-            window.require(['vs/editor/editor.main'], () => resolve(window.monaco), reject);
+            window.require(['vs/editor/editor.main'], async () => {
+                defineThemes(window.monaco);
+
+                // VS Code's grammars in place of Monaco's own, before any model
+                // is coloured. Without them vendored this changes nothing.
+                await window.agentsTextmate?.register(window.monaco);
+                resolve(window.monaco);
+            }, reject);
         };
         script.onerror = () => reject(new Error('Monaco failed to load.'));
         document.head.appendChild(script);
@@ -84,8 +91,113 @@ function prefersDark() {
 }
 
 function themeName() {
-    return prefersDark() ? 'vs-dark' : 'vs';
+    return prefersDark() ? 'agents-dark' : 'agents-light';
 }
+
+// Monaco's own themes with VS Code's Dark+ and Light+ colours for two kinds of
+// token the built-in themes have no rules for: the TextMate scopes the grammars
+// in textmate.js report (keyword.control, entity.name.tag, storage.type...), and
+// the semantic token types the C# provider below reports. Without these most of
+// a file would stay the plain foreground. Monaco matches a rule by dotted prefix,
+// so entity.name.tag covers entity.name.tag.html and every other language's.
+function defineThemes(monaco) {
+    const scopes = (c) => [
+        { token: 'comment', foreground: c.comment },
+        { token: 'string', foreground: c.string },
+        { token: 'string.regexp', foreground: c.regexp },
+        { token: 'constant.character.escape', foreground: c.escape },
+        { token: 'constant.numeric', foreground: c.number },
+        { token: 'keyword.other.unit', foreground: c.number },
+        { token: 'constant.language', foreground: c.keyword },
+        { token: 'constant.other', foreground: c.constant },
+        { token: 'keyword', foreground: c.keyword },
+        { token: 'keyword.control', foreground: c.control },
+        { token: 'keyword.operator', foreground: c.plain },
+        { token: 'keyword.operator.new', foreground: c.keyword },
+        { token: 'keyword.operator.expression', foreground: c.keyword },
+        { token: 'keyword.preprocessor', foreground: c.keyword },
+        { token: 'storage', foreground: c.keyword },
+        { token: 'storage.type', foreground: c.keyword },
+        { token: 'storage.modifier', foreground: c.keyword },
+        { token: 'entity.name.type', foreground: c.type },
+        { token: 'entity.name.class', foreground: c.type },
+        { token: 'entity.name.namespace', foreground: c.type },
+        { token: 'entity.other.inherited-class', foreground: c.type },
+        { token: 'support.type', foreground: c.type },
+        { token: 'support.class', foreground: c.type },
+        { token: 'entity.name.function', foreground: c.method },
+        { token: 'support.function', foreground: c.method },
+        { token: 'variable', foreground: c.member },
+        { token: 'variable.language', foreground: c.keyword },
+        { token: 'variable.other.constant', foreground: c.constant },
+        { token: 'variable.other.enummember', foreground: c.constant },
+        { token: 'meta.object-literal.key', foreground: c.member },
+        { token: 'support.type.property-name', foreground: c.property },
+        { token: 'entity.name.tag', foreground: c.tag },
+        { token: 'entity.name.tag.css', foreground: c.selector },
+        { token: 'entity.other.attribute-name', foreground: c.attribute },
+        { token: 'entity.other.attribute-name.class.css', foreground: c.selector },
+        { token: 'entity.other.attribute-name.id.css', foreground: c.selector },
+        { token: 'punctuation.definition.tag', foreground: c.tagPunctuation },
+        { token: 'markup.heading', foreground: c.heading, fontStyle: 'bold' },
+        { token: 'markup.bold', fontStyle: 'bold' },
+        { token: 'markup.italic', fontStyle: 'italic' },
+        { token: 'markup.inline.raw', foreground: c.string },
+        // Razor's transitions into code: the @ and the directives after it.
+        { token: 'keyword.control.cshtml', foreground: c.keyword },
+        { token: 'keyword.control.razor', foreground: c.keyword },
+    ];
+
+    const rules = (c) => [
+        { token: 'namespace', foreground: c.plain },
+        { token: 'class', foreground: c.type },
+        { token: 'struct', foreground: c.type },
+        { token: 'enum', foreground: c.type },
+        { token: 'typeParameter', foreground: c.type },
+        { token: 'interface', foreground: c.iface },
+        { token: 'method', foreground: c.method },
+        { token: 'property', foreground: c.member },
+        { token: 'field', foreground: c.member },
+        { token: 'event', foreground: c.member },
+        { token: 'parameter', foreground: c.member },
+        { token: 'variable', foreground: c.member },
+        { token: 'enumMember', foreground: c.constant },
+        { token: 'label', foreground: c.plain },
+    ];
+
+    const dark = {
+        plain: 'D4D4D4', type: '4EC9B0', iface: 'B8D7A3', method: 'DCDCAA', member: '9CDCFE', constant: '4FC1FF',
+        comment: '6A9955', string: 'CE9178', regexp: 'D16969', escape: 'D7BA7D', number: 'B5CEA8',
+        keyword: '569CD6', control: 'C586C0', property: '9CDCFE', tag: '569CD6', tagPunctuation: '808080',
+        attribute: '9CDCFE', selector: 'D7BA7D', heading: '569CD6',
+    };
+
+    const light = {
+        plain: '000000', type: '267F99', iface: '267F99', method: '795E26', member: '001080', constant: '0070C1',
+        comment: '008000', string: 'A31515', regexp: '811F3F', escape: 'EE0000', number: '098658',
+        keyword: '0000FF', control: 'AF00DB', property: 'E50000', tag: '800000', tagPunctuation: '800000',
+        attribute: 'E50000', selector: '800000', heading: '800000',
+    };
+
+    monaco.editor.defineTheme('agents-dark', {
+        base: 'vs-dark',
+        inherit: true,
+        rules: [...scopes(dark), ...rules(dark)],
+        colors: {},
+    });
+
+    monaco.editor.defineTheme('agents-light', {
+        base: 'vs',
+        inherit: true,
+        rules: [...scopes(light), ...rules(light)],
+        colors: {},
+    });
+}
+
+// The semantic token types, in the order Monaco indexes them. The server sends
+// kinds by name, so this list is the only place the order matters.
+const tokenTypes = ['namespace', 'class', 'struct', 'interface', 'enum', 'enumMember', 'typeParameter',
+    'method', 'property', 'event', 'field', 'parameter', 'variable', 'label'];
 
 // Extension to language id, built from Monaco's own registry rather than a hand
 // written table, so anything it ships support for is coloured without being
@@ -227,6 +339,49 @@ function registerProviders(monaco) {
         },
     });
 
+    // What each name is comes from Roslyn, as VS Code's comes from its language
+    // server. The buffer is pushed first when an edit has not reached the server
+    // yet, so the answer is for the text on screen; an answer that arrives after
+    // another edit is dropped rather than painted onto lines that have moved, and
+    // Monaco asks again for the newer text anyway.
+    monaco.languages.registerDocumentSemanticTokensProvider('csharp', {
+        getLegend: () => ({ tokenTypes, tokenModifiers: [] }),
+        provideDocumentSemanticTokens: async (model) => {
+            const state = ownerOf(model);
+            if (!state) {
+                return null;
+            }
+
+            await flushSync(state);
+            const version = model.getVersionId();
+            const answer = await state.dotnet.invokeMethodAsync('Classify');
+            if (!answer || model.isDisposed() || model.getVersionId() !== version) {
+                return null;
+            }
+
+            const index = answer.kinds.map((kind) => tokenTypes.indexOf(kind));
+            const data = [];
+            let lastLine = 0;
+            let lastColumn = 0;
+            for (let i = 0; i < answer.data.length; i += 4) {
+                const type = index[answer.data[i + 3]];
+                if (type < 0) {
+                    continue;
+                }
+
+                // Monaco's encoding is zero-based and relative to the token before.
+                const line = answer.data[i] - 1;
+                const column = answer.data[i + 1] - 1;
+                data.push(line - lastLine, line === lastLine ? column - lastColumn : column, answer.data[i + 2], type, 0);
+                lastLine = line;
+                lastColumn = column;
+            }
+
+            return { data: new Uint32Array(data) };
+        },
+        releaseDocumentSemanticTokens: () => { },
+    });
+
     monaco.languages.registerDefinitionProvider('csharp', {
         provideDefinition: async (model, position) => {
             const state = ownerOf(model);
@@ -262,15 +417,18 @@ function registerProviders(monaco) {
             const line = target.startLineNumber || target.lineNumber || 1;
             const column = target.startColumn || target.column || 1;
 
+            // Where the jump left from, so the mouse's back button can return.
+            const from = caretOf(state.editor).lineNumber;
             const model = state.editor.getModel();
             if (model && model.uri.toString() === resource.toString()) {
+                state.dotnet.invokeMethodAsync('JumpedWithin', from);
                 state.editor.setPosition({ lineNumber: line, column });
                 state.editor.revealLineInCenter(line);
                 state.editor.focus();
                 return true;
             }
 
-            state.dotnet.invokeMethodAsync('OpenLocation', resource.fsPath, line, column);
+            state.dotnet.invokeMethodAsync('OpenLocation', resource.fsPath, line, column, from);
             return true;
         },
     });
@@ -310,9 +468,23 @@ function addActions(monaco, state) {
 // buffer are wrong the moment you add a call, so the text goes up on a pause.
 function scheduleSync(state) {
     clearTimeout(state.syncing);
+    state.pendingSync = true;
     state.syncing = setTimeout(() => {
+        state.pendingSync = false;
         state.dotnet.invokeMethodAsync('TextChanged', state.editor.getValue());
     }, 400);
+}
+
+// Sends an edit still waiting on the pause now, for a query that needs the
+// server to have the text on screen.
+async function flushSync(state) {
+    if (!state.pendingSync) {
+        return;
+    }
+
+    clearTimeout(state.syncing);
+    state.pendingSync = false;
+    await state.dotnet.invokeMethodAsync('TextChanged', state.editor.getValue());
 }
 
 window.agentsEditor = {
@@ -327,6 +499,7 @@ window.agentsEditor = {
         const editor = monaco.editor.create(element, {
             model,
             theme: themeName(),
+            'semanticHighlighting.enabled': true,
             readOnly: !!settings.readOnly,
             automaticLayout: true,
             minimap: { enabled: true },
@@ -580,6 +753,18 @@ window.agentsEditor = {
 
     setTheme: (theme) => {
         window.monaco?.editor.setTheme(theme);
+    },
+
+    // The caret line of the editor on screen, for going back to where you were.
+    // Every open file keeps an editor, so it is the one not in a hidden tab.
+    visibleCaret: () => {
+        for (const state of editors.values()) {
+            if (state.element.isConnected && !state.element.closest('.hidden')) {
+                return caretOf(state.editor).lineNumber;
+            }
+        }
+
+        return null;
     },
 
     layout: (handle) => {

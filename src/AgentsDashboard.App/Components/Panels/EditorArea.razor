@@ -2,9 +2,9 @@
 @implements IDisposable
 
 @* The middle of the window: one agent's open documents, a tab each. Files open
-   here from the Files tree, and the whole diff from Source control. Pinned tabs
-   sit first and cannot be closed until unpinned; the preview tab, in italics, is
-   the one the next single click replaces. *@
+   here from the Files tree, their changes from Source control, and Settings
+   from the gear. Pinned tabs sit first and cannot be closed until unpinned; the
+   preview tab, in italics, is the one the next single click replaces. *@
 
 <div class="editor-area">
     @if (Group.Docs.Count > 0)
@@ -24,13 +24,22 @@
                 }
                 <div class="etab @(active ? "active" : "") @(doc.Pinned ? "pinned" : "") @(doc.Preview ? "preview" : "") @(doc.Dirty ? "dirty" : "")"
                      role="tab" aria-selected="@(active ? "true" : "false")" tabindex="0"
-                     title="@(doc.Path ?? "The whole diff")"
+                     title="@(doc.Kind switch { DocKind.Changes => "Every change in the worktree", DocKind.Diff => doc.Path + ", its changes", DocKind.Settings => "Settings", _ => doc.Path })"
                      @key="doc.Key"
                      @onclick="() => Bench.Activate(WorktreePath, doc.Key)"
                      @ondblclick="() => Bench.Keep(WorktreePath, doc.Key)"
                      @onmouseup="e => OnMouseUp(e, doc)"
                      @onkeydown="e => OnKey(e, doc)">
-                    @if (doc.Kind == DocKind.Changes)
+                    @if (doc.Kind == DocKind.Settings)
+                    {
+                        <span class="file-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="3" />
+                                <path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" />
+                            </svg>
+                        </span>
+                    }
+                    else if (doc.Kind == DocKind.Changes)
                     {
                         <span class="file-icon" aria-hidden="true">
                             <svg viewBox="0 0 16 16" width="14" height="14">
@@ -43,6 +52,10 @@
                         <FileGlyph Path="@doc.Path" />
                     }
                     <span class="etab-label">@doc.Title</span>
+                    @if (doc.Kind == DocKind.Diff)
+                    {
+                        <span class="etab-hint">changes</span>
+                    }
                     @if (Hint(doc) is { } hint)
                     {
                         <span class="etab-hint">@hint</span>
@@ -86,18 +99,35 @@
     <div class="editor-docs">
         @if (Group.Docs.Count == 0)
         {
-            <div class="empty editor-empty">
-                <h2>Nothing open</h2>
-                <p>Pick a file in Files on the left, or a change in Source control on the right.</p>
-            </div>
+            @if (Empty is not null)
+            {
+                @Empty
+            }
+            else
+            {
+                <div class="empty editor-empty">
+                    <h2>Nothing open</h2>
+                    <p>Pick a file in Files on the left, or a change in Source control on the right.</p>
+                </div>
+            }
         }
 
         @foreach (var doc in Group.Docs)
         {
             <div class="doc-layer @(doc.Key == Group.ActiveKey ? "" : "hidden")" @key="doc.Key">
-                @if (doc.Kind == DocKind.Changes)
+                @if (doc.Kind == DocKind.Settings)
+                {
+                    <div class="doc-scroll">
+                        <SettingsDocument />
+                    </div>
+                }
+                else if (doc.Kind == DocKind.Changes)
                 {
                     <DiffDocument WorktreePath="@WorktreePath" />
+                }
+                else if (doc.Kind == DocKind.Diff)
+                {
+                    <DiffDocument WorktreePath="@WorktreePath" File="@doc.Path" />
                 }
                 else
                 {
@@ -109,8 +139,13 @@
 </div>
 
 @code {
+    /// <summary>The worktree whose documents these are; empty with no agent in view, where only Settings opens.</summary>
     [Parameter, EditorRequired]
     public string WorktreePath { get; set; } = "";
+
+    /// <summary>What to show when nothing is open, in place of the default hint.</summary>
+    [Parameter]
+    public RenderFragment? Empty { get; set; }
 
     private EditorGroup Group => Bench.Editors(WorktreePath);
 
@@ -127,7 +162,7 @@
     /// </summary>
     private string? Hint(EditorDoc doc)
     {
-        if (doc.Path is not { } path || !Group.Docs.Any(d => d != doc && d.Title == doc.Title))
+        if (doc.Path is not { } path || !Group.Docs.Any(d => d != doc && d.Kind == doc.Kind && d.Title == doc.Title))
         {
             return null;
         }

@@ -115,6 +115,11 @@ diff also only draws the lines of files near the screen: `app.js`
 height they measured at. The file trees draw only their visible rows through
 `Virtualize`, which is why `.tree-row` has a pinned height.
 
+**Vendored UMD scripts load through Monaco's `require`.** `vscode-textmate` and
+`vscode-oniguruma` register as anonymous AMD modules when Monaco's loader is on
+the page, so a script tag for either fails. `textmate.js` requires them. See
+`docs/syntax.md`.
+
 **The panels talk through `Workbench`, not parameters.** It is scoped (one per
 window) and holds the agent the panels follow, the panels' state, the editor tabs
 per worktree, and one `ChangesModel` per worktree, which Source control and the
