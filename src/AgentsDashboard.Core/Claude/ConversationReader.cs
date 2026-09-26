@@ -23,6 +23,14 @@ namespace AgentsDashboard.Core.Claude;
 /// sidechains and harness bookkeeping are left out: the chat is for reading the
 /// conversation, and <c>claude attach</c> is there for the rest.
 /// </para>
+/// <para>
+/// One attachment is kept: a message you send while the agent is working is not
+/// recorded as a user message. The CLI queues it and hands it to the agent
+/// between two steps of the running turn, and the transcript records that as a
+/// <c>queued_command</c> attachment at the point it was read. Leaving it out
+/// would lose what you said, and leave the chat's "Sent." bubble with nothing to
+/// match, so it would sit below the agent's reply as if it had been ignored.
+/// </para>
 /// </remarks>
 public sealed class ConversationReader
 {
@@ -119,7 +127,8 @@ public sealed class ConversationReader
     public static void Consume(string line, List<ChatEntry> entries)
     {
         if (!line.Contains("\"user\"", StringComparison.Ordinal)
-            && !line.Contains("\"assistant\"", StringComparison.Ordinal))
+            && !line.Contains("\"assistant\"", StringComparison.Ordinal)
+            && !line.Contains("queued_command", StringComparison.Ordinal))
         {
             return;
         }
@@ -130,9 +139,7 @@ public sealed class ConversationReader
             var root = doc.RootElement;
             if (root.ValueKind != JsonValueKind.Object
                 || Bool(root, "isSidechain")
-                || Bool(root, "isMeta")
-                || !root.TryGetProperty("message", out var message)
-                || !message.TryGetProperty("content", out var content))
+                || Bool(root, "isMeta"))
             {
                 return;
             }
@@ -142,6 +149,18 @@ public sealed class ConversationReader
                      && DateTimeOffset.TryParse(ts.GetString(), out var parsed)
                 ? parsed
                 : DateTimeOffset.MinValue;
+
+            if (Str(root, "type") == "attachment")
+            {
+                Queued(root, at, entries);
+                return;
+            }
+
+            if (!root.TryGetProperty("message", out var message)
+                || !message.TryGetProperty("content", out var content))
+            {
+                return;
+            }
 
             switch (Str(root, "type"))
             {
@@ -161,14 +180,7 @@ public sealed class ConversationReader
 
     private static void User(JsonElement root, JsonElement content, DateTimeOffset at, List<ChatEntry> entries)
     {
-        var text = content.ValueKind == JsonValueKind.String
-            ? content.GetString()
-            : content.ValueKind == JsonValueKind.Array
-                ? string.Join("\n\n", content.EnumerateArray()
-                    .Where(b => Str(b, "type") == "text")
-                    .Select(b => Str(b, "text"))
-                    .OfType<string>())
-                : null;
+        var text = Text(content);
 
         if (string.IsNullOrWhiteSpace(text))
         {
@@ -208,6 +220,36 @@ public sealed class ConversationReader
 
         entries.Add(ChatEntry.Said(ChatKind.You, at, trimmed));
     }
+
+    /// <summary>A message you sent mid-turn, where the agent read it.</summary>
+    private static void Queued(JsonElement root, DateTimeOffset at, List<ChatEntry> entries)
+    {
+        if (!root.TryGetProperty("attachment", out var attachment)
+            || Str(attachment, "type") != "queued_command"
+            || Str(attachment, "commandMode") is { } mode && mode != "prompt"
+            || (attachment.TryGetProperty("origin", out var o) ? Str(o, "kind") : null) is { } origin && origin != "human"
+            || !attachment.TryGetProperty("prompt", out var prompt))
+        {
+            return;
+        }
+
+        var text = Text(prompt);
+        if (!string.IsNullOrWhiteSpace(text))
+        {
+            entries.Add(ChatEntry.Said(ChatKind.You, at, text.Trim()));
+        }
+    }
+
+    /// <summary>A content value as text: a plain string, or the text blocks of an array joined.</summary>
+    private static string? Text(JsonElement content) =>
+        content.ValueKind == JsonValueKind.String
+            ? content.GetString()
+            : content.ValueKind == JsonValueKind.Array
+                ? string.Join("\n\n", content.EnumerateArray()
+                    .Where(b => Str(b, "type") == "text")
+                    .Select(b => Str(b, "text"))
+                    .OfType<string>())
+                : null;
 
     private static void Assistant(JsonElement content, DateTimeOffset at, List<ChatEntry> entries)
     {

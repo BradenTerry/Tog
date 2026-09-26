@@ -536,6 +536,29 @@ window.agentsEditor = {
         });
     },
 
+    // A fenced code block from the Markdown preview, coloured the way the editor
+    // colours that language. Returns Monaco's HTML for it, or null when Monaco has
+    // no language by that name, in which case the block stays plain.
+    colorizeHtml: async (text, language) => {
+        const monaco = await ensureLoaded();
+        monaco.editor.setTheme(themeName());
+
+        const wanted = (language || '').toLowerCase();
+        const aliases = { bash: 'shell', zsh: 'shell', sh: 'shell', console: 'shell', ts: 'typescript', js: 'javascript', yml: 'yaml', cs: 'csharp', 'c#': 'csharp', ps1: 'powershell', md: 'markdown', razor: 'razor', cshtml: 'razor', xaml: 'xml', csproj: 'xml' };
+        let id = aliases[wanted] || null;
+        if (!id) {
+            const found = monaco.languages.getLanguages().find((l) =>
+                l.id.toLowerCase() === wanted || (l.aliases || []).some((a) => a.toLowerCase() === wanted));
+            id = found ? found.id : null;
+        }
+
+        if (!id) {
+            return null;
+        }
+
+        return await monaco.editor.colorize(text, id, { tabSize: 4 });
+    },
+
     setTheme: (theme) => {
         window.monaco?.editor.setTheme(theme);
     },

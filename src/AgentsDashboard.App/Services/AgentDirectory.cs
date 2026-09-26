@@ -1,4 +1,4 @@
-using AgentsDashboard.Core.Claude;
+using AgentsDashboard.Core.Agents;
 using AgentsDashboard.Core.Model;
 using AgentsDashboard.Core.Presentation;
 
@@ -6,158 +6,127 @@ namespace AgentsDashboard.App.Services;
 
 public enum ChatState { Waiting, Active, Idle, Parked, Failed }
 
-/// <summary>Someone you can talk to: a live session, or a background agent that is parked.</summary>
+/// <summary>An agent in the sidebar, with where it works and what it is doing.</summary>
+/// <param name="LiveText">What it has said so far in the turn running now, before the transcript has it.</param>
+/// <param name="CurrentTool">The tool call it is making, by title.</param>
+/// <param name="Permission">A permission it is waiting on you for.</param>
+/// <param name="LabelIsPrompt">The label is its first prompt, standing in until the agent names the conversation.</param>
 public sealed record ChatTarget(
     string SessionId,
     string Label,
+    bool LabelIsPrompt,
     ChatState State,
-    string? Cwd,
+    string Cwd,
     string? WorktreePath,
     string? RepoName,
     string? WorktreeName,
     string? Branch,
     string Where,
-    string? JobId,
-    bool IsBackground,
     string? WaitingFor,
     string? LastReply,
-    DateTimeOffset Since);
+    DateTimeOffset Since,
+    string? Error,
+    string LiveText,
+    string? CurrentTool,
+    PermissionAsk? Permission,
+    IReadOnlyList<AcpConfigOption> Options);
 
 /// <summary>
-/// Every agent the sidebar lists and the agent view opens, live or parked.
+/// The agents the sidebar lists and the agent view opens: the ones the
+/// dashboard hosts, running or stopped.
 /// </summary>
 /// <remarks>
-/// Live sessions come from the monitor's snapshot. Parked background agents have
-/// no registry entry, so they come from the CLI's own list, which is a process
-/// spawn: it is fetched at most every fifteen seconds and shared by every view,
-/// rather than asked for by the sidebar and the agent view separately.
+/// What an agent is doing comes from the host, which hears it over ACP as it
+/// happens. Where it works comes from the monitor's snapshot, which knows the
+/// worktrees, and so does the summary of its last reply, which the monitor reads
+/// from the transcript.
 /// </remarks>
-public sealed class AgentDirectory(ClaudeCli cli)
+public sealed class AgentDirectory(AgentHost host)
 {
-    private static readonly TimeSpan MaxAge = TimeSpan.FromSeconds(15);
-
-    private readonly Lock _gate = new();
-    private IReadOnlyList<BackgroundAgent> _known = [];
-    private DateTimeOffset _knownAt = DateTimeOffset.MinValue;
-    private Task? _loading;
-
-    /// <summary>Raised when the parked list has been read again.</summary>
-    public event Action? Changed;
-
-    /// <summary>Reads the CLI's list again when the last read is older than <see cref="MaxAge"/>.</summary>
-    public void RefreshIfStale()
+    /// <summary>Raised when any agent changes.</summary>
+    public event Action? Changed
     {
-        if (DateTimeOffset.Now - _knownAt > MaxAge)
-        {
-            _ = RefreshAsync();
-        }
+        add => host.Changed += value;
+        remove => host.Changed -= value;
     }
 
-    /// <summary>Reads the CLI's list now, joining a read already under way.</summary>
-    public Task RefreshAsync()
-    {
-        lock (_gate)
-        {
-            return _loading ??= LoadAsync();
-        }
-    }
+    public AgentHost Host => host;
 
-    private async Task LoadAsync()
-    {
-        try
-        {
-            var known = await cli.ListAsync(includeStopped: true).ConfigureAwait(false);
-            lock (_gate)
-            {
-                _known = known;
-            }
-        }
-        catch (Exception e) when (e is IOException or InvalidOperationException or OperationCanceledException)
-        {
-            // Keep the last list. Parked agents are the extra, not the point.
-        }
-        finally
-        {
-            lock (_gate)
-            {
-                _knownAt = DateTimeOffset.Now;
-                _loading = null;
-            }
-        }
-
-        Changed?.Invoke();
-    }
-
-    /// <summary>Every agent you can talk to, the ones that need you first.</summary>
+    /// <summary>Every agent, the ones that need you first.</summary>
     public IReadOnlyList<ChatTarget> Targets(DashboardSnapshot snapshot)
     {
-        IReadOnlyList<BackgroundAgent> known;
-        lock (_gate)
-        {
-            known = _known;
-        }
-
         var now = snapshot.TakenAt;
-        var list = new List<ChatTarget>();
-        var live = new HashSet<string>(StringComparer.Ordinal);
+        var sessions = snapshot.Repos
+            .SelectMany(r => r.Worktrees.SelectMany(w => w.Agents))
+            .GroupBy(a => a.SessionId, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
 
-        foreach (var repo in snapshot.Repos)
-        {
-            foreach (var worktree in repo.Worktrees)
+        return host.Agents
+            .Select(agent =>
             {
-                foreach (var agent in worktree.Agents)
-                {
-                    live.Add(agent.SessionId);
-                    list.Add(new ChatTarget(
-                        agent.SessionId,
-                        agent.Label,
-                        agent.Status switch
-                        {
-                            AgentStatus.Waiting => ChatState.Waiting,
-                            AgentStatus.Active => ChatState.Active,
-                            _ => ChatState.Idle,
-                        },
-                        agent.Cwd,
-                        worktree.Worktree.Path,
-                        repo.Name,
-                        worktree.Worktree.Name,
-                        worktree.Worktree.Branch,
-                        Where(repo, worktree),
-                        agent.JobId,
-                        agent.IsBackground,
-                        agent.WaitingFor,
-                        agent.LastReply,
-                        agent.StatusSince));
-                }
-            }
-        }
-
-        foreach (var parked in known.Where(k => !live.Contains(k.SessionId)))
-        {
-            var home = WorktreeFor(snapshot, parked.Cwd);
-            list.Add(new ChatTarget(
-                parked.SessionId,
-                parked.Name ?? "Agent " + parked.Id,
-                parked.IsFailed ? ChatState.Failed : ChatState.Parked,
-                parked.Cwd,
-                home?.Worktree.Worktree.Path,
-                home?.Repo.Name,
-                home?.Worktree.Worktree.Name,
-                home?.Worktree.Worktree.Branch,
-                home is { } h ? Where(h.Repo, h.Worktree) : Fmt.Leaf(parked.Cwd),
-                parked.Id,
-                true,
-                null,
-                null,
-                parked.StartedAt ?? now));
-        }
-
-        return list
+                var home = WorktreeFor(snapshot, agent.Cwd);
+                sessions.TryGetValue(agent.SessionId, out var seen);
+                var (label, isPrompt) = LabelFor(agent, seen);
+                return new ChatTarget(
+                    agent.SessionId,
+                    label,
+                    isPrompt,
+                    agent.State switch
+                    {
+                        HostedState.Waiting => ChatState.Waiting,
+                        HostedState.Working => ChatState.Active,
+                        HostedState.Idle => ChatState.Idle,
+                        HostedState.Failed => ChatState.Failed,
+                        _ => ChatState.Parked,
+                    },
+                    agent.Cwd,
+                    home?.Worktree.Worktree.Path,
+                    home?.Repo.Name,
+                    home?.Worktree.Worktree.Name,
+                    home?.Worktree.Worktree.Branch,
+                    home is { } h ? Where(h.Repo, h.Worktree) : Fmt.Leaf(agent.Cwd),
+                    agent.Permission?.Title,
+                    seen?.LastReply,
+                    agent.StateSince,
+                    agent.Error,
+                    agent.LiveText,
+                    agent.CurrentTool,
+                    agent.Permission,
+                    agent.Options);
+            })
             .OrderBy(t => t.State)
             // Waiting: blocked longest first, since that one costs the most.
             // Everyone else: most recently active first.
             .ThenBy(t => t.State == ChatState.Waiting ? -(now - t.Since).Ticks : (now - t.Since).Ticks)
             .ToList();
+    }
+
+    /// <summary>
+    /// What an agent is called: the title it gave the conversation, or failing
+    /// that the one in its transcript, and only then its first prompt, marked as
+    /// such. The bridge names a conversation when its first turn ends, so a long
+    /// first turn runs under its prompt for a while.
+    /// </summary>
+    private static (string Label, bool IsPrompt) LabelFor(HostedAgent agent, AgentSession? seen)
+    {
+        if (agent.Title is { Length: > 0 } title)
+        {
+            return (title, false);
+        }
+
+        if (seen?.Summary is { Length: > 0 } summary)
+        {
+            return (summary, false);
+        }
+
+        if (agent.Prompt is { Length: > 0 } prompt)
+        {
+            return (AgentSession.Shorten(prompt, 60), true);
+        }
+
+        return seen is not null
+            ? (seen.Label, seen.LabelIsPrompt)
+            : ("Agent " + agent.SessionId[..Math.Min(8, agent.SessionId.Length)], false);
     }
 
     private static (RepoView Repo, WorktreeView Worktree)? WorktreeFor(DashboardSnapshot snapshot, string cwd)
@@ -197,9 +166,12 @@ public sealed class AgentDirectory(ClaudeCli cli)
     public static string StateWord(ChatTarget target) => target.State switch
     {
         ChatState.Waiting => "Waiting on you",
+        // Not the tool it is in: that changes every second or two, and a status
+        // line that keeps rewriting itself to "grep -rn ..." reads as noise. The
+        // tool is in the transcript and in the tooltip for whoever wants it.
         ChatState.Active => "Working",
-        ChatState.Parked => "Parked",
+        ChatState.Parked => "Stopped",
         ChatState.Failed => "Failed",
         _ => "Idle",
-    } + (target.IsBackground ? "" : ", in its own terminal");
+    };
 }

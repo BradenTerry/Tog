@@ -47,10 +47,22 @@ child), which is what keeps a deep .NET layout from spending most of its width o
 indentation. Folders carry the number of changed files under them, files carry
 their own additions and deletions and a badge for comments you have left.
 
-Picking a file jumps to its diff and opens it, even if it was folded: a large
-diff draws files until a line budget is spent and folds the rest, because in
-Blazor Server every commentable line is a handler registered over the circuit,
-and tens of thousands of them make the page stop answering clicks.
+Picking a file jumps to its diff. In Blazor Server every commentable line is a
+handler registered over the circuit, and tens of thousands of them make the page
+stop answering clicks, so only the files within about a screen of the viewport
+have their lines drawn. `watchDiffWindow` in `app.js` watches the files with an
+IntersectionObserver on the agent view's pane and reports, in batches, which are
+near and how tall each drawn file measured; every other file is a block that
+height, so the scrollbar and the jumps from the tree land where they would with
+everything drawn. A file with a comment editor open always stays drawn. The one
+cost is the browser's find: it only sees the files that are drawn.
+
+A single file over 3000 diff lines still starts folded behind **Show it**, since
+drawing it is a lot at once however little else is on screen. Picking it in the
+tree opens it.
+
+The trees themselves draw only their visible rows through `Virtualize`, which
+works out which rows those are from the pinned height of `.tree-row`.
 
 ## Commenting
 
@@ -149,11 +161,9 @@ Three attempts, in this order, and the order is the design:
    unconditionally. It is the artifact that survives everything else failing.
 2. **The clipboard** gets a short prompt pointing at that file, so you can paste
    it into the agent's terminal yourself.
-3. **The session** is handed the prompt directly, over the messaging socket its
-   registry entry advertises.
+3. **The agent** is handed the prompt as its next message over ACP: the one
+   picked under **Send to** (the agent you are viewing, by default), or a new
+   agent started on the review in that worktree.
 
 Only the third can fail, and its failure changes nothing: the review is already
-written and already on the clipboard. That matters because the socket protocol is
-not documented and is free to change between Claude versions, so it is treated as
-a convenience and never as the mechanism. Turn it off under **Repositories** if
-you would rather it were not tried.
+written and already on the clipboard.

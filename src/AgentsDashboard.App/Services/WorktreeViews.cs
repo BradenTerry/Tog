@@ -67,4 +67,7 @@ public sealed class RememberedView
 
     /// <summary>The file open in the Files tab.</summary>
     public string? OpenFile { get; set; }
+
+    /// <summary>Whether Markdown files show rendered rather than in the editor.</summary>
+    public bool MarkdownPreview { get; set; }
 }

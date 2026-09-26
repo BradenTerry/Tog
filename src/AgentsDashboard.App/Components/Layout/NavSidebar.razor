@@ -1,12 +1,17 @@
 @inherits StateComponent
 @inject NavigationManager Nav
 @inject AgentDirectory Directory
+@inject IJSRuntime Js
 
 @* The whole left side is the list of agents, like a messaging app's list of
    conversations: starting one at the top, settings tucked away at the bottom. *@
 
-<nav class="sidebar" aria-label="Agents">
+<nav class="sidebar @(_collapsed ? "collapsed" : "")" aria-label="Agents">
     <div class="sidebar-head">
+        <a class="icon-btn only-collapsed" href="new" title="New agent" aria-label="New agent">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"
+                 stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+        </a>
         <h1>Agents</h1>
         @if (Snapshot.Waiting.Count > 0)
         {
@@ -25,12 +30,21 @@
 
         @foreach (var target in Targets)
         {
-            <a class="chat-item @(target.SessionId == Selected ? "active" : "")" href="@Urls.Chat(target.SessionId)">
+            <a class="chat-item @(target.SessionId == Selected ? "active" : "")" href="@Urls.Chat(target.SessionId)"
+               title="@(_collapsed ? $"{target.Label} ({target.Where}, {AgentDirectory.StateWord(target)})" : null)">
                 <span class="dot @AgentDirectory.DotClass(target.State)" aria-hidden="true"></span>
                 <span class="chat-item-body">
                     <span class="chat-item-top">
-                        <span class="chat-item-name">@target.Label</span>
-                        <span class="chat-item-time">@Fmt.Duration(Snapshot.Value.TakenAt - target.Since)</span>
+                        <span class="chat-item-name @(target.LabelIsPrompt ? "untitled" : "")"
+                              title="@(target.LabelIsPrompt ? "Your prompt. The agent names the conversation when its first turn ends." : null)">@target.Label</span>
+                        @* A running clock for an agent that is doing something, or
+                           waiting; a fixed time for one that has stopped, since a
+                           ticking clock beside it reads as though it were still going. *@
+                        <span class="chat-item-time">
+                            @(target.State is ChatState.Parked or ChatState.Failed
+                                ? Fmt.At(target.Since, Snapshot.Value.TakenAt)
+                                : Fmt.Duration(Snapshot.Value.TakenAt - target.Since))
+                        </span>
                     </span>
                     <span class="chat-item-where">@target.Where</span>
                     @if (target.WaitingFor is { Length: > 0 } question)
@@ -59,6 +73,15 @@
             </svg>
         </a>
         <span class="faint">@Fmt.Count(Targets.Count, "agent")</span>
+        <button class="icon-btn spacer" @onclick="Toggle"
+                title="@(_collapsed ? "Expand the agent list" : "Collapse the agent list")"
+                aria-label="@(_collapsed ? "Expand the agent list" : "Collapse the agent list")"
+                aria-expanded="@((!_collapsed).ToString().ToLowerInvariant())">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"
+                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="@(_collapsed ? "M9 6l6 6-6 6" : "M15 6l-6 6 6 6")" />
+            </svg>
+        </button>
     </div>
 </nav>
 
@@ -66,6 +89,41 @@
     private IReadOnlyList<ChatTarget> Targets => Directory.Targets(Snapshot.Value);
 
     private string Relative => Nav.ToBaseRelativePath(Nav.Uri);
+
+    /// <summary>Folded down to a strip of status dots. Remembered in the browser: it is where you like the panel, not a setting.</summary>
+    private bool _collapsed;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        try
+        {
+            if (await Js.InvokeAsync<string?>("agentsDashboard.getPref", "sidebar") == "collapsed")
+            {
+                _collapsed = true;
+                StateHasChanged();
+            }
+        }
+        catch (Exception e) when (e is JSException or InvalidOperationException or TaskCanceledException)
+        {
+        }
+    }
+
+    private async Task Toggle()
+    {
+        _collapsed = !_collapsed;
+        try
+        {
+            await Js.InvokeVoidAsync("agentsDashboard.setPref", "sidebar", _collapsed ? "collapsed" : "expanded");
+        }
+        catch (Exception e) when (e is JSException or InvalidOperationException or TaskCanceledException)
+        {
+        }
+    }
 
     /// <summary>The session the agent view is open on, read from the URL.</summary>
     private string? Selected
@@ -90,8 +148,6 @@
         base.OnInitialized();
         Nav.LocationChanged += OnLocationChanged;
         Directory.Changed += OnDirectoryChanged;
-        State.Changed += Directory.RefreshIfStale;
-        Directory.RefreshIfStale();
     }
 
     private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e) =>
@@ -105,7 +161,6 @@
         {
             Nav.LocationChanged -= OnLocationChanged;
             Directory.Changed -= OnDirectoryChanged;
-            State.Changed -= Directory.RefreshIfStale;
         }
 
         base.Dispose(disposing);

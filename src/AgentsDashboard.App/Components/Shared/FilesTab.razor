@@ -134,6 +134,13 @@ else
                                 @(_saving ? "Saving..." : "Save")
                             </button>
                         }
+                        @if (CanPreview)
+                        {
+                            <button class="small @(_preview ? "primary" : "")" @onclick="TogglePreview"
+                                    title="@(_preview ? "Back to the editor" : "Show this file as it reads, not as it is written")">
+                                @(_preview ? "Edit" : "Preview")
+                            </button>
+                        }
                         <a class="btn small" href="@VsCodeLink" title="Open this file in VS Code">Open in VS Code</a>
                         <span class="faint nums">@Status</span>
                     </div>
@@ -163,6 +170,14 @@ else
                     }
                     else
                     {
+                        @if (_preview && CanPreview)
+                        {
+                            <div class="md-preview" @ref="_previewElement">@((MarkupString)_previewHtml)</div>
+                        }
+
+                        @* Hidden rather than removed while previewing, so the editor keeps its
+                           undo history, scroll and anything not yet saved. *@
+                        <div style="@(_preview && CanPreview ? "display: none;" : "")">
                         <CodeEditor @ref="_editor"
                                     Path="@_file.Path"
                                     AbsolutePath="@(WorktreeFiles.Resolve(WorktreePath, _file.Path) ?? "")"
@@ -180,6 +195,7 @@ else
 
                         <div class="row faint editor-hint">
                             Ctrl+S or Cmd+S saves.@(IsCSharp ? " F12 goes to a definition, Shift+F12 finds references, Shift+Alt+H shows callers." : "")
+                        </div>
                         </div>
                     }
                 </article>
@@ -229,6 +245,64 @@ else
 
     /// <summary>Lines changed against the Changes tab's base, for the editor's gutter.</summary>
     private IReadOnlyList<ChangeMark> _marks = [];
+
+    /// <summary>Whether Markdown files show rendered. Remembered per worktree, so it holds from file to file.</summary>
+    private bool _preview;
+
+    private string _previewHtml = "";
+    private ElementReference _previewElement;
+    private bool _enhance;
+    private DotNetObjectReference<FilesTab>? _self;
+
+    private bool CanPreview =>
+        _file is { IsBinary: false, Truncated: false, Error: null } file
+        && (file.Path.EndsWith(".md", StringComparison.OrdinalIgnoreCase)
+            || file.Path.EndsWith(".markdown", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Switches between the editor and the rendered file. The preview is of what
+    /// the editor holds, saved or not, so a change reads as it will look before
+    /// it is written.
+    /// </summary>
+    private async Task TogglePreview()
+    {
+        Touch();
+        _preview = !_preview;
+        _view.MarkdownPreview = _preview;
+        if (_preview && _file is { } file)
+        {
+            var text = await Current() ?? file.Text;
+            Render(text);
+
+            // The tab only redraws when told to, and the render that followed the
+            // await above used that up before the preview existed.
+            Touch();
+        }
+    }
+
+    private void Render(string text)
+    {
+        _previewHtml = MarkdownRenderer.Render(text, _file?.Path);
+        _enhance = true;
+    }
+
+    /// <summary>A link in the preview to another file in the repository.</summary>
+    [JSInvokable]
+    public Task OpenLinked(string path) => InvokeAsync(() =>
+    {
+        Touch();
+        Reveal(path);
+        if (_unsaved && !string.Equals(path, _file?.Path, StringComparison.Ordinal))
+        {
+            _pending = path;
+        }
+        else
+        {
+            Open(path, null);
+        }
+
+        StateHasChanged();
+    });
 
     /// <summary>
     /// Set when a link opened the file with no line in it. The first change is
@@ -370,6 +444,7 @@ else
             Views.BaseChanged += OnBaseChanged;
 
             _view = Views.For(WorktreePath);
+            _preview = _view.MarkdownPreview;
             if (_view.Collapsed is { } remembered)
             {
                 _collapsed = remembered;
@@ -520,6 +595,10 @@ else
         _view.OpenFile = path;
         _marks = [];
         _landOnChange = false;
+        if (_preview && CanPreview)
+        {
+            Render(_file.Text);
+        }
 
         StartLoadingCode();
         _ = ReadMarks();
@@ -572,6 +651,19 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (_enhance && _preview && _previewElement.Id is not null)
+        {
+            _enhance = false;
+            _self ??= DotNetObjectReference.Create(this);
+            try
+            {
+                await Js.InvokeVoidAsync("agentsDashboard.enhanceMarkdown", _previewElement, _self);
+            }
+            catch (Exception e) when (e is JSException or InvalidOperationException or TaskCanceledException)
+            {
+            }
+        }
+
         // The tree scrolls on its own, and where it was scrolled to is part of
         // where you were. The element only exists once the listing has arrived.
         if (_list.Id is null)
@@ -904,6 +996,7 @@ else
     {
         Code.StatusChanged -= OnCodeStatusChanged;
         Views.BaseChanged -= OnBaseChanged;
+        _self?.Dispose();
         _codeLoad?.Cancel();
         _codeLoad?.Dispose();
         _load?.Cancel();

@@ -1,7 +1,7 @@
 @inject DiffReader Diffs
 @inject ReviewDraftStore Drafts
 @inject FeedbackDispatcher Dispatcher
-@inject ClaudeCli Cli
+@inject AgentHost Host
 @inject Staging Staging
 @inject IJSRuntime Js
 @inject WorktreeViews Views
@@ -116,10 +116,10 @@ else if (_diff is { } set)
             </PathTreeView>
         </aside>
 
-        <div>
+        <div @ref="_column">
             @foreach (var file in set.Files)
             {
-                <article class="card diff-file" id="@Anchor(file.Path)">
+                <article class="card diff-file" id="@Anchor(file.Path)" data-diff-file="@file.Path" @key="file.Path">
                     <div class="card-head diff-file-head">
                         <span class="chip" title="@file.Kind">@KindLetter(file.Kind)</span>
                         <span class="mono truncate" title="@file.Path">
@@ -177,14 +177,21 @@ else if (_diff is { } set)
                     {
                         <div class="row">
                             <span class="faint">
-                                @Fmt.Count(LineCount(file), "line") of diff, folded to keep the page responsive.
+                                Large diff: @Fmt.Count(LineCount(file), "line"). Folded until you ask for it.
                             </span>
                             <button class="small spacer" @onclick="() => Expand(file.Path)">Show it</button>
                         </div>
                     }
+                    else if (!IsLive(file))
+                    {
+                        @* Off screen: a block the height the lines would take, so the
+                           scrollbar and the jumps from the tree stay true. *@
+                        <div class="diff-placeholder" style="height: @(BodyHeight(file).ToString("0", System.Globalization.CultureInfo.InvariantCulture))px"></div>
+                    }
                     else
                     {
-                        foreach (var hunk in file.Hunks)
+                        <div class="diff-body" data-diff-body="@file.Path">
+                        @foreach (var hunk in file.Hunks)
                         {
                             <div class="hunk-header">
                                 @@@("@ -")@hunk.OldStart,@hunk.OldCount +@hunk.NewStart,@hunk.NewCount @@@("@")
@@ -293,6 +300,7 @@ else if (_diff is { } set)
                                 }
                             </div>
                         }
+                        </div>
                     }
                 </article>
             }
@@ -326,20 +334,14 @@ else if (_diff is { } set)
                         @foreach (var candidate in Recipients)
                         {
                             <option value="@candidate.Id">
-                                @candidate.Label (@(candidate.Running ? "running" : "parked"))
+                                @candidate.Label (@(candidate.Running ? "running" : "stopped"))
                             </option>
                         }
                     </select>
                 </label>
             </div>
 
-            @if (Recipients.Count == 0 && View.Agents.Count > 0)
-            {
-                <p class="faint" style="margin: 8px 0 0;">
-                    The agents here were started outside the dashboard, so they belong to their own
-                    terminals. The prompt goes to your clipboard to paste into one.
-                </p>
-            }
+
         </div>
     }
 }
@@ -393,16 +395,37 @@ else if (_diff is { } set)
     private DashboardState State { get; set; } = default!;
 
     /// <summary>
-    /// How many diff lines are drawn before the remaining files are folded.
+    /// A single file with more diff lines than this starts folded. Files are only
+    /// drawn while they are near the screen, so the size of the whole diff no
+    /// longer matters, but one file this large is a lot to draw at once.
+    /// </summary>
+    private const int LargeFileLines = 3000;
+
+    /// <summary>How many lines of diff are drawn before the browser has reported what is on screen.</summary>
+    private const int FirstPaintLines = 600;
+
+    /// <summary>Estimated heights, used for a file until it has been drawn and measured.</summary>
+    private const double LineHeight = 19;
+    private const double HunkHeaderHeight = 22;
+    private const double CommentHeight = 64;
+
+    /// <summary>
+    /// The files near the screen, as the browser last reported them. Only these
+    /// have their lines drawn.
     /// </summary>
     /// <remarks>
-    /// Every line carries an interactive button, and in Blazor Server every one of
-    /// those is a handler registered over the circuit. A large branch diff can
-    /// reach tens of thousands, at which point the page takes seconds to answer a
-    /// click. Folding what is past the budget keeps the page usable and costs one
-    /// press on the files you actually want to read.
+    /// Every diff line carries a button, and in Blazor Server every button is a
+    /// handler registered over the circuit, so a large diff drawn whole makes the
+    /// page slow to answer a click. The rest are drawn as blocks the height their
+    /// lines would take, measured once they have been drawn, so the scrollbar
+    /// and the jumps from the tree stay where they would be.
     /// </remarks>
-    private const int TotalLineBudget = 2500;
+    private readonly HashSet<string> _live = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, double> _heights = new(StringComparer.Ordinal);
+    private ElementReference _column;
+
+    /// <summary>The column element the browser is watching. A reload can draw a new one.</summary>
+    private string? _watched;
 
     private DiffBase _base = DiffBase.WorkingTree;
     private string _customRef = "";
@@ -451,7 +474,6 @@ else if (_diff is { } set)
     private bool _submitting;
 
     /// <summary>Background agents in this worktree, running or parked.</summary>
-    private IReadOnlyList<BackgroundAgent> _known = [];
 
     /// <summary>
     /// The short id of the agent to hand the review to, or null for nobody.
@@ -616,19 +638,63 @@ else if (_diff is { } set)
     private void FoldPastBudget(DiffSet set)
     {
         _folded.Clear();
-        var spent = 0;
+        _live.Clear();
+        _heights.Clear();
 
+        foreach (var file in set.Files.Where(f => LineCount(f) > LargeFileLines))
+        {
+            _folded.Add(file.Path);
+        }
+
+        // Until the browser reports what is on screen, the first files are drawn,
+        // so the first paint is not a column of blanks.
+        var spent = 0;
         foreach (var file in set.Files)
         {
-            var lines = LineCount(file);
-            if (spent > 0 && spent + lines > TotalLineBudget)
+            if (spent > 0 && spent >= FirstPaintLines)
             {
-                _folded.Add(file.Path);
-                continue;
+                break;
             }
 
-            spent += lines;
+            _live.Add(file.Path);
+            spent += LineCount(file);
         }
+    }
+
+    /// <summary>
+    /// Whether a file's lines are drawn. A file being commented on always is, so
+    /// the editor is never taken away from under you by a scroll.
+    /// </summary>
+    private bool IsLive(DiffFile file) =>
+        _live.Contains(file.Path) || (_editing is { } editing && editing.File == file.Path);
+
+    private double BodyHeight(DiffFile file) =>
+        _heights.TryGetValue(file.Path, out var measured)
+            ? measured
+            : file.Hunks.Sum(h => HunkHeaderHeight + h.Lines.Count * LineHeight)
+              + _draft.Comments.Count(c => c.FilePath == file.Path) * CommentHeight;
+
+    /// <summary>
+    /// The browser's report of which files are near the screen, and the heights
+    /// of the ones that are drawn.
+    /// </summary>
+    [JSInvokable]
+    public void SetWindow(string[] near, Dictionary<string, double> heights)
+    {
+        foreach (var (path, height) in heights)
+        {
+            _heights[path] = height;
+        }
+
+        if (_live.SetEquals(near))
+        {
+            return;
+        }
+
+        _live.Clear();
+        _live.UnionWith(near);
+        Touch();
+        StateHasChanged();
     }
 
     /// <summary>
@@ -929,6 +995,20 @@ else if (_diff is { } set)
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        // The column only exists once there is a diff to show.
+        if (_column.Id is { } column && column != _watched && _self is not null)
+        {
+            _watched = column;
+            try
+            {
+                await Js.InvokeVoidAsync("agentsDashboard.watchDiffWindow", _column, _self);
+            }
+            catch (Exception e) when (e is JSException or InvalidOperationException or TaskCanceledException)
+            {
+                _watched = null;
+            }
+        }
+
         if (_toColour.Count > 0)
         {
             _ = ColourQueued();
@@ -1045,24 +1125,17 @@ else if (_diff is { } set)
     }
 
     /// <summary>
-    /// Hands the review to a background agent in this worktree.
+    /// Hands the review to an agent in this worktree, or starts one on it.
     /// </summary>
-    /// <remarks>
-    /// Only a background agent, because that is the only kind the CLI can be told
-    /// to continue. A session someone is sitting in front of belongs to its
-    /// terminal, and the clipboard is how a review reaches it.
-    /// </remarks>
     private async Task<ReviewSubmission> HandOver(ReviewSubmission submission)
     {
         if (_recipient == NewAgent)
         {
-            var (started, id) = await Cli.StartAsync(WorktreePath, submission.Prompt);
+            var started = await Host.StartAsync(new AgentStart(WorktreePath, Prompt: submission.Prompt, Title: "Review feedback"));
             return submission with
             {
                 Sent = started.Ok,
-                SendError = started.Ok
-                    ? id is null ? null : $"Started agent {id} on it."
-                    : started.Message,
+                SendError = started.Ok ? null : started.Message,
             };
         }
 
@@ -1072,39 +1145,29 @@ else if (_diff is { } set)
             return submission;
         }
 
-        var sent = await Cli.SendAsync(target.Id, target.SessionId, WorktreePath, submission.Prompt);
+        var sent = await Host.SendAsync(target.SessionId, submission.Prompt);
         return submission with { Sent = sent.Ok, SendError = sent.Ok ? null : sent.Message };
     }
 
     /// <summary>
-    /// Who the review can be handed to: the background agents working in this
-    /// worktree, running or parked.
+    /// Who the review can be handed to: the agents working in this worktree,
+    /// running or stopped.
     /// </summary>
     /// <remarks>
-    /// Only background agents, because they are the only kind the CLI can be told
-    /// to continue. A parked one is as good a recipient as a running one; it is
-    /// resumed with the review as its next instruction, which is often exactly
-    /// what you want after reading its work.
+    /// A stopped one is as good a recipient as a running one; it is resumed with
+    /// the review as its next instruction, which is often exactly what you want
+    /// after reading its work.
     /// </remarks>
-    private IReadOnlyList<Recipient> Recipients
-    {
-        get
-        {
-            var running = View.Agents
-                .Where(a => a.IsBackground)
-                .ToDictionary(a => a.SessionId, a => a.Label, StringComparer.Ordinal);
-
-            return _known
-                .Where(a => IsUnder(a.Cwd, WorktreePath))
-                .Select(a => new Recipient(
-                    a.Id,
-                    a.SessionId,
-                    running.TryGetValue(a.SessionId, out var label) ? label : a.Name ?? a.Id,
-                    running.ContainsKey(a.SessionId)))
-                .OrderByDescending(a => a.Running)
-                .ToList();
-        }
-    }
+    private IReadOnlyList<Recipient> Recipients =>
+        Host.Agents
+            .Where(a => IsUnder(a.Cwd, WorktreePath))
+            .Select(a => new Recipient(
+                a.SessionId,
+                a.SessionId,
+                a.Title ?? "Agent " + a.SessionId[..Math.Min(8, a.SessionId.Length)],
+                a.State != HostedState.Stopped))
+            .OrderByDescending(a => a.Running)
+            .ToList();
 
     private sealed record Recipient(string Id, string SessionId, string Label, bool Running);
 
@@ -1120,17 +1183,8 @@ else if (_diff is { } set)
     /// Only the first time: once you have chosen a recipient, a later refresh must
     /// not quietly move the review to a different agent.
     /// </remarks>
-    private async Task LoadRecipients()
+    private Task LoadRecipients()
     {
-        try
-        {
-            _known = await Cli.ListAsync(includeStopped: true);
-        }
-        catch (Exception e) when (e is IOException or InvalidOperationException)
-        {
-            _known = [];
-        }
-
         if (!_pickedRecipient)
         {
             _pickedRecipient = true;
@@ -1145,6 +1199,7 @@ else if (_diff is { } set)
 
         Touch();
         StateHasChanged();
+        return Task.CompletedTask;
     }
 
     private async Task Copy(string text)
@@ -1165,8 +1220,8 @@ else if (_diff is { } set)
         Touch();
         _selected = path;
 
-        // Picking a file in the tree is a request to read it, so a file folded by
-        // the line budget opens rather than showing you a "Show it" button you
+        // Picking a file in the tree is a request to read it, so a large file
+        // that starts folded opens rather than showing you a "Show it" button you
         // then have to press as well.
         _expanded.Add(path);
 

@@ -1,54 +1,50 @@
-@* One level of a path tree. Recurses into itself for directories.
+@using Microsoft.AspNetCore.Components.Web.Virtualization
+
+@* A path tree, drawn as the flat list of rows it shows: directories that are
+   open contribute their children, folded ones do not. Only the rows in view are
+   drawn. A worktree can have thousands of files, every row is a button, and in
+   Blazor Server every button is a handler registered over the circuit, so an
+   open tree drawn whole is slow to answer a click.
    The file row is supplied by the caller, because what belongs on it differs:
    a diff shows its additions and deletions, a file browser shows the name. *@
 
 @typeparam TValue
 
-@foreach (var child in Node.Children)
-{
-    if (child.IsFile)
+<Virtualize Items="Rows" ItemSize="RowHeight" OverscanCount="40" Context="row">
+    @{
+        var node = row.Node;
+    }
+    @if (node.IsFile)
     {
         <button type="button"
-                class="tree-row file @(Selected == child.Path ? "selected" : "")"
-                style="@Indent"
-                title="@child.Path"
-                @onclick="() => OnSelect.InvokeAsync(child.Path)">
-            @FileRow(child)
+                class="tree-row file @(Selected == node.Path ? "selected" : "")"
+                style="@Indent(row.Depth)"
+                title="@node.Path"
+                @onclick="() => OnSelect.InvokeAsync(node.Path)">
+            @FileRow(node)
         </button>
     }
     else
     {
-        var open = !Collapsed.Contains(child.Path);
+        var open = !Collapsed.Contains(node.Path);
         <button type="button"
                 class="tree-row dir"
-                style="@Indent"
+                style="@Indent(row.Depth)"
                 aria-expanded="@open.ToString().ToLowerInvariant()"
-                @onclick="() => OnToggle.InvokeAsync(child.Path)">
+                @onclick="() => OnToggle.InvokeAsync(node.Path)">
             <span class="caret @(open ? "open" : "")" aria-hidden="true"></span>
-            <span class="label">@child.Name</span>
-            <span class="n faint">@child.FileCount</span>
+            <span class="label">@node.Name</span>
+            <span class="n faint">@node.FileCount</span>
         </button>
-
-        if (open)
-        {
-            <PathTreeView TValue="TValue"
-                          Node="child"
-                          Depth="Depth + 1"
-                          Collapsed="Collapsed"
-                          Selected="@Selected"
-                          FileRow="FileRow"
-                          OnToggle="OnToggle"
-                          OnSelect="OnSelect" />
-        }
     }
-}
+</Virtualize>
 
 @code {
+    /// <summary>The row height in pixels, which `.tree-row` pins so the list can be windowed.</summary>
+    private const float RowHeight = 24;
+
     [Parameter, EditorRequired]
     public PathTreeNode<TValue> Node { get; set; } = default!;
-
-    [Parameter]
-    public int Depth { get; set; }
 
     /// <summary>Paths of the directories the user has folded shut.</summary>
     [Parameter, EditorRequired]
@@ -67,10 +63,39 @@
     [Parameter]
     public EventCallback<string> OnSelect { get; set; }
 
+    private readonly record struct Row(PathTreeNode<TValue> Node, int Depth);
+
+    /// <summary>
+    /// The rows the tree shows, in order. Rebuilt on each render: a fold changes
+    /// which rows there are, and walking even a large tree is far cheaper than
+    /// drawing it.
+    /// </summary>
+    private List<Row> Rows
+    {
+        get
+        {
+            var rows = new List<Row>();
+            Walk(Node, 0, rows);
+            return rows;
+        }
+    }
+
+    private void Walk(PathTreeNode<TValue> node, int depth, List<Row> rows)
+    {
+        foreach (var child in node.Children)
+        {
+            rows.Add(new Row(child, depth));
+            if (!child.IsFile && !Collapsed.Contains(child.Path))
+            {
+                Walk(child, depth + 1, rows);
+            }
+        }
+    }
+
     /// <summary>
     /// Indentation is inline because it is data, not style: the depth is only
     /// known while rendering, and a class per level would be a class per possible
     /// directory depth.
     /// </summary>
-    private string Indent => $"padding-left: {8 + Depth * 13}px;";
+    private static string Indent(int depth) => $"padding-left: {8 + depth * 13}px;";
 }

@@ -2,6 +2,7 @@
 @inherits StateComponent
 @inject SettingsStore Store
 @inject MonitorService Monitor
+@inject AgentHost Host
 
 <PageTitle>Settings - Agents Dashboard</PageTitle>
 
@@ -131,17 +132,17 @@
             <div class="stack" style="flex: 1;">
                 <strong>Default model</strong>
                 <span class="faint">
-                    Preselected in every start form. Left to the CLI, the model your own Claude
+                    Preselected in every start form. Left to the agent, the model your own Claude
                     settings already choose keeps applying.
                 </span>
             </div>
             <select value="@_settings.DefaultModel"
                     @onchange="e => Set(_settings with { DefaultModel = Blank(e.Value) })"
                     aria-label="Default model">
-                <option value="">Leave to the CLI</option>
-                @foreach (var model in StartChoices.Models)
+                <option value="">Leave to the agent</option>
+                @foreach (var model in StartChoices.For("model", Host.KnownOptions))
                 {
-                    <option value="@model">@model</option>
+                    <option value="@model.Value">@model.Name</option>
                 }
             </select>
         </div>
@@ -154,10 +155,10 @@
             <select value="@_settings.DefaultEffort"
                     @onchange="e => Set(_settings with { DefaultEffort = Blank(e.Value) })"
                     aria-label="Default effort">
-                <option value="">Leave to the CLI</option>
-                @foreach (var effort in StartChoices.Efforts)
+                <option value="">Leave to the agent</option>
+                @foreach (var effort in StartChoices.For("effort", Host.KnownOptions))
                 {
-                    <option value="@effort">@effort</option>
+                    <option value="@effort.Value">@effort.Name</option>
                 }
             </select>
         </div>
@@ -170,10 +171,10 @@
             <select value="@_settings.DefaultPermissionMode"
                     @onchange="e => Set(_settings with { DefaultPermissionMode = Blank(e.Value) })"
                     aria-label="Default permission mode">
-                <option value="">Leave to the CLI</option>
-                @foreach (var mode in StartChoices.PermissionModes)
+                <option value="">Leave to the agent</option>
+                @foreach (var mode in StartChoices.For("mode", Host.KnownOptions))
                 {
-                    <option value="@mode">@mode</option>
+                    <option value="@mode.Value">@mode.Name</option>
                 }
             </select>
         </div>
@@ -270,7 +271,7 @@
 
     /// <summary>
     /// A blank choice means "say nothing", which is not the same as a value: it
-    /// leaves the CLI's own default in place rather than pinning one here.
+    /// leaves the agent's own default in place rather than pinning one here.
     /// </summary>
     private static string? Blank(object? value) =>
         value?.ToString() is { Length: > 0 } chosen ? chosen : null;

@@ -43,13 +43,6 @@ public sealed class TempDir : IDisposable
     }
 }
 
-/// <summary>A process probe with a fixed answer.</summary>
-public sealed class FakeProbe(params int[] alive) : AgentsDashboard.Core.Platform.IProcessProbe
-{
-    private readonly HashSet<int> _alive = [.. alive];
-
-    public bool IsAlive(int pid) => _alive.Contains(pid);
-}
 
 /// <summary>A clock the test drives.</summary>
 public sealed class FakeClock(DateTimeOffset? start = null) : AgentsDashboard.Core.Platform.IClock

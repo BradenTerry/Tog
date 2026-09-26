@@ -20,10 +20,10 @@ twice:
 - `docs/test-monitoring.md` - streaming TRX, the process signal, the two clocks,
   the telemetry installer
 - `docs/review.md` - diff bases, the comment draft, the submit order
-- `docs/agents.md` - the session registry, work summaries, notification rules
+- `docs/agents.md` - work summaries from transcripts, subagents, notification rules
 - `docs/syntax.md` - Monaco colouring in the diff, the server fallback, the two
   passes a diff hunk needs
-- `docs/agent-control.md` - the chat, the CLI lifecycle, why sending stops the agent first
+- `docs/agent-control.md` - ACP, the host, a turn, permissions, the bridge
 - `docs/staging.md` - the two-character status field, unstaging with no HEAD
 - `docs/editor.md` - Monaco in the Files tab, vendoring it, stamp-based saves
 - `docs/code-intelligence.md` - Roslyn in-process, the on-demand load, why
@@ -55,16 +55,17 @@ entry point is the console runner, the TRX extension is never registered, and
 `Microsoft.Testing.Platform.MSBuild` that xunit brings in breaks the `dotnet test`
 handshake. They are pinned level in `Directory.Packages.props`.
 
-**`--resume` on a running session starts a copy.** It does not continue it: it
-clones the conversation under a new id, prints a note on **stderr**, and exits 0.
-`ClaudeCli.SendAsync` therefore stops the agent, waits for it to actually be gone,
-and reads both output streams. Never read only stdout from the CLI.
+**Agents run over ACP, inside this process.** `AgentHost` launches the Claude
+ACP bridge (`node acp/.../claude-agent-acp/dist/index.js`, installed by
+`tools/vendor-acp.sh`) and every agent is a session on that one process. Closing
+the app ends the agents; `agents.json` brings them back as stopped, and a message
+resumes them. The bridge logs to stderr constantly, so its error stream must
+always be drained, or the pipe fills and it blocks. See `docs/agent-control.md`.
 
-**Liveness is presence in `claude agents --json` without `--all`.** A stopped
-session keeps its entry under `--all`; a running one that has not transitioned yet
-has no status and no pid. Judging by either reads a live agent as stopped, and
-the resume that follows clones the conversation. `pid` can also be JSON null, and
-`JsonElement.TryGetInt32` throws on a null element rather than returning false.
+**The dashboard does not perform file or terminal work for agents.** It
+advertises no `fs` or `terminal` capability, so the agent uses its own tools. It
+only answers `session/request_permission`. Do not add client capabilities without
+reading what the agent will then route through us.
 
 **Grid columns in the diff need `minmax(0, 1fr)`.** A bare `1fr` has an `auto`
 minimum, so one long line pushes the column past its share and scrolls the whole
@@ -100,7 +101,10 @@ a second registration answers every hover twice.
 second because the monitor publishes a snapshot every second. Re-rendering a diff
 of a few thousand lines at that rate saturates the circuit and the page stops
 answering clicks, so `ChangesTab` overrides `ShouldRender` and every handler calls
-`Touch()`. There is also a total line budget past which files start folded.
+`Touch()`. It also only draws the lines of files near the screen: `app.js`
+(`watchDiffWindow`) reports which files those are, and the rest are blocks the
+height they measured at. The file trees draw only their visible rows through
+`Virtualize`, which is why `.tree-row` has a pinned height.
 
 ## Conventions
 

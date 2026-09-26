@@ -34,4 +34,27 @@
     </ItemGroup>
   </Target>
 
+  <!-- Mermaid for the Markdown preview, vendored and served like Monaco above. -->
+  <Target Name="VendorMermaid"
+          BeforeTargets="ResolveCurrentProjectStaticWebAssetsInputs;BeforeBuild"
+          Condition="!Exists('$(MSBuildThisFileDirectory)wwwroot\mermaid\mermaid.min.js')">
+    <Message Importance="high" Text="Vendoring mermaid into wwwroot/mermaid" />
+    <Exec Command="bash tools/vendor-mermaid.sh" WorkingDirectory="$(MSBuildThisFileDirectory)../.." />
+    <ItemGroup>
+      <Content Include="wwwroot\mermaid\**" Exclude="@(Content)" />
+    </ItemGroup>
+  </Target>
+
+  <!--
+    The Claude ACP bridge, a Node package the app launches to run Claude. It is
+    not served to the browser, so unlike Monaco it needs no static web assets
+    wiring: the script installs it next to the project and the app finds it there.
+  -->
+  <Target Name="VendorAcp"
+          BeforeTargets="BeforeBuild"
+          Condition="!Exists('$(MSBuildThisFileDirectory)acp\VERSION')">
+    <Message Importance="high" Text="Installing the Claude ACP bridge into acp/" />
+    <Exec Command="bash tools/vendor-acp.sh" WorkingDirectory="$(MSBuildThisFileDirectory)../.." />
+  </Target>
+
 </Project>

@@ -22,7 +22,7 @@ you actually need from them are the three things a terminal is worst at.
 | An agent is blocked and you do not notice | Agents waiting on you sort to the top of the sidebar, longest-blocked first, with the question Claude recorded. An OS notification when one starts waiting. |
 | A `dotnet test` run scrolls past and you cannot tell what is happening | Live pass/fail counts, a progress bar and failures streaming in **while the run is going**, for runs you start and runs an agent starts. See [docs/test-monitoring.md](docs/test-monitoring.md). |
 | Reviewing the agent's work means eyeballing a terminal | A PR-style diff with line comments, submitted in one go as a markdown file the agent can act on, plus staging. See [docs/review.md](docs/review.md) and [docs/staging.md](docs/staging.md). |
-| Starting and steering agents means more terminals | Start, message, stop and remove background agents from the worktree they work in. See [docs/agent-control.md](docs/agent-control.md). |
+| Starting and steering agents means more terminals | Agents run in the dashboard over the Agent Client Protocol: replies stream in live, and permission prompts are answered in the app. See [docs/agent-control.md](docs/agent-control.md). |
 | Reading an agent's code means guessing what a symbol is | Hover, go to definition, find references and call hierarchy for C#, from Roslyn in-process. See [docs/code-intelligence.md](docs/code-intelligence.md). |
 
 ## Screens
@@ -91,7 +91,7 @@ group together. Add or hide one under **Repositories**.
 
 | Project | What it holds |
 | --- | --- |
-| `src/AgentsDashboard.Core` | Everything that is not UI: the Claude readers, the git layer and its parsers, the TRX reader, review writing, the monitor loop. No ASP.NET dependency, so all of it is testable without a host. |
+| `src/AgentsDashboard.Core` | Everything that is not UI: the ACP agent host, the Claude transcript readers, the git layer and its parsers, the TRX reader, review writing, the monitor loop. No ASP.NET dependency, so all of it is testable without a host. |
 | `src/AgentsDashboard.App` | The Blazor Server UI and the Photino window. `Program.cs` starts the host on a free loopback port, then opens the window at it. |
 | `tests/AgentsDashboard.Core.Tests` | xUnit v3 on Microsoft.Testing.Platform. Deliberately: its TRX report streams, so the suite is also a live fixture for the test monitor. |
 
@@ -107,7 +107,7 @@ amounts.
 
 ```mermaid
 flowchart TD
-  T["every 1s"] --> A["read the session registry<br/>directory listing + one stat per session"]
+  T["every 1s"] --> A["read the running agents<br/>from the ACP host"]
   A --> B["tail transcripts for the work summary"]
   B --> C["poll the test tracker"]
   C --> D{"20s elapsed,<br/>or an agent is somewhere<br/>we have not listed?"}

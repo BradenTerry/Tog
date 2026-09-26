@@ -117,6 +117,158 @@ function keepScroll(element, key) {
     settle();
 }
 
+// The nearest ancestor that scrolls, which is what "near the screen" is measured
+// against: the agent view's pane, not the window.
+function scrollParent(element) {
+    for (let node = element.parentElement; node && node !== document.body; node = node.parentElement) {
+        const overflow = getComputedStyle(node).overflowY;
+        if (overflow === 'auto' || overflow === 'scroll') {
+            return node;
+        }
+    }
+
+    return null;
+}
+
+// Tells the Changes tab which files are within a screen or so of the viewport,
+// so it draws only their lines, along with the measured height of every file it
+// has drawn, so a file that scrolls away leaves a block exactly its own height.
+// Reports are batched: a fast scroll crosses many files, and one round trip per
+// file would be the lag this exists to remove.
+function watchDiffWindow(column, reference) {
+    if (!column || column.dataset.windowed) {
+        return;
+    }
+
+    column.dataset.windowed = 'true';
+    const near = new Map();
+    let timer = 0;
+
+    const report = () => {
+        timer = 0;
+        if (!column.isConnected) {
+            io.disconnect();
+            mo.disconnect();
+            return;
+        }
+
+        const paths = [];
+        for (const [article, isNear] of near) {
+            if (isNear && article.isConnected) {
+                paths.push(article.dataset.diffFile);
+            } else if (!article.isConnected) {
+                near.delete(article);
+            }
+        }
+
+        const heights = {};
+        for (const body of column.querySelectorAll('[data-diff-body]')) {
+            heights[body.dataset.diffBody] = body.offsetHeight;
+        }
+
+        reference.invokeMethodAsync('SetWindow', paths, heights).catch(() => { });
+    };
+
+    const schedule = () => {
+        if (!timer) {
+            timer = setTimeout(report, 60);
+        }
+    };
+
+    const io = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+            near.set(entry.target, entry.isIntersecting);
+        }
+
+        schedule();
+    }, { root: scrollParent(column), rootMargin: '1500px 0px' });
+
+    const watchAll = () => {
+        for (const article of column.querySelectorAll('article[data-diff-file]')) {
+            if (!article.dataset.watched) {
+                article.dataset.watched = 'true';
+                io.observe(article);
+            }
+        }
+    };
+
+    const mo = new MutationObserver(watchAll);
+    mo.observe(column, { childList: true });
+    watchAll();
+}
+
+// Mermaid is one 5.5 MB script, so it is fetched the first time a preview has a
+// diagram in it and never otherwise.
+let mermaidLoading = null;
+
+function loadMermaid() {
+    if (!mermaidLoading) {
+        mermaidLoading = new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = new URL('mermaid/mermaid.min.js', document.baseURI).href;
+            script.onload = () => resolve(window.mermaid);
+            script.onerror = () => reject(new Error('Mermaid failed to load.'));
+            document.head.appendChild(script);
+        });
+    }
+
+    return mermaidLoading;
+}
+
+// Finishes a Markdown preview the server rendered: colours its code blocks with
+// Monaco, draws its diagrams, and routes links to other files in the repository
+// to the Files tab. Each step marks what it has done, so running this again
+// after a re-render only touches what is new.
+async function enhanceMarkdown(element, reference) {
+    if (!element) {
+        return;
+    }
+
+    if (!element.dataset.linked) {
+        element.dataset.linked = 'true';
+
+        // Capture, and stopped here: otherwise the router would take the click
+        // first and treat the link as a page of this app.
+        element.addEventListener('click', (event) => {
+            const link = event.target.closest('a[data-file]');
+            if (link && element.contains(link)) {
+                event.preventDefault();
+                event.stopPropagation();
+                reference.invokeMethodAsync('OpenLinked', link.dataset.file).catch(() => { });
+            }
+        }, true);
+    }
+
+    for (const code of element.querySelectorAll('pre > code[class*="language-"]')) {
+        if (code.dataset.coloured) {
+            continue;
+        }
+
+        code.dataset.coloured = 'true';
+        const language = [...code.classList].find((c) => c.startsWith('language-')).slice('language-'.length);
+        try {
+            const html = await window.agentsEditor.colorizeHtml(code.textContent, language);
+            if (html) {
+                code.innerHTML = html;
+            }
+        } catch {
+            // Monaco did not load. The block stays plain, which is still readable.
+        }
+    }
+
+    const diagrams = [...element.querySelectorAll('.mermaid:not([data-processed])')];
+    if (diagrams.length > 0) {
+        try {
+            const mermaid = await loadMermaid();
+            const dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+            mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: dark ? 'dark' : 'default' });
+            await mermaid.run({ nodes: diagrams, suppressErrors: true });
+        } catch {
+            // Without Mermaid the diagram's source stays on the page as text.
+        }
+    }
+}
+
 function lineOf(element) {
     const row = element.closest?.('.diff-line');
     if (!row || row.dataset.line === undefined) {
@@ -352,6 +504,23 @@ window.agentsDashboard = {
     // grows it, a reply being written, a folded step opened, the composer
     // getting taller, without waiting for the server to say something changed.
     keepScroll: (element, key) => keepScroll(element, key),
+    enhanceMarkdown: (element, reference) => enhanceMarkdown(element, reference),
+    // Small per-machine preferences, such as whether the agent list is folded.
+    // Storage can be unavailable, in which case the default simply stands.
+    getPref: (key) => {
+        try {
+            return localStorage.getItem('agentsDashboard.' + key);
+        } catch {
+            return null;
+        }
+    },
+    setPref: (key, value) => {
+        try {
+            localStorage.setItem('agentsDashboard.' + key, value);
+        } catch {
+        }
+    },
+    watchDiffWindow: (column, reference) => watchDiffWindow(column, reference),
     scrollThread: (thread, force) => {
         if (!thread) {
             return;

@@ -3,6 +3,7 @@ using AgentsDashboard.App;
 using System.Net.Sockets;
 using AgentsDashboard.App.Components;
 using AgentsDashboard.App.Services;
+using AgentsDashboard.Core.Agents;
 using AgentsDashboard.Core.Claude;
 using AgentsDashboard.Core.Code;
 using AgentsDashboard.Core.Git;
@@ -42,7 +43,6 @@ builder.Services.AddRazorComponents()
 
 // Platform
 builder.Services.AddSingleton<IClock, SystemClock>();
-builder.Services.AddSingleton<IProcessProbe, ProcessProbe>();
 builder.Services.AddSingleton<IClipboard, Clipboard>();
 
 // Storage and settings
@@ -52,14 +52,23 @@ builder.Services.AddSingleton<ReviewDraftStore>();
 
 // Claude
 builder.Services.AddSingleton(new ClaudePaths());
-builder.Services.AddSingleton<SessionRegistryReader>();
 builder.Services.AddSingleton<TranscriptLocator>();
+builder.Services.AddSingleton<PastSessionReader>();
 builder.Services.AddSingleton<ConversationReader>();
 builder.Services.AddSingleton<TranscriptReader>();
 builder.Services.AddSingleton<SubagentReader>();
-builder.Services.AddSingleton(_ => new ClaudeCli());
 builder.Services.AddSingleton<AgentDirectory>();
 builder.Services.AddSingleton<WorktreeViews>();
+
+// Agents
+// Run over the Agent Client Protocol, inside this process. Claude is one agent
+// backend, launched through the official ACP bridge that tools/vendor-acp.sh
+// installs next to the project; another agent is another AgentBackend.
+builder.Services.AddSingleton(_ => AgentBackends.Claude(builder.Environment.ContentRootPath));
+builder.Services.AddSingleton<IAgentLauncher, ProcessAgentLauncher>();
+builder.Services.AddSingleton<HostedAgentStore>();
+builder.Services.AddSingleton<AgentHost>();
+builder.Services.AddSingleton<IAgentSessionSource>(sp => sp.GetRequiredService<AgentHost>());
 
 // Git
 builder.Services.AddSingleton<IGitCli>(_ => new GitCli());
@@ -69,6 +78,7 @@ builder.Services.AddSingleton<DiffReader>();
 builder.Services.AddSingleton<Staging>();
 builder.Services.AddSingleton<WorktreeFiles>();
 builder.Services.AddSingleton<RepoDiscovery>();
+builder.Services.AddSingleton<WorktreeCreator>();
 
 // Code
 // Singletons because the whole point of the Roslyn solution is that it stays

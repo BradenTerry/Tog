@@ -16,3 +16,11 @@ TestResults/
 # Monaco, 24 MB of minified build output that tools/vendor-monaco.sh fetches on
 # the first build. It is a dependency, not source.
 src/AgentsDashboard.App/wwwroot/monaco/
+
+# The Claude ACP bridge, a Node package tools/vendor-acp.sh installs on the
+# first build. It is a dependency, not source.
+src/AgentsDashboard.App/acp/
+
+# Mermaid's browser build, which tools/vendor-mermaid.sh fetches on the first
+# build for the Markdown preview. A dependency, not source.
+src/AgentsDashboard.App/wwwroot/mermaid/

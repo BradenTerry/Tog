@@ -1,111 +1,150 @@
-# Starting, stopping and talking to agents
+# Running agents over ACP
 
-The dashboard manages background agents: **New agent** starts one, the agent
-view hands it a message or stops it. Everything goes through the Claude CLI's own
-commands.
+The dashboard runs its agents itself, over the
+[Agent Client Protocol](https://agentclientprotocol.com) (ACP): JSON-RPC, one
+message per line, on the agent process's standard input and output. It is the
+same protocol editors such as Zed use for external agents, which is what lets
+another agent be added later as a second backend rather than a second app.
+
+Claude does not speak ACP natively. The official bridge,
+`@agentclientprotocol/claude-agent-acp`, wraps the Claude Agent SDK and does.
+`tools/vendor-acp.sh` installs a pinned version into `src/AgentsDashboard.App/acp/`
+on the first build (git ignores it, like Monaco), and the app runs it with
+`node`, so Node 22 or newer has to be on `PATH`. Without either, the app opens
+and says why when you start an agent.
+
+## The pieces
 
 ```mermaid
-stateDiagram-v2
-    [*] --> Idle: claude --bg
-    [*] --> Working: claude --bg "prompt"
-    Working --> Idle: finishes its turn
-    Idle --> Stopped: claude stop
-    Working --> Stopped: claude stop
-    Stopped --> Working: claude --bg --resume &lt;session id&gt; "message"
-    Stopped --> [*]: claude rm
+flowchart LR
+  UI["Sidebar, agent view,<br/>New agent, Changes"] --> D["AgentDirectory"]
+  D --> H["AgentHost<br/>(one per app)"]
+  H --> C["AcpClient<br/>typed ACP"]
+  C --> R["JsonRpcConnection<br/>line-delimited JSON-RPC"]
+  R <-->|stdin / stdout| B["node claude-agent-acp<br/>(one process, many sessions)"]
+  B --> SDK["Claude Agent SDK"]
+  SDK --> T["~/.claude/projects<br/>transcripts"]
+  H --> S["agents.json<br/>(HostedAgentStore)"]
+  M["MonitorService"] -->|IAgentSessionSource| H
+  CR["ConversationReader"] --> T
 ```
 
-## Two kinds of agent
+- **`AgentBackend`** describes an agent: a name and the command that starts it.
+  Claude is one (`AgentBackends.Claude`). Another agent that speaks ACP is
+  another definition; nothing above it changes.
+- **`AgentHost`** owns the agent process and every session on it. One process
+  hosts all sessions: ACP is built for many sessions per connection, and a Node
+  process per agent would cost memory for nothing. It is started on first use and
+  again after it dies.
+- **`HostedAgentStore`** is the list of agents in the sidebar, kept in
+  `~/.agents-dashboard/agents.json` so they come back after a restart.
 
-| | Started by | What the dashboard can do |
-| --- | --- | --- |
-| **Background** | The dashboard, with `claude --bg` | Start, message, stop, remove |
-| **Interactive** | You, in a terminal | Watch only. It belongs to its terminal, and the clipboard is how a review reaches it. |
+## The app is the host
 
-A background agent started with no prompt sits idle and costs nothing until you
-send it one, so "start an agent here" is a cheap thing to do.
+Agents run inside the dashboard, so closing it ends them, like local agents in an
+editor. Nothing is lost: the SDK saves every conversation to the same transcripts
+the Claude CLI uses, and the sidebar lists the agents again on the next start as
+**Stopped**. Sending one a message resumes it with `session/resume` and then
+prompts it. A turn in progress when the app closed is the only thing that stops.
 
-## Chat
+A background host that outlives the window could replace this later without the
+UI noticing: the UI only talks to `AgentHost`.
 
-Talking to an agent happens in its **Chat** tab, laid out like a messaging app:
-every agent in the sidebar, the ones waiting on you first, and the conversation
-on the right with the box to type in always under it. Enter sends, Shift+Enter
-starts a new line. There is no other composer: an agent is only ever talked to from its own view.
+## A turn
 
-The conversation is read from the session's transcript by `ConversationReader`:
-what you typed, what the agent said, background task notices, and its tool calls
-folded into one line per run ("Ran 3 commands, read a file", expandable).
-Thinking, tool output and subagent traffic are left out. It follows the open
-conversation once a second, reading only what was appended.
+```mermaid
+sequenceDiagram
+  participant U as You
+  participant H as AgentHost
+  participant B as claude-agent-acp
+  U->>H: Send "fix the parser"
+  H->>B: session/resume (only if it was stopped)
+  H->>B: session/prompt
+  B-->>H: session/update agent_message_chunk (streamed text)
+  B-->>H: session/update tool_call "touch x.txt"
+  B->>H: session/request_permission
+  H-->>U: Allow this? Yes / No
+  U->>H: Yes
+  H-->>B: outcome selected allow-once
+  B-->>H: session/update tool_call_update completed
+  B-->>H: session/prompt result stopReason end_turn
+```
 
-A message you send shows at once, marked as on its way, and stays marked until
-the transcript records it, so a slow stop-and-resume never looks like nothing
-happened. A send that fails keeps the text, with the reason and a retry.
+What the UI shows comes from two places:
 
-An agent started in a terminal cannot be typed into. Its chat still shows the
-conversation, and the send button copies the message for you to paste there.
+- **Live, from ACP:** the state (working, waiting on you, idle, stopped, failed),
+  the text of the reply being written, the tool call in progress, and any
+  permission prompt. Streamed text arrives a few tokens at a time, so the host
+  raises its change event at most ten times a second.
+- **History, from the transcript:** `ConversationReader` reads the conversation
+  from the transcript file as before. The live text since the last tool call is
+  shown under it until the transcript has it; a tool call is where the agent's
+  previous message is finished and written, so the live text restarts there.
 
-## Sending a message stops the agent first
+The bridge names a conversation when its first turn ends: it asks the CLI to
+generate a title and sends it as `session_info_update`. That title is kept in
+`agents.json`. Until then the label is the first prompt, set in italics so it
+does not pass for a name the agent chose, and the prompt is stored separately
+from the title (`Prompt` in `agents.json`) so it never becomes one. When
+generation fails the bridge falls back to the SDK's session summary, which for a
+session it drives is just the first prompt, flattened and cut at 256 characters
+with an ellipsis. `AgentHost.IsPromptEcho` recognises that and refuses it.
 
-This is the one part with a real constraint behind it, and it is worth knowing.
+While an agent works, its status line says "Working" with animated dots rather
+than the tool it is in. The tool changes every second or two, so a status that
+names it keeps rewriting itself; the tool is in the tooltip and the transcript.
 
-`--resume` on a session that is **currently running** does not continue it. It
-starts a *copy* of the conversation under a new id, prints a note saying so, and
-exits successfully. That looks exactly like it worked, and leaves you with two
-agents where you wanted one.
+## Permissions
 
-So sending a message stops the agent first, waits for it to actually be gone, and
-only then resumes it with the message. Two details make that reliable:
+The client advertises no file system and no terminal capability, so the agent
+uses its own tools for both, exactly as in a terminal: the dashboard watches the
+work, it does not perform it. When a tool call needs your approval, the agent
+sends `session/request_permission`; the agent view shows the call's title and
+description with the options the agent offered (typically Yes and No), and the
+sidebar marks the agent as waiting on you. **Stop turn** declines an open prompt
+and cancels the turn.
 
-- **The stop is waited on, not assumed.** `claude stop` returns before the process
-  has finished exiting, and resuming a session the CLI still thinks is live
-  produces exactly the copy described above.
-- **Liveness is presence in `claude agents --json` without `--all`.** Nothing else
-  works: a stopped session keeps its entry under `--all`, and a running session
-  that has not transitioned yet reports no status and, briefly, no pid. Judging by
-  either reads a live agent as stopped, and the resume then clones it.
-- **Both output streams are read.** The CLI reports what it did on stdout but puts
-  its notes on stderr, and "this started a copy of that conversation" is a note.
-  Reading only stdout means the one line that says the send went wrong is thrown
-  away.
+Which calls ask is the permission mode, set per agent when it starts (Manual,
+Accept edits, Plan, Auto, Bypass permissions), plus your own Claude settings: a
+command your settings already allow is not asked about.
 
-The full session id is used, not the short one. Given the short id the CLI also
-starts a copy, and says so.
+Starting the first agent in a repository asks you to confirm that Claude may read
+and change every file in it. The answer is kept in the dashboard's own settings
+(`TrustedRoots`), never in Claude's config.
 
-For an idle agent stopping costs nothing. For a working one it is an
-interruption, and the composer says so before you send.
+## Controls
 
-## Parked agents
+- **New agent** starts a session in an existing worktree, or first creates a new
+  one with `git worktree add` under `.claude/worktrees/<name>`, the same layout
+  `claude --worktree` uses. By default the new worktree gets a new branch
+  `worktree-<name>` from the current HEAD. The Branch picker can instead put it on
+  an existing branch: local branches no worktree has checked out (git refuses one
+  branch in two worktrees), and remote branches with no local namesake. A remote
+  branch is checked out as a new local branch of the same name tracking it
+  (`worktree add --track -b`), since the remote ref alone would leave the agent
+  on a detached HEAD. Left blank, the worktree name comes from the branch.
+  Remote branches are as fresh as the last fetch; "Fetch remote branches" runs
+  `git fetch --all --prune`, only when clicked.
+- **Resume** under New agent lists the folder's past conversations, including
+  ones started in a terminal, and reopens one under ACP. A conversation still
+  running in a terminal or under `claude --bg` should be stopped there first:
+  two processes on one conversation will both write to it.
+- **Model, Effort, Permission mode** are ACP config options. The lists shown are
+  the ones the agent reported for its last session, and a value is matched to
+  the agent's own name for it ("opus" finds "opus[1m]"); one it does not offer is
+  left out rather than failing the start.
+- **Stop turn** sends `session/cancel`. **End session** closes it
+  (`session/close`) and marks it stopped. **Remove** takes it off the list; the
+  conversation stays saved and can be resumed.
+- A message sent while the agent is working does not interrupt it. The CLI
+  queues it and hands it to the agent between two steps of the running turn.
+  The transcript records that as a `queued_command` attachment rather than a
+  user message, so `ConversationReader` reads those too. Without them the chat's
+  "Sent." bubble never finds its message and sits below the agent's reply as if
+  it were ignored.
 
-A stopped background agent keeps its conversation but has no process, so it is
-absent from Claude's session registry, which is where the rest of the dashboard
-gets its agents from. The CLI is the only thing that still remembers it.
+## When the agent process dies
 
-The sidebar therefore adds them from `claude agents --json --all`, matched to a
-worktree by their working directory, and marks them **Parked**. Forgetting an agent you parked would make parking one a
-mistake.
-
-Which agents count as parked is worked out on each render rather than when the
-list was fetched: an agent started a moment ago is in the CLI's list before it
-reaches the registry, and would otherwise appear in both places at once.
-
-## More controls
-
-Beyond start, message, stop and remove:
-
-- **Attach**: `claude attach <id>` is the way to actually sit in a session. It
-  wants a terminal, so the dashboard copies the line rather than running it.
-- **Respawn**: `claude respawn <id>` restarts a failed session, or one left on an
-  old CLI binary, keeping its conversation.
-- **Start defaults**: the model, effort and permission mode a new agent starts
-  with are set under **Settings**.
-
-## What is not built on
-
-A session's registry entry advertises a Unix socket at
-`/tmp/cc-socks/<pid>.sock`, and there is a token beside it. That is how Claude's
-own cross-session messaging works, and it would allow messaging a running agent
-without stopping it. Its handshake is not documented, and the socket does not
-answer anything without it. Nothing here is built on it, because a feature that
-silently stops working after a Claude update is worse than one with a limit you
-can read.
+Every session it held stops. One that was mid-turn is marked failed, with the last
+line the bridge wrote to its error stream; the others become stopped. The next
+message starts the process again and resumes the session.
