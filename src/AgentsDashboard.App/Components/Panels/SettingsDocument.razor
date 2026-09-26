@@ -3,191 +3,296 @@
 @inject MonitorService Monitor
 @inject AgentHost Host
 @inject FolderPicker Folders
+@inject IJSRuntime Js
 
 @* Settings, as a tab in the editor like VS Code's, so it closes like any other
    tab and the agent you were on stays where it was. *@
 
-<div class="page">
+<div class="page settings-page">
     <div class="page-head"><h1>Settings</h1></div>
-    <p class="page-sub">
-        The repositories you add here are the ones New agent offers to start in.
-    </p>
-
-    <div class="card">
-        <div class="card-head"><h2>Repositories</h2></div>
-
-        @if (_settings.RepoRoots.Count == 0)
-        {
-            <div class="row faint">None yet. Add one below, or pick one Claude is already running in.</div>
-        }
-
-        @foreach (var root in ByName(_settings.RepoRoots, r => State.Repo(r)?.Name ?? Fmt.Leaf(r)))
-        {
-            var known = State.Repo(root);
-            <div class="row">
-                <div class="stack" style="flex: 1; min-width: 0;">
-                    <strong>@(known?.Name ?? Fmt.Leaf(root))</strong>
-                    <span class="mono faint truncate">@root</span>
-                </div>
-                @if (known is not null)
-                {
-                    <span class="chip">@Fmt.Count(known.Worktrees.Count, "worktree")</span>
-                }
-                else if (!Directory.Exists(root))
-                {
-                    <span class="chip danger" title="There is no directory at this path any more">missing</span>
-                }
-                <button class="ghost small" @onclick="() => Remove(root)">Remove</button>
-            </div>
-        }
-    </div>
-
-    <div class="card">
-        <div class="card-head"><h2>Add a repository</h2></div>
-        <div class="card-body">
-            <div class="inline">
-                @* An explicit value plus oninput rather than @@bind: two-way binding
-                   will not push a value the component itself cleared back into the
-                   DOM, so the field would keep the path after it was added. *@
-                <input type="text" placeholder="/Users/you/code/your-repo"
-                       aria-label="Repository path"
-                       value="@_newRoot"
-                       @oninput="e => _newRoot = e.Value?.ToString() ?? string.Empty"
-                       @onkeydown="OnAddKey" />
-                @if (Folders.Available)
-                {
-                    <button class="primary" @onclick="Browse" disabled="@_picking">Choose folder...</button>
-                    <button @onclick="Add" disabled="@string.IsNullOrWhiteSpace(_newRoot)">Add</button>
-                }
-                else
-                {
-                    <button class="primary" @onclick="Add" disabled="@string.IsNullOrWhiteSpace(_newRoot)">Add</button>
-                }
-            </div>
-            @if (_error is { Length: > 0 })
-            {
-                <p class="faint" style="margin: 8px 0 0; color: var(--danger);">@_error</p>
-            }
-        </div>
-    </div>
-
-    @if (Discovered.Count > 0)
-    {
-        <div class="card">
-            <div class="card-head"><h2>Running elsewhere</h2></div>
-            <div class="row faint">
-                Claude sessions are running in these, but they are not in your list. Add one to start
-                new agents in it.
-            </div>
-            @foreach (var repo in ByName(Discovered, r => r.Name))
-            {
-                <div class="row">
-                    <div class="stack" style="flex: 1; min-width: 0;">
-                        <strong>@repo.Name</strong>
-                        <span class="mono faint truncate">@repo.Root</span>
-                    </div>
-                    <button class="small" @onclick="() => AddRoot(repo.Root)">Add</button>
-                    <button class="ghost small" @onclick="() => Hide(repo.Root)">Hide</button>
-                </div>
-            }
-        </div>
-    }
-
-    @if (_settings.HiddenRoots.Count > 0)
-    {
-        <div class="card">
-            <div class="card-head"><h2>Hidden</h2></div>
-            @foreach (var root in ByName(_settings.HiddenRoots, r => r))
-            {
-                <div class="row">
-                    <span class="mono truncate" style="flex: 1;">@root</span>
-                    <button class="ghost small" @onclick="() => Unhide(root)">Show again</button>
-                </div>
-            }
-        </div>
-    }
-
-    <div class="card">
-        <div class="card-head"><h2>Preferences</h2></div>
-
-        <div class="row">
-            <div class="stack" style="flex: 1;">
-                <strong>Notify when an agent starts waiting</strong>
-                <span class="faint">
-                    One notification per time an agent blocks, never repeated while it stays there,
-                    and nothing for agents that were already blocked when the app opened.
-                </span>
-            </div>
-            <input type="checkbox" checked="@_settings.NotifyOnWaiting"
-                   @onchange="e => Set(_settings with { NotifyOnWaiting = (bool)e.Value! })"
-                   aria-label="Notify when an agent starts waiting" />
-        </div>
-
-        <div class="row">
-            <div class="stack" style="flex: 1;">
-                <strong>Default model</strong>
-                <span class="faint">
-                    Preselected in every start form. Left to the agent, the model your own Claude
-                    settings already choose keeps applying.
-                </span>
-            </div>
-            <select value="@_settings.DefaultModel"
-                    @onchange="e => Set(_settings with { DefaultModel = Blank(e.Value) })"
-                    aria-label="Default model">
-                <option value="">Leave to the agent</option>
-                @foreach (var model in StartChoices.For("model", Host.KnownOptions))
-                {
-                    <option value="@model.Value">@model.Name</option>
-                }
-            </select>
-        </div>
-
-        <div class="row">
-            <div class="stack" style="flex: 1;">
-                <strong>Default effort</strong>
-                <span class="faint">How hard a new agent thinks before it answers.</span>
-            </div>
-            <select value="@_settings.DefaultEffort"
-                    @onchange="e => Set(_settings with { DefaultEffort = Blank(e.Value) })"
-                    aria-label="Default effort">
-                <option value="">Leave to the agent</option>
-                @foreach (var effort in StartChoices.For("effort", Host.KnownOptions))
-                {
-                    <option value="@effort.Value">@effort.Name</option>
-                }
-            </select>
-        </div>
-
-        <div class="row">
-            <div class="stack" style="flex: 1;">
-                <strong>Default permission mode</strong>
-                <span class="faint">What a new agent may do without asking you first.</span>
-            </div>
-            <select value="@_settings.DefaultPermissionMode"
-                    @onchange="e => Set(_settings with { DefaultPermissionMode = Blank(e.Value) })"
-                    aria-label="Default permission mode">
-                <option value="">Leave to the agent</option>
-                @foreach (var mode in StartChoices.For("mode", Host.KnownOptions))
-                {
-                    <option value="@mode.Value">@mode.Name</option>
-                }
-            </select>
-        </div>
-    </div>
-
-    <ExtensionsCard />
 
     @if (Monitor.LastError is { Length: > 0 } error)
     {
-        <div class="banner danger">
+        <div class="banner danger settings-banner">
             <strong>The last refresh failed.</strong>
             <p class="mono muted" style="margin: 5px 0 0;">@error</p>
         </div>
     }
+
+    <div class="settings-layout">
+        @* Grouped the way VS Code's settings are, a list of sections down the
+           side, since one long page had grown past what reads at a glance. *@
+        <nav class="settings-nav" role="tablist" @ref="_nav" aria-orientation="vertical" aria-label="Settings sections">
+            @foreach (var section in Sections)
+            {
+                var id = section.Id;
+                var on = id == _section;
+                <button type="button" role="tab" id="@("settings-tab-" + id)"
+                        class="settings-tab @(on ? "on" : "")"
+                        aria-selected="@(on ? "true" : "false")"
+                        aria-controls="settings-panel"
+                        tabindex="@(on ? 0 : -1)"
+                        @ref="_tabs[id]"
+                        @onclick="() => _section = id"
+                        @onkeydown="e => OnTabKey(e, id)">
+                    <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+                        <path d="@section.Icon" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                    <span>@section.Title</span>
+                    @if (section.Count is { } count)
+                    {
+                        <span class="settings-tab-count nums">@count</span>
+                    }
+                </button>
+            }
+        </nav>
+
+        <section class="settings-panel" id="settings-panel" role="tabpanel"
+                 aria-labelledby="@("settings-tab-" + _section)">
+            @switch (_section)
+            {
+                case "agents":
+                    <header class="settings-section-head">
+                        <h2>New agents</h2>
+                        <p class="muted">What every start form begins with. Each can still be changed per agent.</p>
+                    </header>
+
+                    <div class="card">
+                        <div class="row setting-row">
+                            <div class="stack" style="flex: 1;">
+                                <strong>Default model</strong>
+                                <span class="faint">
+                                    Preselected in every start form. Left to the agent, the model your own Claude
+                                    settings already choose keeps applying.
+                                </span>
+                            </div>
+                            <Picker AriaLabel="Default model" Class="setting-picker"
+                                    Value="@(_settings.DefaultModel ?? "")"
+                                    Options="@Choices("model")"
+                                    ValueChanged="v => Set(_settings with { DefaultModel = Blank(v) })" />
+                        </div>
+
+                        <div class="row setting-row">
+                            <div class="stack" style="flex: 1;">
+                                <strong>Default effort</strong>
+                                <span class="faint">How hard a new agent thinks before it answers.</span>
+                            </div>
+                            <Picker AriaLabel="Default effort" Class="setting-picker"
+                                    Value="@(_settings.DefaultEffort ?? "")"
+                                    Options="@Choices("effort")"
+                                    ValueChanged="v => Set(_settings with { DefaultEffort = Blank(v) })" />
+                        </div>
+
+                        <div class="row setting-row">
+                            <div class="stack" style="flex: 1;">
+                                <strong>Default permission mode</strong>
+                                <span class="faint">What a new agent may do without asking you first.</span>
+                            </div>
+                            <Picker AriaLabel="Default permission mode" Class="setting-picker"
+                                    Value="@(_settings.DefaultPermissionMode ?? "")"
+                                    Options="@Choices("mode")"
+                                    ValueChanged="v => Set(_settings with { DefaultPermissionMode = Blank(v) })" />
+                        </div>
+                    </div>
+                    break;
+
+                case "notifications":
+                    <header class="settings-section-head">
+                        <h2>Notifications</h2>
+                        <p class="muted">When the dashboard interrupts you.</p>
+                    </header>
+
+                    <div class="card">
+                        <label class="row setting-row">
+                            <div class="stack" style="flex: 1;">
+                                <strong>Notify when an agent starts waiting</strong>
+                                <span class="faint">
+                                    One notification per time an agent blocks, never repeated while it stays there,
+                                    and nothing for agents that were already blocked when the app opened.
+                                </span>
+                            </div>
+                            <input type="checkbox" class="switch" role="switch" checked="@_settings.NotifyOnWaiting"
+                                   @onchange="e => Set(_settings with { NotifyOnWaiting = (bool)e.Value! })"
+                                   aria-label="Notify when an agent starts waiting" />
+                        </label>
+                    </div>
+                    break;
+
+                case "extensions":
+                    <header class="settings-section-head">
+                        <h2>Extensions</h2>
+                        <p class="muted">Tabs, panels and tools added to the dashboard, each turned on here.</p>
+                    </header>
+
+                    <ExtensionsCard />
+                    break;
+
+                default:
+                    <header class="settings-section-head">
+                        <h2>Repositories</h2>
+                        <p class="muted">The repositories you add here are the ones New agent offers to start in.</p>
+                    </header>
+
+                    <div class="card">
+                        <div class="card-body">
+                            <div class="inline">
+                                @* An explicit value plus oninput rather than @@bind: two-way binding
+                                   will not push a value the component itself cleared back into the
+                                   DOM, so the field would keep the path after it was added. *@
+                                <input type="text" placeholder="/Users/you/code/your-repo"
+                                       aria-label="Repository path"
+                                       style="flex: 1; width: auto;"
+                                       value="@_newRoot"
+                                       @oninput="e => _newRoot = e.Value?.ToString() ?? string.Empty"
+                                       @onkeydown="OnAddKey" />
+                                @if (Folders.Available)
+                                {
+                                    <button class="primary" @onclick="Browse" disabled="@_picking">Choose folder...</button>
+                                    <button @onclick="Add" disabled="@string.IsNullOrWhiteSpace(_newRoot)">Add</button>
+                                }
+                                else
+                                {
+                                    <button class="primary" @onclick="Add" disabled="@string.IsNullOrWhiteSpace(_newRoot)">Add</button>
+                                }
+                            </div>
+                            @if (_error is { Length: > 0 })
+                            {
+                                <p class="faint" style="margin: 8px 0 0; color: var(--danger);">@_error</p>
+                            }
+                        </div>
+
+                        @if (_settings.RepoRoots.Count == 0)
+                        {
+                            <div class="row faint">None yet. Add one above, or pick one Claude is already running in.</div>
+                        }
+
+                        @foreach (var root in ByName(_settings.RepoRoots, r => State.Repo(r)?.Name ?? Fmt.Leaf(r)))
+                        {
+                            var known = State.Repo(root);
+                            <div class="row">
+                                <div class="stack" style="flex: 1; min-width: 0;">
+                                    <strong>@(known?.Name ?? Fmt.Leaf(root))</strong>
+                                    <span class="mono faint truncate">@root</span>
+                                </div>
+                                @if (known is not null)
+                                {
+                                    <span class="chip">@Fmt.Count(known.Worktrees.Count, "worktree")</span>
+                                }
+                                else if (!Directory.Exists(root))
+                                {
+                                    <span class="chip danger" title="There is no directory at this path any more">missing</span>
+                                }
+                                <button class="ghost small" @onclick="() => Remove(root)">Remove</button>
+                            </div>
+                        }
+                    </div>
+
+                    @if (Discovered.Count > 0)
+                    {
+                        <h3 class="settings-subhead">Running elsewhere</h3>
+                        <div class="card">
+                            <div class="row faint">
+                                Claude sessions are running in these, but they are not in your list. Add one to start
+                                new agents in it.
+                            </div>
+                            @foreach (var repo in ByName(Discovered, r => r.Name))
+                            {
+                                <div class="row">
+                                    <div class="stack" style="flex: 1; min-width: 0;">
+                                        <strong>@repo.Name</strong>
+                                        <span class="mono faint truncate">@repo.Root</span>
+                                    </div>
+                                    <button class="small" @onclick="() => AddRoot(repo.Root)">Add</button>
+                                    <button class="ghost small" @onclick="() => Hide(repo.Root)">Hide</button>
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    @if (_settings.HiddenRoots.Count > 0)
+                    {
+                        <h3 class="settings-subhead">Hidden</h3>
+                        <div class="card">
+                            @foreach (var root in ByName(_settings.HiddenRoots, r => r))
+                            {
+                                <div class="row">
+                                    <span class="mono truncate" style="flex: 1;">@root</span>
+                                    <button class="ghost small" @onclick="() => Unhide(root)">Show again</button>
+                                </div>
+                            }
+                        </div>
+                    }
+                    break;
+            }
+        </section>
+    </div>
 </div>
 
 @code {
     private Settings _settings = new();
+    private string _section = "repos";
+
+    private ElementReference _nav;
+    private readonly Dictionary<string, ElementReference> _tabs = [];
+    private bool _focusTab;
+
+    private sealed record Section(string Id, string Title, string Icon, int? Count = null);
+
+    private IReadOnlyList<Section> Sections =>
+    [
+        new("repos", "Repositories", "M3 2.5h7l3 3v8H3zM6 7.5h4M6 10h4", _settings.RepoRoots.Count),
+        new("agents", "New agents", "M8 2.5v3M5.5 5.5h5a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2zM6.5 9.5h0M9.5 9.5h0"),
+        new("notifications", "Notifications", "M4 11V7.5a4 4 0 0 1 8 0V11l1 1.5H3zM6.5 14h3"),
+        new("extensions", "Extensions", "M6 2.5h4v3h3v4h-3v4H6v-4H3v-4h3z"),
+    ];
+
+    /// <summary>Up and down move between sections, the way a vertical tab list is walked.</summary>
+    private void OnTabKey(KeyboardEventArgs e, string id)
+    {
+        var ids = Sections.Select(s => s.Id).ToList();
+        var at = ids.IndexOf(id);
+        var next = e.Key switch
+        {
+            "ArrowDown" => ids[(at + 1) % ids.Count],
+            "ArrowUp" => ids[(at - 1 + ids.Count) % ids.Count],
+            "Home" => ids[0],
+            "End" => ids[^1],
+            _ => null,
+        };
+
+        if (next is not null)
+        {
+            _section = next;
+            _focusTab = true;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        try
+        {
+            if (firstRender)
+            {
+                await Js.InvokeVoidAsync("agentsDashboard.bindTablist", _nav);
+            }
+
+            if (_focusTab && _tabs.TryGetValue(_section, out var tab))
+            {
+                _focusTab = false;
+                await tab.FocusAsync();
+            }
+        }
+        catch (Exception e) when (e is JSException or JSDisconnectedException or TaskCanceledException or InvalidOperationException)
+        {
+        }
+    }
+
+    /// <summary>A setting's choices, led by the blank that leaves it to the agent.</summary>
+    private IReadOnlyList<PickerOption> Choices(string id) =>
+    [
+        new("", "Leave to the agent", "Its own default applies"),
+        .. StartChoices.For(id, Host.KnownOptions).Select(c => new PickerOption(c.Value, c.Name)),
+    ];
     private string _newRoot = "";
     private string? _error;
 

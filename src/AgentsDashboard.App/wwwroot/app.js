@@ -862,7 +862,69 @@ window.agentsDashboard = {
         edgeTimer = null;
         clearPreview();
     },
+    // A Picker's list, placed under its trigger, or over it when there is more
+    // room above. Fixed to the viewport so nothing that scrolls clips it.
+    openPicker: (trigger, list, activeId) => {
+        if (!trigger || !list) {
+            return;
+        }
+
+        bindPicker(trigger);
+        // Safari does not focus a button on click, and the keyboard follows focus.
+        trigger.focus({ preventScroll: true });
+        placePicker(trigger, list);
+        if (activeId) {
+            document.getElementById(activeId)?.scrollIntoView({ block: 'nearest' });
+        }
+    },
+    revealOption: (id) => document.getElementById(id)?.scrollIntoView({ block: 'nearest' }),
+    bindPicker: (trigger) => trigger && bindPicker(trigger),
+    // A vertical tab list walks with the arrow keys, which would also scroll
+    // the page it sits in.
+    bindTablist: (list) => list?.addEventListener('keydown', (event) => {
+        if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+            event.preventDefault();
+        }
+    }),
 };
+
+const PICKER_GAP = 4;
+const PICKER_MARGIN = 8;
+const PICKER_MAX = 320;
+
+function placePicker(trigger, list) {
+    const box = trigger.getBoundingClientRect();
+    list.style.minWidth = `${box.width}px`;
+
+    const below = window.innerHeight - box.bottom - PICKER_GAP - PICKER_MARGIN;
+    const above = box.top - PICKER_GAP - PICKER_MARGIN;
+    const wanted = Math.min(list.scrollHeight, PICKER_MAX);
+    const up = wanted > below && above > below;
+
+    list.style.maxHeight = `${Math.max(120, Math.min(PICKER_MAX, up ? above : below))}px`;
+    list.style.top = up ? '' : `${box.bottom + PICKER_GAP}px`;
+    list.style.bottom = up ? `${window.innerHeight - box.top + PICKER_GAP}px` : '';
+
+    const width = list.offsetWidth;
+    list.style.left = `${Math.max(PICKER_MARGIN, Math.min(box.left, window.innerWidth - width - PICKER_MARGIN))}px`;
+    list.dataset.side = up ? 'up' : 'down';
+    list.dataset.placed = 'true';
+}
+
+// The arrow keys would scroll whatever is under the trigger as well as move
+// through the list; Blazor cannot decide per key whether to prevent that.
+function bindPicker(trigger) {
+    if (trigger.dataset.pickerBound) {
+        return;
+    }
+
+    trigger.dataset.pickerBound = 'true';
+    trigger.addEventListener('keydown', (event) => {
+        if (['ArrowDown', 'ArrowUp', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) {
+            event.preventDefault();
+        }
+    });
+}
 
 // Back and forward through the jumps go to definition has made, on the mouse's
 // side buttons as in VS Code, and on its keys (Ctrl+- and Ctrl+Shift+-). The
