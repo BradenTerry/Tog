@@ -392,20 +392,8 @@ public sealed class MonitorService : IAsyncDisposable
             .MaxBy(w => w.Path.Length)
             ?.Path;
 
-    private static bool IsUnder(string path, string root)
-    {
-        if (string.Equals(path, root, StringComparison.Ordinal))
-        {
-            return true;
-        }
-
-        var prefix = root.EndsWith('/') || root.EndsWith(Path.DirectorySeparatorChar)
-            ? root
-            : root + Path.DirectorySeparatorChar;
-
-        return path.StartsWith(prefix, StringComparison.Ordinal)
-               || path.StartsWith(root + "/", StringComparison.Ordinal);
-    }
+    /// <summary>Resolved first: git reports worktrees by their real path, and an agent's folder may run through a link.</summary>
+    private static bool IsUnder(string path, string root) => RealPaths.IsUnder(path, root);
 
     public async ValueTask DisposeAsync()
     {
