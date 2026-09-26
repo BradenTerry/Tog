@@ -18,7 +18,7 @@ namespace AgentsDashboard.App.Services;
 /// </remarks>
 public static class DesktopWindow
 {
-    public static void Open(string url, ILoggerFactory loggers, Action fallbackUrlPrinted)
+    public static void Open(string url, ILoggerFactory loggers, FolderPicker folders, Action fallbackUrlPrinted)
     {
         var log = loggers.CreateLogger(nameof(DesktopWindow));
 
@@ -34,7 +34,9 @@ public static class DesktopWindow
                 .SetContextMenuEnabled(false)
                 .Load(new Uri(url));
 
+            folders.Attach(window);
             window.WaitForClose();
+            folders.Attach(null);
         }
         catch (Exception e) when (e is DllNotFoundException or TypeInitializationException
                                       or PlatformNotSupportedException or EntryPointNotFoundException)
