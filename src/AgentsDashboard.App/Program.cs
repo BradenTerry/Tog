@@ -103,6 +103,8 @@ builder.Services.AddSingleton<FeedbackDispatcher>();
 builder.Services.AddSingleton<DashboardState>();
 builder.Services.AddSingleton<INotifier, OsNotifier>();
 builder.Services.AddSingleton<FolderPicker>();
+builder.Services.AddSingleton<ImageViews>();
+builder.Services.AddSingleton<OpenRequests>();
 builder.Services.AddSingleton<AppUpdate>();
 builder.Services.AddSingleton<MonitorService>();
 builder.Services.AddHostedService<MonitorHost>();
@@ -117,9 +119,14 @@ app.MapStaticAssets();
 app.UseAntiforgery();
 app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
 app.MapExtensionAssets();
+ImageViews.Map(app);
 
 // Before the first page, so an extension's tabs are there when it draws.
 app.Services.GetRequiredService<ExtensionHost>().Start();
+
+// Agents in any terminal ask for a file to be shown by dropping a request in a
+// folder; see OpenRequests. A request that beats the first window is held for it.
+app.Services.GetRequiredService<OpenRequests>().Start();
 
 await app.StartAsync();
 

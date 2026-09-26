@@ -139,6 +139,15 @@
                 {
                     <DiffDocument WorktreePath="@WorktreePath" File="@doc.Path" />
                 }
+                else if (doc.Kind == DocKind.External)
+                {
+                    <ExternalDocument Doc="doc" />
+                }
+                else if (ImageTypes.IsImage(doc.Path))
+                {
+                    <ImageDocument AbsolutePath="@(WorktreeFiles.Resolve(WorktreePath, doc.Path!) ?? "")" Label="@doc.Path"
+                                   WorktreePath="@WorktreePath" Version="@doc.Reveal" />
+                }
                 else
                 {
                     <FileDocument WorktreePath="@WorktreePath" Doc="doc" />

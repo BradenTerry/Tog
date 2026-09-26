@@ -1,0 +1,96 @@
+@inject WorktreeFiles Files
+
+@* A file outside the worktree that something asked the dashboard to show.
+   Read-only: the editor saves into worktrees, whose files it can check a save
+   against, and this is somebody else's file. An image draws as one; anything
+   else is its text, the way a large file is shown. *@
+
+@if (ImageTypes.IsImage(Doc.Path))
+{
+    <ImageDocument AbsolutePath="@(Doc.Path ?? "")" Version="@Doc.Reveal" />
+}
+else
+{
+    <div class="doc-file">
+        <div class="doc-bar">
+            <span class="mono truncate faint" title="@Doc.Path">@Doc.Path</span>
+            <span class="spacer"></span>
+            <span class="chip">read-only</span>
+            <span class="faint nums">@(_file is { Bytes: > 0 } f ? Fmt.Bytes(f.Bytes) : "")</span>
+        </div>
+
+        @if (_file is null)
+        {
+            <div class="empty"><p>Reading the file...</p></div>
+        }
+        else if (_file.Error is { Length: > 0 } error)
+        {
+            <div class="empty"><p>@error</p></div>
+        }
+        else if (_file.IsBinary)
+        {
+            <div class="empty"><p>Binary file, not shown.</p></div>
+        }
+        else
+        {
+            <div class="doc-scroll">
+                @if (_file.Truncated)
+                {
+                    <div class="row faint">Large file: showing the first part of it.</div>
+                }
+                <div class="diff-lines file-lines">
+                    @for (var i = 0; i < _file.Lines.Count; i++)
+                    {
+                        <div class="diff-line">
+                            <span class="ln-static">@(i + 1)</span>
+                            <span class="code">@_file.Lines[i]</span>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public EditorDoc Doc { get; set; } = default!;
+
+    private FileContent? _file;
+    private int _readAt = -1;
+
+    /// <summary>
+    /// Drawn once per request rather than with the layout's every-second
+    /// render: a text file here can be thousands of lines.
+    /// </summary>
+    private bool _render = true;
+
+    protected override bool ShouldRender()
+    {
+        if (!_render)
+        {
+            return false;
+        }
+
+        _render = false;
+        return true;
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (Doc.Reveal == _readAt)
+        {
+            return;
+        }
+
+        _readAt = Doc.Reveal;
+        _render = true;
+        if (!ImageTypes.IsImage(Doc.Path))
+        {
+            // Read as a one-file worktree of its own folder: the same size and
+            // binary rules as a worktree file, with no second reader to keep level.
+            var path = Doc.Path!;
+            _file = Files.Read(System.IO.Path.GetDirectoryName(path) ?? "/", System.IO.Path.GetFileName(path));
+        }
+    }
+}
