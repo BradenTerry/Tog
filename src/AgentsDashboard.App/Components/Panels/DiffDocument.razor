@@ -1,10 +1,13 @@
 @inject Workbench Bench
+@inject DiffReader Diffs
 @inject IJSRuntime Js
 @implements IDisposable
 
 @* A diff in the editor, where lines are picked and commented on: one file's,
    opened by clicking it in Source control, or the whole worktree's in one
-   document. Source control and every diff share the worktree's ChangesModel. *@
+   document. Source control and every diff share the worktree's ChangesModel.
+   One file's diff is the whole file with its changes marked, read apart from
+   the model's; the whole worktree's is hunks. *@
 
 <div class="doc-scroll doc-diff" data-diff-doc @ref="_root">
     @if (Model.Loading && Model.Diff is null)
@@ -119,16 +122,28 @@
                     }
                     else
                     {
+                        var isWhole = ReferenceEquals(file, _whole);
                         <div class="diff-body" data-diff-body="@file.Path">
+                        @if (File is not null && !isWhole && _wholeLines > WholeFileLines)
+                        {
+                            <div class="row faint">
+                                @Fmt.Count(_wholeLines, "line") is too long to show whole, so only the changes are shown.
+                            </div>
+                        }
                         @foreach (var hunk in file.Hunks)
                         {
-                            <div class="hunk-header">
-                                @@@("@ -")@hunk.OldStart,@hunk.OldCount +@hunk.NewStart,@hunk.NewCount @@@("@")
-                                @if (hunk.Section is { Length: > 0 } section)
-                                {
-                                    <span> @section</span>
-                                }
-                            </div>
+                            @* The whole file is one hunk that starts at line 1, so its
+                               header says nothing. *@
+                            @if (!isWhole)
+                            {
+                                <div class="hunk-header">
+                                    @@@("@ -")@hunk.OldStart,@hunk.OldCount +@hunk.NewStart,@hunk.NewCount @@@("@")
+                                    @if (hunk.Section is { Length: > 0 } section)
+                                    {
+                                        <span> @section</span>
+                                    }
+                                </div>
+                            }
                             <div class="diff-lines">
                                 @foreach (var line in hunk.Lines)
                                 {
@@ -141,6 +156,7 @@
                                     var inRange = InRange(file.Path, side, number);
 
                                     <div class="diff-line @LineClass(line) @(comments.Count > 0 ? "commented" : "") @(inRange ? "in-range" : "")"
+                                         id="@(isWhole && ReferenceEquals(line, _firstChange) ? FirstChangeId : null)"
                                          data-file="@file.Path"
                                          data-side="@side"
                                          data-line="@number">
@@ -248,7 +264,38 @@
     private ElementReference _root;
 
     private IEnumerable<DiffFile> Shown(DiffSet set) =>
-        File is null ? set.Files : set.Files.Where(f => f.Path == File);
+        File is null ? set.Files
+        : set.Files.Where(f => f.Path == File).Select(f => _whole is not null && !f.IsBinary ? _whole : f);
+
+    /// <summary>A file as it is drawn: whole when this document shows one file, hunks otherwise.</summary>
+    private DiffFile? Find(string path) =>
+        Model.Diff is { } set ? Shown(set).FirstOrDefault(f => f.Path == path) : null;
+
+    /// <summary>
+    /// The one file this document shows, read with the whole file as context, so
+    /// it reads like the file in the editor with its changes in red and green.
+    /// Null until read, and for a file too long to draw whole, which shows its
+    /// hunks instead.
+    /// </summary>
+    private DiffFile? _whole;
+
+    /// <summary>The diff the whole file was last asked for alongside, so an older answer is dropped.</summary>
+    private DiffSet? _wholeFor;
+
+    /// <summary>How long the file came back, to say why it is shown as hunks.</summary>
+    private int _wholeLines;
+
+    /// <summary>The first changed line of the whole file, which the document opens scrolled to.</summary>
+    private DiffLine? _firstChange;
+    private bool _scrollToChange;
+
+    /// <summary>
+    /// Past this many lines a file is shown as hunks. Every row is a button on
+    /// the circuit, and a single file is drawn all at once.
+    /// </summary>
+    private const int WholeFileLines = 5000;
+
+    private string FirstChangeId => "c-" + Anchor(File ?? "");
 
     private ChangesModel Model => Bench.Changes(WorktreePath);
 
@@ -400,7 +447,12 @@
         }
 
         var paths = diff.Files.Select(f => f.Path).ToHashSet(StringComparer.Ordinal);
-        foreach (var file in diff.Files)
+        if (File is not null)
+        {
+            _ = ReadWhole(diff);
+        }
+
+        foreach (var file in diff.Files.Where(f => _whole is null || f.Path != File))
         {
             var hash = Fingerprint(file);
             if (_coloured.TryGetValue(file.Path, out var was) && was != hash)
@@ -433,6 +485,58 @@
                 _folded.Add(file.Path);
             }
         }
+    }
+
+    /// <summary>
+    /// Reads the one file whole for a diff the model has just read. Its colours
+    /// and height are kept when it comes back the same, as a file's are in Adopt.
+    /// </summary>
+    private async Task ReadWhole(DiffSet diff)
+    {
+        _wholeFor = diff;
+        var listed = diff.Files.FirstOrDefault(f => f.Path == File);
+        DiffFile? read = null;
+
+        // An untracked file's diff is already the whole file, and a binary one
+        // has no lines to show.
+        if (listed is { IsBinary: false } && listed.Kind != FileChangeKind.Untracked)
+        {
+            try
+            {
+                read = await Diffs.ReadWholeFileAsync(WorktreePath, listed.Path, listed.OldPath, Model.Base, Model.CustomRef);
+            }
+            catch (Exception e) when (e is IOException or InvalidOperationException)
+            {
+                // The hunks are still shown.
+            }
+        }
+
+        if (!ReferenceEquals(diff, _wholeFor))
+        {
+            return;
+        }
+
+        _wholeLines = read is null ? 0 : LineCount(read);
+        var next = _wholeLines is > 0 and <= WholeFileLines ? read : null;
+        var shown = next ?? listed;
+        if (shown is not null)
+        {
+            var hash = Fingerprint(shown);
+            if (_fingerprints.GetValueOrDefault(shown.Path) != hash)
+            {
+                _coloured.Remove(shown.Path);
+                _heights.Remove(shown.Path);
+                _fingerprints[shown.Path] = hash;
+            }
+        }
+
+        // Opened on the first change the first time the whole file arrives; a
+        // re-read while you are reading leaves the scroll where it is.
+        _scrollToChange = _whole is null && next is not null;
+        _whole = next;
+        _firstChange = next?.Hunks.SelectMany(h => h.Lines).FirstOrDefault(l => l.Kind != DiffLineKind.Context);
+        Touch();
+        StateHasChanged();
     }
 
     /// <summary>What a file's diff says, cheaply, to tell a file that changed from one that did not.</summary>
@@ -521,7 +625,7 @@
     /// </summary>
     private IReadOnlyList<Segment> Coloured(string path, DiffLine line)
     {
-        if (!_coloured.ContainsKey(path) && Model.Diff?.Files.FirstOrDefault(f => f.Path == path) is { } file)
+        if (!_coloured.ContainsKey(path) && Find(path) is { } file)
         {
             _coloured[path] = _fingerprints.GetValueOrDefault(path);
             if (_monacoFailed)
@@ -580,7 +684,7 @@
 
         foreach (var path in paths)
         {
-            if (diff?.Files.FirstOrDefault(f => f.Path == path) is not { } file)
+            if (Find(path) is not { } file)
             {
                 continue;
             }
@@ -607,7 +711,7 @@
                 return;
             }
 
-            if (!ReferenceEquals(diff, Model.Diff))
+            if (!ReferenceEquals(diff, Model.Diff) || !ReferenceEquals(file, Find(path)))
             {
                 return;
             }
@@ -788,6 +892,18 @@
             _ = ColourQueued();
         }
 
+        if (_scrollToChange && _firstChange is not null)
+        {
+            _scrollToChange = false;
+            try
+            {
+                await Js.InvokeVoidAsync("agentsDashboard.scrollTo", FirstChangeId, "center");
+            }
+            catch (Exception e) when (e is JSException or InvalidOperationException or TaskCanceledException)
+            {
+            }
+        }
+
         // A file picked in Source control. Taken only once the diff it is in has
         // been drawn, since before that there is nothing to scroll to.
         if (File is null && _column.Id is not null && Model.Diff is { } diff && Model.PendingScroll is { } wanted
@@ -891,7 +1007,7 @@
     /// <summary>The lines the comment covers, quoted into the review so the agent sees them.</summary>
     private string? SnippetFor((string File, DiffSide Side, int Start, int End) target)
     {
-        var file = Model.Diff?.Files.FirstOrDefault(f => f.Path == target.File);
+        var file = Find(target.File);
         if (file is null)
         {
             return null;

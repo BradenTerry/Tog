@@ -121,6 +121,53 @@ public sealed class DiffReader(IGitCli git)
         return result.Ok ? UnifiedDiffParser.Parse(result.StdOut).FirstOrDefault() : null;
     }
 
+    /// <summary>
+    /// One file's changes against the chosen base with the whole file as
+    /// context, so the diff reads as the file itself with its changes marked.
+    /// </summary>
+    /// <remarks>
+    /// Null when git has nothing to say, which the caller answers with the
+    /// ordinary diff. A renamed file is asked for under both names, or git sees
+    /// the new name alone and reports every line as added. Untracked files are
+    /// not handled here: their diff is already the whole file.
+    /// </remarks>
+    public async Task<DiffFile?> ReadWholeFileAsync(
+        string worktreePath,
+        string relativePath,
+        string? oldPath,
+        DiffBase diffBase,
+        string? customRef = null,
+        CancellationToken ct = default)
+    {
+        var (baseRef, _) = await ResolveBaseAsync(worktreePath, diffBase, customRef, ct).ConfigureAwait(false);
+        if (baseRef is null)
+        {
+            return null;
+        }
+
+        List<string> args =
+        [
+            "-c", "core.quotePath=false",
+            "diff", "--no-color", "--no-ext-diff", "--find-renames", $"-U{WholeFileContext}",
+            baseRef, "--", relativePath,
+        ];
+        if (!string.IsNullOrEmpty(oldPath) && oldPath != relativePath)
+        {
+            args.Add(oldPath);
+        }
+
+        var result = await git.RunAsync(worktreePath, args, ct).ConfigureAwait(false);
+        return result.Ok
+            ? UnifiedDiffParser.Parse(result.StdOut).FirstOrDefault(f => f.Path == relativePath)
+            : null;
+    }
+
+    /// <summary>
+    /// Context lines that cover any file the editor will open, which stops at
+    /// 2 MB long before this many lines.
+    /// </summary>
+    private const int WholeFileContext = 1_000_000;
+
     private static int CountLines(string text)
     {
         if (text.Length == 0)
