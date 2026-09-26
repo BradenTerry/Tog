@@ -95,6 +95,59 @@ public class ExtensionCatalogTests
     }
 
     [Fact]
+    public void Every_extension_directly_inside_an_extension_folder_is_found()
+    {
+        using var dir = new TempDir();
+        var paths = new AppPaths(dir.Dir("data"));
+        dir.File("mine/one/extension.json", Manifest("one"));
+        dir.File("mine/two/extension.json", Manifest("two"));
+        dir.File("mine/notes/readme.md", "not an extension");
+        dir.File("mine/deep/nested/extension.json", Manifest("deep"));
+
+        var found = ExtensionCatalog.Discover(
+            paths,
+            new Settings { ExtensionFolders = [Path.Combine(dir.Path, "mine")] },
+            []);
+
+        Assert.Equal(["one", "two"], found.Select(f => f.Id));
+        Assert.All(found, f => Assert.Equal(ExtensionSource.InFolder, f.Source));
+        Assert.All(found, f => Assert.True(f.IsDev));
+    }
+
+    [Fact]
+    public void A_linked_copy_wins_over_one_in_an_extension_folder()
+    {
+        using var dir = new TempDir();
+        var paths = new AppPaths(dir.Dir("data"));
+        dir.File("data/extensions/demo/extension.json", Manifest("demo"));
+        dir.File("mine/demo/extension.json", Manifest("demo"));
+        dir.File("work/extension.json", Manifest("demo"));
+
+        var inFolder = Assert.Single(ExtensionCatalog.Discover(
+            paths,
+            new Settings { ExtensionFolders = [Path.Combine(dir.Path, "mine")] },
+            []));
+        var linked = Assert.Single(ExtensionCatalog.Discover(
+            paths,
+            new Settings { ExtensionFolders = [Path.Combine(dir.Path, "mine")], LinkedExtensions = [Path.Combine(dir.Path, "work")] },
+            []));
+
+        Assert.Equal(ExtensionSource.InFolder, inFolder.Source);
+        Assert.Equal(ExtensionSource.Linked, linked.Source);
+    }
+
+    [Fact]
+    public void An_extension_folder_that_is_gone_finds_nothing()
+    {
+        using var dir = new TempDir();
+
+        Assert.Empty(ExtensionCatalog.Discover(
+            new AppPaths(dir.Dir("data")),
+            new Settings { ExtensionFolders = [Path.Combine(dir.Path, "missing")] },
+            []));
+    }
+
+    [Fact]
     public void A_folder_with_no_manifest_is_listed_with_the_reason()
     {
         using var dir = new TempDir();

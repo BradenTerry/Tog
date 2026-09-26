@@ -9,6 +9,12 @@ public enum ExtensionSource
     /// <summary>A copy in the data folder's <c>extensions</c> directory.</summary>
     Installed,
 
+    /// <summary>
+    /// A folder directly inside one of the user's extension folders. Declared
+    /// between the two so a folder the user linked by hand wins over it.
+    /// </summary>
+    InFolder,
+
     /// <summary>A folder the user linked in Settings, usually a project being written.</summary>
     Linked,
 
@@ -69,6 +75,7 @@ public static class ExtensionCatalog
             }
         }
 
+        found.AddRange(settings.ExtensionFolders.SelectMany(InFolder).Select(dir => Read(dir, ExtensionSource.InFolder)));
         found.AddRange(settings.LinkedExtensions.Select(dir => Read(dir, ExtensionSource.Linked)));
         found.AddRange(commandLine.Select(dir => Read(Path.GetFullPath(dir), ExtensionSource.CommandLine)));
 
@@ -77,6 +84,31 @@ public static class ExtensionCatalog
             .Select(g => g.OrderByDescending(f => f.Source).First())
             .OrderBy(f => f.Manifest?.Name ?? f.Id, StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    /// <summary>
+    /// The folders directly inside an extension folder that have a manifest.
+    /// Anything else in there is not an extension and is not listed: the folder
+    /// may well hold other projects too.
+    /// </summary>
+    public static IEnumerable<string> InFolder(string folder)
+    {
+        if (!System.IO.Directory.Exists(folder))
+        {
+            return [];
+        }
+
+        try
+        {
+            return System.IO.Directory.EnumerateDirectories(folder)
+                .Where(dir => File.Exists(Path.Combine(dir, ExtensionManifests.FileName)))
+                .Order(StringComparer.Ordinal)
+                .ToList();
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return [];
+        }
     }
 
     public static FoundExtension Read(string directory, ExtensionSource source)

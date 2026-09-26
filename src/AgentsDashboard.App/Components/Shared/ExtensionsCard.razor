@@ -1,5 +1,6 @@
 @using AgentsDashboard.Core.Extensions
 @inject ExtensionHost Extensions
+@inject FolderPicker Folders
 @implements IDisposable
 
 @* Every extension found, what it is, and whether it runs. An extension is code
@@ -15,7 +16,7 @@
     @if (Extensions.Entries.Count == 0)
     {
         <div class="row faint">
-            None found. Link a folder below, or put a built extension in
+            None found. Link one below, add a folder of them, or put a built extension in
             <span class="mono">@Paths.ExtensionsDir</span>.
         </div>
     }
@@ -108,7 +109,15 @@
                    value="@_linkPath"
                    @oninput="e => _linkPath = e.Value?.ToString() ?? string.Empty"
                    @onkeydown="OnLinkKey" />
-            <button @onclick="Link" disabled="@string.IsNullOrWhiteSpace(_linkPath)">Link folder</button>
+            @if (Folders.Available)
+            {
+                <button class="primary" @onclick="BrowseLink" disabled="@_picking">Choose folder...</button>
+                <button @onclick="Link" disabled="@string.IsNullOrWhiteSpace(_linkPath)">Link folder</button>
+            }
+            else
+            {
+                <button class="primary" @onclick="Link" disabled="@string.IsNullOrWhiteSpace(_linkPath)">Link folder</button>
+            }
         </div>
         <p class="faint" style="margin: 8px 0 0;">
             A folder with an <span class="mono">extension.json</span>, usually the project you are
@@ -120,6 +129,42 @@
             <p class="faint" style="margin: 8px 0 0; color: var(--danger);">@_linkError</p>
         }
     </div>
+
+    <div class="card-head"><h2>Extension folders</h2></div>
+    @foreach (var folder in Extensions.Folders)
+    {
+        <div class="row">
+            <span class="mono truncate" style="flex: 1; min-width: 0;" title="@folder">@folder</span>
+            <button class="ghost small" @onclick="() => RemoveFolder(folder)">Remove</button>
+        </div>
+    }
+    <div class="card-body">
+        <div class="inline">
+            <input type="text" placeholder="/path/to/your-extensions"
+                   aria-label="Folder of extensions to add"
+                   value="@_folderPath"
+                   @oninput="e => _folderPath = e.Value?.ToString() ?? string.Empty"
+                   @onkeydown="OnFolderKey" />
+            @if (Folders.Available)
+            {
+                <button class="primary" @onclick="BrowseFolder" disabled="@_picking">Choose folder...</button>
+                <button @onclick="AddFolder" disabled="@string.IsNullOrWhiteSpace(_folderPath)">Add</button>
+            }
+            else
+            {
+                <button class="primary" @onclick="AddFolder" disabled="@string.IsNullOrWhiteSpace(_folderPath)">Add</button>
+            }
+        </div>
+        <p class="faint" style="margin: 8px 0 0;">
+            A folder of extension projects. Every folder directly inside it with an
+            <span class="mono">extension.json</span> is turned on and reloaded when you build it,
+            including ones you add later. Only add a folder whose code you trust.
+        </p>
+        @if (_folderError is { Length: > 0 })
+        {
+            <p class="faint" style="margin: 8px 0 0; color: var(--danger);">@_folderError</p>
+        }
+    </div>
 </div>
 
 @code {
@@ -128,7 +173,11 @@
 
     private string _linkPath = "";
     private string? _linkError;
+    private string _folderPath = "";
+    private string? _folderError;
     private string? _confirming;
+    private bool _picking;
+
 
     protected override void OnInitialized() => Extensions.Changed += OnChanged;
 
@@ -175,9 +224,61 @@
         }
     }
 
+    private async Task BrowseLink()
+    {
+        if (await Pick("Choose an extension folder", _linkPath) is { } chosen)
+        {
+            _linkPath = chosen;
+            Link();
+        }
+    }
+
+    private async Task BrowseFolder()
+    {
+        if (await Pick("Choose a folder of extensions", _folderPath) is { } chosen)
+        {
+            _folderPath = chosen;
+            AddFolder();
+        }
+    }
+
+    private async Task<string?> Pick(string title, string typed)
+    {
+        _picking = true;
+        try
+        {
+            var start = Directory.Exists(typed.Trim()) ? typed.Trim() : null;
+            return await Folders.PickAsync(title, start);
+        }
+        finally
+        {
+            _picking = false;
+        }
+    }
+
+    private void OnFolderKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            AddFolder();
+        }
+    }
+
+    private void AddFolder()
+    {
+        _folderError = Extensions.AddFolder(_folderPath);
+        if (_folderError is null)
+        {
+            _folderPath = "";
+        }
+    }
+
+    private void RemoveFolder(string folder) => Extensions.RemoveFolder(folder);
+
     private static string SourceName(ExtensionSource source) => source switch
     {
         ExtensionSource.Installed => "installed",
+        ExtensionSource.InFolder => "folder",
         ExtensionSource.Linked => "dev",
         _ => "this run",
     };
@@ -186,6 +287,7 @@
     {
         ExtensionSource.Installed => "A copy in the dashboard's extensions folder",
         ExtensionSource.Linked => "A folder you linked. Reloaded on every build.",
+        ExtensionSource.InFolder => "In one of your extension folders. Reloaded on every build.",
         _ => "Passed with --extension for this run only",
     };
 

@@ -82,11 +82,22 @@ moving one to another panel needs no change to it.
 | Source | Where | Runs when |
 | --- | --- | --- |
 | Installed | `~/.agents-dashboard/extensions/<id>/` | Enabled, and its code unchanged since |
+| In a folder | A folder directly inside one of the extension folders in `settings.json` | Unless disabled. Reloaded on every build |
 | Linked | Any folder, listed in `settings.json` | Enabled. Reloaded on every build |
 | This run | `--extension <path>` | Always, not saved |
 
-An id in more than one place: this run wins over linked, which wins over
-installed. `--no-extensions` loads none, for when one breaks startup.
+An id in more than one place: this run wins over linked, which wins over a
+folder, which wins over installed. `--no-extensions` loads none, for when one
+breaks startup.
+
+Both Link folder and Extension folders in Settings open the system's folder
+chooser, with a typed path as the fallback in `--browser` mode.
+
+An extension folder is for keeping several projects side by side. The app
+watches it, not recursively deep: a folder appearing or going directly inside,
+or an `extension.json` written into one, rescans. A new project is found as
+soon as `dotnet new` writes its manifest, fails as "not built yet", and loads
+on its first build through the same watcher a linked folder has.
 
 ## Loading
 
@@ -169,6 +180,9 @@ sandbox it, and a load context is not a security boundary. So:
   you enable it again.
 - A folder you linked, or passed with `--extension`, is code you are writing.
   It is not asked about again on every build.
+- Adding an extension folder is the choice to run what is in it, now and later,
+  so an extension found there is on until you disable it. Disabling is saved,
+  and it stays off when it next appears.
 - Extensions come only from local folders. No download, no marketplace.
 
 The project's rules apply to extensions as to the app: nothing is written into

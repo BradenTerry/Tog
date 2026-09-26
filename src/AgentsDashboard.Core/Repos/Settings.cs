@@ -38,6 +38,13 @@ public sealed record Settings
     /// </summary>
     public IReadOnlyList<string> LinkedExtensions { get; init; } = [];
 
+    /// <summary>
+    /// Folders of extensions: every folder directly inside one that has an
+    /// <c>extension.json</c> is found as if it were linked, including ones added
+    /// later.
+    /// </summary>
+    public IReadOnlyList<string> ExtensionFolders { get; init; } = [];
+
     /// <summary>Per extension id: whether it is on, and what was trusted.</summary>
     public IReadOnlyDictionary<string, ExtensionState> Extensions { get; init; } =
         new Dictionary<string, ExtensionState>();

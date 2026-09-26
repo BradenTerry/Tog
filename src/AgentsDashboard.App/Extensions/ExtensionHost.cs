@@ -46,8 +46,10 @@ public sealed class ExtensionHost : IDisposable
     private readonly Dictionary<string, Loaded> _loaded = new(StringComparer.Ordinal);
     private readonly Dictionary<string, (ExtensionStatus Status, string? Message)> _states = new(StringComparer.Ordinal);
     private readonly Dictionary<string, FileSystemWatcher> _watchers = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, FileSystemWatcher> _folderWatchers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Timer> _debounce = new(StringComparer.Ordinal);
     private IReadOnlyList<FoundExtension> _found = [];
+    private IReadOnlyList<string> _folders = [];
     private int _generation;
 
     public ExtensionHost(
@@ -99,11 +101,19 @@ public sealed class ExtensionHost : IDisposable
     /// </summary>
     public void Rescan()
     {
-        var found = ExtensionCatalog.Discover(_paths, _settings.Load(), _options.CommandLine);
+        var settings = _settings.Load();
+        var found = ExtensionCatalog.Discover(_paths, settings, _options.CommandLine);
+        WatchFolders(settings.ExtensionFolders);
 
         lock (_gate)
         {
             _found = found;
+            _folders = settings.ExtensionFolders;
+            foreach (var gone in _watchers.Keys.Where(id => found.All(f => f.Id != id)).ToList())
+            {
+                _watchers.Remove(gone, out var watcher);
+                watcher!.Dispose();
+            }
         }
 
         foreach (var gone in LoadedIds().Where(id => found.All(f => f.Id != id)))
@@ -121,6 +131,18 @@ public sealed class ExtensionHost : IDisposable
         }
 
         Raise();
+    }
+
+    /// <summary>The extension folders, as of the last scan.</summary>
+    public IReadOnlyList<string> Folders
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _folders;
+            }
+        }
     }
 
     public IReadOnlyList<ExtensionEntry> Entries
@@ -298,6 +320,61 @@ public sealed class ExtensionHost : IDisposable
         Rescan();
     }
 
+    /// <summary>
+    /// Adds a folder of extensions. What is in it now is found and turned on,
+    /// and so is anything put in it later.
+    /// </summary>
+    public string? AddFolder(string folder)
+    {
+        var full = Path.GetFullPath(folder.Trim());
+        if (!Directory.Exists(full))
+        {
+            return $"{full} does not exist.";
+        }
+
+        if (File.Exists(Path.Combine(full, ExtensionManifests.FileName)))
+        {
+            return $"{full} is an extension itself. Link it instead, or add the folder it is in.";
+        }
+
+        var settings = _settings.Load();
+        if (!settings.ExtensionFolders.Contains(full, StringComparer.Ordinal))
+        {
+            _settings.Save(settings with { ExtensionFolders = [.. settings.ExtensionFolders, full] });
+        }
+
+        Rescan();
+        return null;
+    }
+
+    public void RemoveFolder(string folder)
+    {
+        var settings = _settings.Load();
+        _settings.Save(settings with
+        {
+            ExtensionFolders = settings.ExtensionFolders.Where(f => f != folder).ToList(),
+        });
+
+        Rescan();
+    }
+
+    /// <summary>
+    /// Whether the user wants an extension running. One in an extension folder
+    /// is on until it is turned off: adding the folder was the choice to run
+    /// what is in it, and an extension that appears there later should not need
+    /// a second click.
+    /// </summary>
+    private bool IsOn(FoundExtension found)
+    {
+        if (found.Source == ExtensionSource.CommandLine)
+        {
+            return true;
+        }
+
+        var state = _settings.Load().Extensions.GetValueOrDefault(found.Id);
+        return state is { Enabled: true } || (state is null && found.Source == ExtensionSource.InFolder);
+    }
+
     /// <summary>Decides whether a found extension should run, and loads it if so.</summary>
     private void Evaluate(FoundExtension found)
     {
@@ -315,7 +392,7 @@ public sealed class ExtensionHost : IDisposable
         }
 
         var state = _settings.Load().Extensions.GetValueOrDefault(found.Id);
-        if (found.Source != ExtensionSource.CommandLine && state is not { Enabled: true })
+        if (!IsOn(found))
         {
             SetState(found.Id, ExtensionStatus.Disabled, null);
             return;
@@ -529,6 +606,86 @@ public sealed class ExtensionHost : IDisposable
     }
 
     /// <summary>
+    /// Follows the extension folders for extensions being added or taken away:
+    /// a folder appearing or going directly inside, or a manifest being written
+    /// into one. Everything deeper, such as a build's output, is ignored.
+    /// </summary>
+    private void WatchFolders(IReadOnlyList<string> folders)
+    {
+        lock (_gate)
+        {
+            foreach (var gone in _folderWatchers.Keys.Where(f => !folders.Contains(f)).ToList())
+            {
+                _folderWatchers.Remove(gone, out var watcher);
+                watcher!.Dispose();
+            }
+
+            foreach (var folder in folders.Where(f => !_folderWatchers.ContainsKey(f) && Directory.Exists(f)))
+            {
+                var watcher = new FileSystemWatcher(folder)
+                {
+                    IncludeSubdirectories = true,
+                    NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName,
+                };
+
+                watcher.Created += (_, e) => OnFolderChange(folder, e.FullPath);
+                watcher.Deleted += (_, e) => OnFolderChange(folder, e.FullPath);
+                watcher.Renamed += (_, e) =>
+                {
+                    OnFolderChange(folder, e.OldFullPath);
+                    OnFolderChange(folder, e.FullPath);
+                };
+                watcher.EnableRaisingEvents = true;
+                _folderWatchers[folder] = watcher;
+            }
+        }
+    }
+
+    private void OnFolderChange(string folder, string path)
+    {
+        var parts = Path.GetRelativePath(folder, path).Split(Path.DirectorySeparatorChar);
+        if (!(parts.Length == 1
+              || (parts.Length == 2 && string.Equals(parts[1], ExtensionManifests.FileName, StringComparison.Ordinal))))
+        {
+            return;
+        }
+
+        // Keyed by the folder's path, which cannot clash with an extension id:
+        // ids have no slashes. Creating a project writes several files at once,
+        // so this waits for them all like a build does.
+        lock (_gate)
+        {
+            if (_debounce.TryGetValue(folder, out var timer))
+            {
+                timer.Change(500, Timeout.Infinite);
+                return;
+            }
+
+            _debounce[folder] = new Timer(_ => FolderRescan(folder), null, 500, Timeout.Infinite);
+        }
+    }
+
+    private void FolderRescan(string folder)
+    {
+        lock (_gate)
+        {
+            if (_debounce.Remove(folder, out var timer))
+            {
+                timer.Dispose();
+            }
+        }
+
+        try
+        {
+            Rescan();
+        }
+        catch (Exception e)
+        {
+            _log.LogWarning(e, "Rescanning after a change in {Folder} failed", folder);
+        }
+    }
+
+    /// <summary>
     /// A build writes the assembly more than once, so a reload waits until the
     /// output has been quiet for half a second.
     /// </summary>
@@ -580,8 +737,7 @@ public sealed class ExtensionHost : IDisposable
 
             // The manifest may have changed as well as the code.
             Rescan();
-            if (_settings.Load().Extensions.GetValueOrDefault(id) is { Enabled: true }
-                || Find(id)?.Source == ExtensionSource.CommandLine)
+            if (Find(id) is { } found && IsOn(found))
             {
                 Reload(id);
             }
@@ -706,7 +862,7 @@ public sealed class ExtensionHost : IDisposable
 
         lock (_gate)
         {
-            foreach (var watcher in _watchers.Values)
+            foreach (var watcher in _watchers.Values.Concat(_folderWatchers.Values))
             {
                 watcher.Dispose();
             }
@@ -717,6 +873,7 @@ public sealed class ExtensionHost : IDisposable
             }
 
             _watchers.Clear();
+            _folderWatchers.Clear();
             _debounce.Clear();
         }
     }

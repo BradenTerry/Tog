@@ -7,8 +7,10 @@ part of the dashboard's source.
 ## The loop
 
 1. `dotnet build` (or `dotnet watch build`). Output goes to `bin/dashboard/`.
-2. Once: in the dashboard, Settings, Extensions, paste this folder into Link
-   folder. Or start the dashboard with `--extension <this folder>`.
+2. Once: in the dashboard, Settings, Extensions, Choose folder... next to Link
+   folder, and pick this folder. If it sits in one of the dashboard's extension
+   folders it is already found. Or start the dashboard with
+   `--extension <this folder>`.
 3. Every later build is picked up by the running dashboard and the tab reloads.
    Nothing needs restarting. Build errors show in the terminal; load errors show
    on the Settings card; a view that throws shows its error in the tab with Retry.
