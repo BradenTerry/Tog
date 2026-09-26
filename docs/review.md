@@ -1,8 +1,10 @@
 # Reviewing an agent's diff
 
-The Changes tab is a pull request review over a worktree that has no pull
+The Changes document is a pull request review over a worktree that has no pull
 request: read the diff, comment on lines, submit the lot as one piece of
-feedback the agent can act on.
+feedback the agent can act on. The diff opens in the editor, and Source control
+in the right panel lists its files and sends the review. The two share one
+`ChangesModel` per worktree (see [workbench.md](workbench.md)).
 
 ```mermaid
 sequenceDiagram
@@ -47,13 +49,13 @@ child), which is what keeps a deep .NET layout from spending most of its width o
 indentation. Folders carry the number of changed files under them, files carry
 their own additions and deletions and a badge for comments you have left.
 
-Picking a file jumps to its diff. In Blazor Server every commentable line is a
+Picking a file in Source control opens the Changes document at its diff. In Blazor Server every commentable line is a
 handler registered over the circuit, and tens of thousands of them make the page
 stop answering clicks, so only the files within about a screen of the viewport
 have their lines drawn. `watchDiffWindow` in `app.js` watches the files with an
-IntersectionObserver on the agent view's pane and reports, in batches, which are
+IntersectionObserver on the document's own scroller and reports, in batches, which are
 near and how tall each drawn file measured; every other file is a block that
-height, so the scrollbar and the jumps from the tree land where they would with
+height, so the scrollbar and the jumps from Source control land where they would with
 everything drawn. A file with a comment editor open always stays drawn. The one
 cost is the browser's find: it only sees the files that are drawn.
 

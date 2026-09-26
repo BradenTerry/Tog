@@ -30,7 +30,8 @@ public class ExtensionCatalogTests
 
     [Theory]
     [InlineData("1.0", true)]
-    [InlineData("1.1", false)]
+    [InlineData("1.1", true)]
+    [InlineData("1.2", false)]
     [InlineData("2.0", false)]
     [InlineData("0.9", false)]
     [InlineData("one", false)]

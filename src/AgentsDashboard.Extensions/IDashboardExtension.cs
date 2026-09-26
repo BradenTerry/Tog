@@ -31,15 +31,16 @@ public interface IExtensionBuilder
     /// <param name="id">Unique within the extension. Appears in the URL.</param>
     /// <param name="title">What the tab or panel header says.</param>
     /// <param name="defaultLocation">
-    /// Where it goes until the user moves it. Placement is the user's, not the
-    /// extension's. Only <see cref="ViewLocation.AgentTab"/> exists in API 1.0.
+    /// Which panel it is a tab in. The right panel, beside Source control, unless
+    /// the extension says otherwise. The panels arrived in API 1.1; an extension
+    /// that asks for one needs <c>"apiVersion": "1.1"</c> in its manifest.
     /// </param>
     /// <param name="order">Lower comes first, after the app's own tabs.</param>
     /// <param name="appliesTo">Hides the view for agents it has nothing for. Answer from memory: it runs on every render.</param>
     void AddView<TComponent>(
         string id,
         string title,
-        ViewLocation defaultLocation = ViewLocation.AgentTab,
+        ViewLocation defaultLocation = ViewLocation.RightPanel,
         int order = 100,
         Func<AgentContext, bool>? appliesTo = null)
         where TComponent : IComponent;
@@ -59,13 +60,24 @@ public interface IExtensionBuilder
 /// </summary>
 /// <remarks>
 /// A location is a place in the app's layout, not a kind of component, so a view
-/// written for one works in any other, and the user can move it. New locations
-/// (side and bottom panels) are added in minor versions.
+/// written for one works in any other. New locations are added in minor versions.
 /// </remarks>
 public enum ViewLocation
 {
-    /// <summary>A tab in the agent view, after Chat, Changes and Files.</summary>
+    /// <summary>
+    /// The agent view's tab strip in API 1.0. That strip is gone, and a view that
+    /// still asks for it is shown in <see cref="RightPanel"/>.
+    /// </summary>
     AgentTab,
+
+    /// <summary>A tab in the left panel, after Files. Since API 1.1.</summary>
+    LeftPanel,
+
+    /// <summary>A tab in the right panel, after Source control. The default. Since API 1.1.</summary>
+    RightPanel,
+
+    /// <summary>A tab in the bottom panel, after Chat. Since API 1.1.</summary>
+    BottomPanel,
 }
 
 /// <summary>An extension's manifest, as far as the extension needs it.</summary>
@@ -79,7 +91,7 @@ public interface IExtensionWorker
 }
 
 /// <summary>
-/// Supplies an indicator for an agent. Called on every render of the agent view,
+/// Supplies an indicator for an agent. Called on every render of the panel,
 /// so it must answer from memory: no IO, no git, no waiting.
 /// </summary>
 public interface IAgentIndicator

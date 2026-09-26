@@ -6,7 +6,7 @@ namespace AgentsDashboard.App.Services;
 
 public enum ChatState { Waiting, Active, Idle, Parked, Failed }
 
-/// <summary>An agent in the sidebar, with where it works and what it is doing.</summary>
+/// <summary>An agent in the agent list, with where it works and what it is doing.</summary>
 /// <param name="LiveText">What it has said so far in the turn running now, before the transcript has it.</param>
 /// <param name="CurrentTool">The tool call it is making, by title.</param>
 /// <param name="Permission">A permission it is waiting on you for.</param>
@@ -44,7 +44,7 @@ public sealed record ChatTarget(
 }
 
 /// <summary>
-/// The agents the sidebar lists and the agent view opens: the ones the
+/// The agents the agent list shows and the panels open: the ones the
 /// dashboard hosts, running or stopped.
 /// </summary>
 /// <remarks>

@@ -3,859 +3,125 @@
 @page "/chat/{SessionId}"
 @page "/chat/{SessionId}/{Tab}"
 @inherits StateComponent
-@inject AgentHost Host
+@inject Workbench Bench
 @inject AgentDirectory Directory
-@inject MonitorService Monitor
-@inject TranscriptLocator Locator
-@inject ConversationReader Conversations
-@inject IJSRuntime Js
-@inject ChatDrafts Drafts
 @inject ExtensionHost Extensions
+@inject NavigationManager Nav
 
-@* One agent: where it works, and three views of it. The conversation reads like
-   every messaging app, newest at the bottom with the box to type in under it.
-   Changes and Files show its worktree, so its work can be reviewed and handed
-   back to it without leaving it. Extensions add tabs after those. The list of
-   agents is the sidebar. *@
+@* An agent's page is the editor in the middle of the window: its open files and
+   its diff. Everything else about the agent is in the panels around it, which
+   follow the agent this page names. The URL can also carry an instruction, a
+   file to open or a panel tab to bring up, which is carried out once and then
+   dropped from the address so the same link works again. *@
 
-<PageTitle>@(Current?.Label ?? "Chat") - Agents Dashboard</PageTitle>
+<PageTitle>@(Current?.Label ?? "Agents") - Agents Dashboard</PageTitle>
 
-<section class="chat-main agent-view">
-        @if (Current is not { } agent)
-        {
-            <div class="empty chat-empty">
-                <h2>@(SessionId is null ? "Pick an agent" : "Agent not found")</h2>
-                <p>
-                    @(SessionId is null
-                        ? "Choose an agent on the left to read its conversation and talk to it."
-                        : "It may have been removed, or it has not reached the registry yet.")
-                </p>
-            </div>
-        }
-        else
-        {
-            <header class="chat-head">
-                <span class="dot @DotClass(agent.State)" aria-hidden="true"></span>
-                <div class="stack" style="flex: 1; min-width: 0;">
-                    <strong class="truncate chat-title @(agent.LabelIsPrompt ? "untitled" : "")"
-                            title="@(agent.LabelIsPrompt ? "Your prompt. The agent names the conversation when its first turn ends." : null)">@agent.Label</strong>
-                    <span class="faint truncate" title="@(agent.State == ChatState.Active ? agent.CurrentTool : null)">
-                        @StateWord(agent)@if (agent.State == ChatState.Active)
-                        {
-                            <WorkingDots />
-                        }
-                    </span>
-                </div>
-                <div class="inline">
-                    @if (agent.State is ChatState.Active or ChatState.Waiting)
-                    {
-                        <button class="ghost small" @onclick="() => Act(() => Host.CancelAsync(agent.SessionId))" disabled="@_busy"
-                                title="Stop the turn in progress. The agent stays, with everything so far kept.">Stop turn</button>
-                    }
-                    @if (agent.State is not ChatState.Parked)
-                    {
-                        <button class="ghost small" @onclick="() => Act(() => Host.StopAsync(agent.SessionId))" disabled="@_busy"
-                                title="End the agent's session. Its conversation is kept, and a message picks it up again.">End session</button>
-                    }
-                    <button class="ghost small" @onclick="() => Act(() => Host.RemoveAsync(agent.SessionId))" disabled="@_busy"
-                            title="Take it off the list. The conversation stays saved and can be resumed from New agent.">Remove</button>
-                </div>
-            </header>
-
-            @* Where the agent works, always in view: its repository, its worktree and
-               branch, and the folder itself. *@
-            <div class="agent-where">
-                @if (agent.RepoName is { } repoName)
-                {
-                    <span class="where-item"><span class="faint">Repository</span> <strong>@repoName</strong></span>
-                }
-                @if (agent.WorktreeName is { } worktreeName)
-                {
-                    <span class="where-item"><span class="faint">Worktree</span> <strong>@worktreeName</strong></span>
-                }
-                @if (agent.Branch is { Length: > 0 } branch)
-                {
-                    <span class="where-item"><span class="faint">Branch</span> <strong class="mono">@branch</strong></span>
-                }
-                else if (agent.Detached)
-                {
-                    <span class="where-item" title="No branch is checked out: commits made here belong to no branch">
-                        <span class="faint">Branch</span> <strong>none (detached HEAD)</strong>
-                    </span>
-                }
-                <span class="mono faint truncate where-path" title="@(agent.WorktreePath ?? agent.Cwd)">@(agent.WorktreePath ?? agent.Cwd)</span>
-            </div>
-
-            <nav class="tabs agent-tabs">
-                <a class="tab @TabClass("chat")" href="@Urls.Chat(agent.SessionId)">Chat</a>
-                @if (agent.WorktreePath is not null)
-                {
-                    <a class="tab @TabClass("changes")" href="@Urls.Chat(agent.SessionId, "changes")">
-                        Changes
-                        @if (ChangeCount(agent) > 0)
-                        {
-                            <span class="count">@ChangeCount(agent)</span>
-                        }
-                    </a>
-                    <a class="tab @TabClass("files")" href="@Urls.Chat(agent.SessionId, "files")">Files</a>
-                }
-                @foreach (var extView in ViewsFor(agent))
-                {
-                    <a class="tab @TabClass(extView.View.Key)" href="@Urls.Chat(agent.SessionId, extView.View.Key)">
-                        @extView.View.Title
-                        @if (Extensions.IndicatorFor(extView.View, ApiAgent(agent)) is { } indicator)
-                        {
-                            <span class="count @ToneClass(indicator.Tone)" title="@indicator.Tooltip">@indicator.Text</span>
-                        }
-                    </a>
-                }
-            </nav>
-
-            @if (_notice is { Length: > 0 })
-            {
-                <div class="banner @(_noticeFailed ? "danger" : "info") chat-notice">
-                    @_notice
-                    <button class="ghost small spacer" @onclick="() => { _notice = null; }">Dismiss</button>
-                </div>
-            }
-
-            @* Every tab you have opened for this agent stays built, and the ones not
-               in front are hidden rather than thrown away. Rebuilding the Files tab
-               means listing the worktree, reading the file and starting a new
-               editor, which is the flicker switching tabs used to have. Hidden
-               with visibility rather than display, so each keeps its scroll. *@
-            <div class="agent-body">
-                <div class="agent-layer @Layer("chat")">
-                    <div class="chat-thread" @ref="_thread">
-                        @if (_entries.Count == 0 && _pending.Count == 0)
-                        {
-                            <div class="chat-hint">
-                                @(_transcriptMissing
-                                    ? "No conversation found for this agent yet. It appears here as soon as the agent writes its transcript."
-                                    : "No messages yet. Say what you want it to do.")
-                            </div>
-                        }
-
-                        @foreach (var entry in _entries)
-                        {
-                            switch (entry.Kind)
-                            {
-                                case ChatKind.You:
-                                    <div class="msg you">
-                                        <div class="bubble">@entry.Text</div>
-                                        <span class="msg-meta">You · @When(entry.At)</span>
-                                    </div>
-                                    break;
-
-                                case ChatKind.Agent:
-                                    <div class="msg agent">
-                                        <div class="bubble">
-                                            <FileLinks Text="@entry.Text" WorktreePath="@(agent.WorktreePath ?? agent.Cwd ?? "")"
-                                                       SessionId="@agent.SessionId" />
-                                        </div>
-                                        <span class="msg-meta">Agent · @When(entry.At)</span>
-                                    </div>
-                                    break;
-
-                                case ChatKind.Activity:
-                                    @if (entry.Steps.Count > 0)
-                                    {
-                                        <details class="activity">
-                                            <summary>@ConversationReader.Describe(entry.Steps)</summary>
-                                            <ul>
-                                                @foreach (var step in entry.Steps)
-                                                {
-                                                    <li><span class="mono activity-tool">@step.Tool</span> <span class="activity-what">@step.Summary</span></li>
-                                                }
-                                            </ul>
-                                        </details>
-                                    }
-                                    @if (entry.Edits.Count > 0)
-                                    {
-                                        var runKey = entry.Edits[0].ToolUseId;
-                                        var files = entry.ChangedFiles;
-                                        var runOpen = _open.Contains(runKey);
-                                        @* Opened and closed on the server rather than by the browser's own
-                                           details toggle, so the file list and its diffs are only built
-                                           while you are looking at them: the view redraws every second. *@
-                                        <details class="activity files-changed" open="@runOpen">
-                                            <summary @onclick="() => Toggle(runKey)" @onclick:preventDefault>
-                                                Files changed <span class="count">@files.Count</span>
-                                                <span class="edit-add">+@entry.Edits.Sum(e => e.Added)</span>
-                                                <span class="edit-del">-@entry.Edits.Sum(e => e.Removed)</span>
-                                            </summary>
-                                            @if (runOpen)
-                                            {
-                                                <div class="files-changed-list">
-                                                    @foreach (var file in files)
-                                                    {
-                                                        var fileKey = runKey + "|" + file.Key;
-                                                        var fileOpen = _open.Contains(fileKey);
-                                                        var relative = RelativeTo(agent, file.Key);
-                                                        <details class="changed-file" open="@fileOpen">
-                                                            <summary @onclick="() => Toggle(fileKey)" @onclick:preventDefault>
-                                                                <span class="mono changed-path" title="@file.Key">@relative</span>
-                                                                @if (file.All(e => e.Failed))
-                                                                {
-                                                                    <span class="faint">failed</span>
-                                                                }
-                                                                else
-                                                                {
-                                                                    @if (file.Any(e => e.Created))
-                                                                    {
-                                                                        <span class="faint">new</span>
-                                                                    }
-                                                                    <span class="edit-add">+@file.Sum(e => e.Added)</span>
-                                                                    <span class="edit-del">-@file.Sum(e => e.Removed)</span>
-                                                                }
-                                                            </summary>
-                                                            @if (fileOpen)
-                                                            {
-                                                                <div class="edit-diff mono">
-                                                                    @foreach (var edit in file.Where(e => !e.Failed))
-                                                                    {
-                                                                        @foreach (var hunk in edit.Hunks)
-                                                                        {
-                                                                            var oldLine = hunk.OldStart;
-                                                                            var newLine = hunk.NewStart;
-                                                                            <div class="edit-hunk"></div>
-                                                                            @foreach (var line in hunk.Lines)
-                                                                            {
-                                                                                var mark = line.Length > 0 ? line[0] : ' ';
-                                                                                // Removed lines are numbered in the old file, the
-                                                                                // rest in the new one, as in the Changes tab.
-                                                                                var number = mark == '-' ? oldLine : newLine;
-                                                                                <div class="edit-line @(mark == '+' ? "add" : mark == '-' ? "del" : "")">
-                                                                                    <span class="edit-ln">@number</span><span class="edit-text">@(line.Length > 0 ? line[1..] : "")</span>
-                                                                                </div>
-                                                                                if (mark != '+' && oldLine is not null) { oldLine++; }
-                                                                                if (mark != '-' && newLine is not null) { newLine++; }
-                                                                            }
-                                                                        }
-                                                                        @if (edit.Truncated)
-                                                                        {
-                                                                            <div class="edit-more faint">Longer than @ConversationReader.MaxEditLines lines; the rest is left out.</div>
-                                                                        }
-                                                                    }
-                                                                </div>
-                                                                @if (!file.All(e => e.Failed) && relative != file.Key)
-                                                                {
-                                                                    <a class="small changed-open" href="@Urls.AgentFile(agent.SessionId, relative, FirstLine(file))">Open in Files</a>
-                                                                }
-                                                            }
-                                                        </details>
-                                                    }
-                                                </div>
-                                            }
-                                        </details>
-                                    }
-                                    break;
-
-                                case ChatKind.Notice:
-                                    <div class="chat-notice-line">@entry.Text</div>
-                                    break;
-                            }
-                        }
-
-                        @foreach (var pending in _pending)
-                        {
-                            <div class="msg you pending @(pending.State == SendState.Failed ? "failed" : "")">
-                                <div class="bubble">@pending.Text</div>
-                                <span class="msg-meta">
-                                    @switch (pending.State)
-                                    {
-                                        case SendState.Sending:
-                                            <span>Sending...</span>
-                                            break;
-                                        case SendState.Sent:
-                                            <span>Sent.</span>
-                                            break;
-                                        default:
-                                            <span class="failed-text">Not sent: @pending.Error</span>
-                                            <button class="ghost small" @onclick="() => Retry(pending)">Edit and retry</button>
-                                            <button class="ghost small" @onclick="() => _pending.Remove(pending)">Dismiss</button>
-                                            break;
-                                    }
-                                </span>
-                            </div>
-                        }
-
-                        @* What the agent is saying right now, before its transcript has it:
-                           streamed over ACP as it is written. *@
-                        @if (_liveShown is { Length: > 0 } live)
-                        {
-                            <div class="msg agent live">
-                                <div class="bubble">
-                                    <FileLinks Text="@live" WorktreePath="@(agent.WorktreePath ?? agent.Cwd)" SessionId="@agent.SessionId" />
-                                </div>
-                                <span class="msg-meta">Agent · writing</span>
-                            </div>
-                        }
-
-                        @if (agent.Permission is { } ask)
-                        {
-                            <div class="permission-card" role="alert">
-                                <div class="stack" style="gap: 3px; min-width: 0;">
-                                    <strong>Allow this?</strong>
-                                    <span class="mono permission-title">@ask.Title</span>
-                                    @if (ask.Detail is { Length: > 0 } detail)
-                                    {
-                                        <span class="faint">@detail</span>
-                                    }
-                                </div>
-                                <div class="inline permission-choices">
-                                    @foreach (var choice in ask.Choices)
-                                    {
-                                        var option = choice;
-                                        <button class="small @(option.Allows ? "primary" : "")"
-                                                @onclick="() => Host.Answer(agent.SessionId, ask.Key, option.OptionId)">@option.Name</button>
-                                    }
-                                </div>
-                            </div>
-                        }
-                        else if (agent.State == ChatState.Active)
-                        {
-                            <div class="chat-working">
-                                <span class="dot active" aria-hidden="true"></span>
-                                <span title="@agent.CurrentTool">Working<WorkingDots /></span>
-                            </div>
-                        }
-
-                        @if (agent.State == ChatState.Failed && agent.Error is { Length: > 0 } error)
-                        {
-                            <div class="banner danger">@error</div>
-                        }
-                    </div>
-
-                    @* Work that goes on outside the turn: a subagent or a background
-                       command keeps running after the agent says it is done, and an
-                       idle agent with work in flight is not finished. *@
-                    @if (agent.BackgroundCount > 0 && agent.State is not (ChatState.Parked or ChatState.Failed))
-                    {
-                        <div class="background-strip" aria-label="Running in the background">
-                            <span class="background-head">
-                                <WorkingDots /> Running in the background <span class="count">@agent.BackgroundCount</span>
-                            </span>
-                            @foreach (var sub in agent.Subagents ?? [])
-                            {
-                                <span class="background-item" title="@sub.Description">
-                                    <span class="background-kind">@(sub.AgentType ?? "Subagent")</span>
-                                    <span class="background-what">@(sub.Description ?? "Subagent")</span>
-                                    <span class="faint nums">@Fmt.Duration(Snapshot.Value.TakenAt - sub.StartedAt)</span>
-                                </span>
-                            }
-                            @foreach (var command in agent.BackgroundCommands ?? [])
-                            {
-                                <span class="background-item" title="@command.Description">
-                                    <span class="background-kind">Command</span>
-                                    <span class="background-what">@command.Description</span>
-                                    <span class="faint nums">@Fmt.Duration(Snapshot.Value.TakenAt - command.StartedAt)</span>
-                                </span>
-                            }
-                        </div>
-                    }
-
-                    <form class="chat-composer" @onsubmit="Send">
-                        <div class="composer-row">
-                            <textarea @ref="_box" rows="1"
-                                      placeholder="@Placeholder(agent)"
-                                      aria-label="Message for @agent.Label"
-                                      disabled="@(!CanSend(agent))"
-                                      @oninput="e => { _draft = e.Value?.ToString() ?? string.Empty; Drafts.Set(agent.SessionId, _draft); }"></textarea>
-                            <button type="submit" class="primary"
-                                    disabled="@(_sending || string.IsNullOrWhiteSpace(_draft) || !CanSend(agent))">
-                                Send
-                            </button>
-                        </div>
-                        <div class="composer-foot">
-                            <span class="composer-hint">@Hint(agent)</span>
-                            @if (agent.Context is { } context)
-                            {
-                                @* As of the last turn's end: the agent only reports it then. *@
-                                <span class="context-meter @ContextClass(context)"
-                                      title="@($"{Fmt.Tokens(context.Used)} of {Fmt.Tokens(context.Size)} tokens in context, as of the last turn")">
-                                    @context.Percent% context
-                                </span>
-                            }
-                        </div>
-                    </form>
-                </div>
-
-                @if (_visited.Contains("changes") && WorktreeOf(agent) is { } changesView)
-                {
-                    <div class="agent-layer @Layer("changes")">
-                        <div class="agent-pane">
-                            <div class="page wide">
-                                <ChangesTab WorktreePath="@changesView.Worktree.Path" View="changesView"
-                                            PreferredRecipient="@agent.SessionId" @key="changesView.Worktree.Path" />
-                            </div>
-                        </div>
-                    </div>
-                }
-
-                @if (_visited.Contains("files") && agent.WorktreePath is { } filesIn)
-                {
-                    <div class="agent-layer @Layer("files")">
-                        <div class="agent-pane">
-                            <div class="page wide">
-                                <FilesTab WorktreePath="@filesIn" InitialFile="@File" InitialLine="@Line" @key="filesIn" />
-                            </div>
-                        </div>
-                    </div>
-                }
-
-                @foreach (var extView in ViewsFor(agent).Where(v => _visited.Contains(v.View.Key)))
-                {
-                    @* Keyed by generation as well, so a reloaded extension's view
-                       is built fresh from the new copy's type rather than handed
-                       new parameters. *@
-                    <div class="agent-layer @Layer(extView.View.Key)" @key="(extView.View.Key, extView.Generation, agent.SessionId)">
-                        <div class="agent-pane">
-                            <div class="page wide">
-                                <ExtensionViewHost Live="extView" Agent="ApiAgent(agent)" IsVisible="@(CurrentTab == extView.View.Key)" />
-                            </div>
-                        </div>
-                    </div>
-                }
-            </div>
-        }
-</section>
+@if (Current is not { } agent)
+{
+    <div class="empty editor-empty">
+        <h2>@(SessionId is null ? "Pick an agent" : "Agent not found")</h2>
+        <p>
+            @(SessionId is null
+                ? "Choose an agent in the list at the bottom right to read its conversation, its files and its changes."
+                : "It may have been removed, or it has not reached the registry yet.")
+        </p>
+    </div>
+}
+else if (agent.WorktreePath is not { } worktree)
+{
+    <div class="empty editor-empty">
+        <h2>No worktree</h2>
+        <p>This agent is not working in a git worktree, so there are no files or changes to show. Its conversation is below.</p>
+    </div>
+}
+else
+{
+    <EditorArea WorktreePath="@worktree" @key="worktree" />
+}
 
 @code {
     [Parameter]
     public string? SessionId { get; set; }
 
+    /// <summary>A panel tab to bring up: files, changes, chat, or an extension view's key.</summary>
     [Parameter]
     public string? Tab { get; set; }
 
-    /// <summary>The file a link asked the Files tab to open, and the line in it.</summary>
+    /// <summary>A file a link asked to open, and the line in it.</summary>
     [SupplyParameterFromQuery(Name = "file")]
     public string? File { get; set; }
 
     [SupplyParameterFromQuery(Name = "line")]
     public int? Line { get; set; }
 
-    private enum SendState { Sending, Sent, Failed }
-
-    /// <summary>A message on its way, shown until the transcript records it.</summary>
-    private sealed class Pending(string text)
-    {
-        public string Text { get; } = text;
-        public DateTimeOffset SentAt { get; } = DateTimeOffset.Now;
-        public SendState State { get; set; } = SendState.Sending;
-        public string? Error { get; set; }
-    }
-
-    private IReadOnlyList<ChatEntry> _entries = [];
-    private bool _transcriptMissing;
-    private readonly List<Pending> _pending = [];
-
-    /// <summary>The "Files changed" folds and the files in them that are open, by key.</summary>
-    private readonly HashSet<string> _open = new(StringComparer.Ordinal);
-
-    private void Toggle(string key)
-    {
-        if (!_open.Remove(key))
-        {
-            _open.Add(key);
-        }
-    }
-
-    /// <summary>A changed file's path relative to the agent's worktree, or as given when it is outside it.</summary>
-    private static string RelativeTo(ChatTarget agent, string path)
-    {
-        var root = agent.WorktreePath ?? agent.Cwd;
-        return path.StartsWith(root + "/", StringComparison.Ordinal) ? path[(root.Length + 1)..] : path;
-    }
-
-    /// <summary>Where a file's first change starts, to open the Files tab there.</summary>
-    private static int? FirstLine(IEnumerable<ChatEdit> edits) =>
-        edits.SelectMany(e => e.Hunks).Select(h => h.NewStart).FirstOrDefault(n => n is not null);
-
-    /// <summary>
-    /// What is in the message box, as the browser last reported it. The box is
-    /// never written from here on a render: the page re-renders every second, and
-    /// writing a copy that is a keystroke behind back into the box drops what was
-    /// typed in between. Text is put into it only on purpose, through
-    /// <see cref="_putInBox"/>.
-    /// </summary>
-    private string _draft = "";
-
-    /// <summary>Text to place in the box after the next render, when there is some.</summary>
-    private string? _putInBox;
-    private bool _sending;
-    private bool _busy;
-    private string? _notice;
-    private bool _noticeFailed;
-
-    private ElementReference _thread;
-
-    /// <summary>The tabs opened for the agent on screen, which stay built until you pick another agent.</summary>
-    private readonly HashSet<string> _visited = new(StringComparer.Ordinal);
-    private ElementReference _box;
-    private string? _shownSession;
-    private int _shownCount = -1;
-    private bool _forceScroll;
-
-    private DateTimeOffset Now => Snapshot.Value.TakenAt;
+    /// <summary>Set once the URL's instruction has been carried out, so the address can be tidied.</summary>
+    private bool _applied;
 
     private ChatTarget? Current =>
         SessionId is null ? null : Directory.Targets(Snapshot.Value).FirstOrDefault(t => t.SessionId == SessionId);
 
-    private string CurrentTab =>
-        Tab is "changes" or "files" || (Tab is not null && Extensions.Views.Any(v => v.View.Key == Tab)) ? Tab : "chat";
-
-    /// <summary>The extension views that apply to this agent. A view that throws deciding is left out.</summary>
-    private IEnumerable<LiveView> ViewsFor(ChatTarget agent)
+    protected override void OnParametersSet()
     {
-        var api = ApiAgent(agent);
-        foreach (var live in Extensions.Views)
-        {
-            bool applies;
-            try
-            {
-                applies = live.View.AppliesTo?.Invoke(api) ?? true;
-            }
-            catch (Exception)
-            {
-                applies = false;
-            }
-
-            if (applies)
-            {
-                yield return live;
-            }
-        }
+        Bench.Select(SessionId);
+        Apply();
     }
-
-    private AgentsDashboard.Extensions.AgentContext ApiAgent(ChatTarget agent) => ApiModel.Agent(agent, State);
-
-    private static string ToneClass(AgentsDashboard.Extensions.Tone tone) => tone switch
-    {
-        AgentsDashboard.Extensions.Tone.Danger => "danger",
-        AgentsDashboard.Extensions.Tone.Warning => "warning",
-        AgentsDashboard.Extensions.Tone.Success => "success",
-        AgentsDashboard.Extensions.Tone.Info => "info",
-        _ => "",
-    };
-
-    private string TabClass(string tab) => CurrentTab == tab ? "active" : "";
-
-    private string Layer(string tab) => CurrentTab == tab ? "" : "hidden";
-
-    private WorktreeView? WorktreeOf(ChatTarget agent) =>
-        agent.WorktreePath is { } path ? State.Worktree(path) : null;
-
-    private int ChangeCount(ChatTarget agent) =>
-        WorktreeOf(agent)?.Status is { } s ? s.Changed + s.Staged + s.Untracked : 0;
-
-    private static string DotClass(ChatState state) => AgentDirectory.DotClass(state);
-
-    private static string StateWord(ChatTarget target) => AgentDirectory.StateWord(target);
-
-    private static bool CanSend(ChatTarget target) => true;
-
-    private static string Placeholder(ChatTarget target) => target.State switch
-    {
-        ChatState.Parked => "Message it to pick it up again...",
-        ChatState.Failed => "Message it to try again...",
-        _ => "Message the agent...",
-    };
-
-    /// <summary>Amber from 70%, red from 85%: Claude compacts the conversation on its own not far past that.</summary>
-    private static string ContextClass(ContextUsage context) => context.Percent switch
-    {
-        >= 85 => "high",
-        >= 70 => "warn",
-        _ => "",
-    };
-
-    private static string Hint(ChatTarget target)
-    {
-        const string Keys = "Enter to send, Shift+Enter for a new line.";
-        return target.State switch
-        {
-            ChatState.Active or ChatState.Waiting => Keys + " It is working: it reads your message between steps.",
-            ChatState.Parked => Keys + " Its session has ended: sending resumes it with its conversation kept.",
-            ChatState.Failed => Keys + " Sending starts it again with its conversation kept.",
-            _ => Keys + " It picks up from where the conversation left off.",
-        };
-    }
-
-    private string When(DateTimeOffset at) =>
-        at == DateTimeOffset.MinValue ? "" : Now - at < TimeSpan.FromHours(12) ? at.ToLocalTime().ToString("t") : at.ToLocalTime().ToString("MMM d, t");
 
     protected override void OnInitialized()
     {
         base.OnInitialized();
+
+        // An agent's worktree is only known once it is placed, so an instruction
+        // that needs it waits for the snapshot that brings it.
         State.Changed += OnSnapshot;
-        Directory.Changed += OnDirectoryChanged;
-        Extensions.Changed += OnExtensionsChanged;
     }
 
-    /// <summary>The host heard from the agent: new streamed text, a tool call, a permission prompt.</summary>
-    private void OnDirectoryChanged() => _ = InvokeAsync(() =>
+    private void OnSnapshot() => _ = InvokeAsync(Apply);
+
+    private void Apply()
     {
-        ReadConversation();
+        if (!RendererInfo.IsInteractive || _applied || SessionId is null || (Tab is null && File is null))
+        {
+            return;
+        }
+
+        if (Current is not { } agent || (agent.WorktreePath is null && (File is not null || Tab is "files" or "changes")))
+        {
+            return;
+        }
+
+        var worktree = agent.WorktreePath;
+        switch (Tab)
+        {
+            case "chat":
+                Bench.Show(PanelSide.Bottom, Workbench.ChatTab);
+                break;
+            case "files":
+                Bench.Show(PanelSide.Left, Workbench.FilesTab);
+                break;
+            case "changes":
+                Bench.Show(PanelSide.Right, Workbench.SourceControlTab);
+                Bench.OpenChanges(worktree!);
+                break;
+            case { } key when Extensions.Views.FirstOrDefault(v => v.View.Key == key) is { } view:
+                Bench.Show(Workbench.SideOf(view.View.DefaultLocation), key);
+                break;
+        }
+
+        if (File is { Length: > 0 } file && worktree is not null)
+        {
+            Bench.OpenFile(worktree, file, Line, keep: true);
+        }
+
+        _applied = true;
         StateHasChanged();
-    });
-
-    protected override void OnParametersSet()
-    {
-        if (_shownSession != SessionId)
-        {
-            _shownSession = SessionId;
-            _entries = [];
-            _pending.Clear();
-            _open.Clear();
-            _lastLive = null;
-            _liveShown = null;
-            _notice = null;
-            // Each agent keeps what you had typed to it.
-            _draft = SessionId is null ? "" : Drafts.Get(SessionId);
-            _putInBox = _draft;
-            _forceScroll = true;
-            _visited.Clear();
-        }
-
-        _visited.Add(CurrentTab);
-
-        ReadConversation();
-        WatchWorktree();
     }
 
-    private IDisposable? _statusWatch;
-    private string? _watchedPath;
-
-    /// <summary>
-    /// Asks the monitor to keep git status for the worktree of the agent on
-    /// screen, which is the only status anything shows. Re-checked on every
-    /// snapshot because an agent's worktree is only known once it is placed.
-    /// </summary>
-    private void WatchWorktree()
+    protected override void OnAfterRender(bool firstRender)
     {
-        var path = Current?.WorktreePath;
-        if (path == _watchedPath)
+        if (_applied)
         {
-            return;
-        }
-
-        _statusWatch?.Dispose();
-        _statusWatch = path is null ? null : Monitor.Watch(path);
-        _watchedPath = path;
-    }
-
-    /// <summary>
-    /// Keeps the open conversation current. Runs on the monitor's tick, so a
-    /// working agent's replies appear as it writes them.
-    /// </summary>
-    private void OnExtensionsChanged() => _ = InvokeAsync(StateHasChanged);
-
-    private void OnSnapshot() => _ = InvokeAsync(() =>
-    {
-        ReadConversation();
-        WatchWorktree();
-        StateHasChanged();
-    });
-
-    private void ReadConversation()
-    {
-        if (Current is not { } target)
-        {
-            _entries = [];
-            return;
-        }
-
-        var path = Locator.Locate(target.SessionId, target.Cwd);
-        _transcriptMissing = path is null;
-        if (path is null)
-        {
-            return;
-        }
-
-        _entries = Conversations.Read(target.SessionId, path);
-        _liveShown = LiveToShow(target);
-
-        // A delivered message stops being "pending" once the transcript has it.
-        _pending.RemoveAll(p => p.State == SendState.Sent && _entries.Any(e =>
-            e.Kind == ChatKind.You
-            && e.At >= p.SentAt.AddMinutes(-1)
-            && string.Equals(e.Text.Trim(), p.Text.Trim(), StringComparison.Ordinal)));
-    }
-
-    /// <summary>The streamed reply drawn under the thread, if any.</summary>
-    private string? _liveShown;
-
-    /// <summary>The last streamed text seen, and when, kept after the host clears it.</summary>
-    private string? _lastLive;
-    private DateTimeOffset _lastLiveAt;
-
-    /// <summary>
-    /// The reply being written, held on screen until the transcript has it.
-    /// </summary>
-    /// <remarks>
-    /// The host clears its live text at the next tool call or the end of the turn,
-    /// because the agent has written the message to its transcript by then. The
-    /// thread only rereads the transcript on the monitor's next tick, up to a
-    /// second later, so taking the host's word for it made the message vanish and
-    /// come back. Instead the last live text stays until a message in the thread
-    /// matches it, and the live copy steps aside as soon as the transcript has it,
-    /// so the two are never shown at once. A few seconds is the limit, in case the
-    /// transcript words it differently enough never to match.
-    /// </remarks>
-    private string? LiveToShow(ChatTarget target)
-    {
-        var now = DateTimeOffset.UtcNow;
-        var live = target.State is ChatState.Active or ChatState.Waiting ? target.LiveText : "";
-        if (live.Length > 0)
-        {
-            _lastLive = live;
-            _lastLiveAt = now;
-        }
-        else if (_lastLive is not null && now - _lastLiveAt > TimeSpan.FromSeconds(5))
-        {
-            _lastLive = null;
-        }
-
-        var shown = live.Length > 0 ? live : _lastLive;
-        if (shown is null)
-        {
-            return null;
-        }
-
-        var flat = Flat(shown);
-        var written = _entries
-            .Where(e => e.Kind == ChatKind.Agent)
-            .TakeLast(3)
-            .Select(e => Flat(e.Text))
-            .Any(text => text.Contains(flat, StringComparison.Ordinal));
-
-        if (written)
-        {
-            _lastLive = null;
-            return null;
-        }
-
-        return shown;
-    }
-
-    private static string Flat(string text) =>
-        string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
-
-    private async Task Send()
-    {
-        if (Current is not { } target || _sending)
-        {
-            return;
-        }
-
-        var text = _draft.Trim();
-        if (text.Length == 0 || !CanSend(target))
-        {
-            return;
-        }
-
-        var pending = new Pending(text);
-        _pending.Add(pending);
-        _draft = "";
-        Drafts.Set(target.SessionId, "");
-        _sending = true;
-        _forceScroll = true;
-        StateHasChanged();
-        await ResetBox();
-
-        var result = await Host.SendAsync(target.SessionId, text);
-
-        _sending = false;
-        if (result.Ok)
-        {
-            pending.State = SendState.Sent;
-        }
-        else
-        {
-            pending.State = SendState.Failed;
-            pending.Error = result.Message;
-        }
-
-        Monitor.InvalidateWorktrees();
-    }
-
-    private void Retry(Pending pending)
-    {
-        _pending.Remove(pending);
-        _draft = pending.Text;
-        _putInBox = pending.Text;
-        if (Current is { } target)
-        {
-            Drafts.Set(target.SessionId, _draft);
-        }
-    }
-
-    private async Task ResetBox()
-    {
-        try
-        {
-            await Js.InvokeVoidAsync("agentsDashboard.resetComposer", _box);
-        }
-        catch (Exception e) when (e is JSException or InvalidOperationException or TaskCanceledException)
-        {
-            // The circuit went away. Nothing to reset.
-        }
-    }
-
-    private async Task Act(Func<Task<HostResult>> action)
-    {
-        _busy = true;
-        _notice = null;
-        StateHasChanged();
-
-        var result = await action();
-
-        // Only a failure is worth a banner. When stopping a turn or ending a
-        // session works, the agent's state and the chat already say so, and a
-        // second "Stopping the turn." on top of that is just something to dismiss.
-        _busy = false;
-        _noticeFailed = !result.Ok;
-        _notice = result.Ok ? null : result.Message;
-        Monitor.InvalidateWorktrees();
-    }
-
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (Current is null)
-        {
-            return;
-        }
-
-        // The composer and the thread are always built, but only followed while
-        // the Chat tab is the one in front.
-        if (CurrentTab != "chat")
-        {
-            return;
-        }
-
-        try
-        {
-            await Js.InvokeVoidAsync("agentsDashboard.bindComposer", _box);
-
-            if (_putInBox is { } text)
-            {
-                _putInBox = null;
-                await Js.InvokeVoidAsync("agentsDashboard.setComposer", _box, text);
-            }
-
-            var count = _entries.Count + _pending.Count;
-            if (_forceScroll || count != _shownCount)
-            {
-                var force = _forceScroll;
-                _forceScroll = false;
-                _shownCount = count;
-                await Js.InvokeVoidAsync("agentsDashboard.scrollThread", _thread, force);
-            }
-        }
-        catch (Exception e) when (e is JSException or InvalidOperationException or TaskCanceledException)
-        {
-            // The circuit went away mid-render.
+            _applied = false;
+            Nav.NavigateTo(Urls.Chat(SessionId), replace: true);
         }
     }
 
@@ -864,9 +130,6 @@
         if (disposing)
         {
             State.Changed -= OnSnapshot;
-            Directory.Changed -= OnDirectoryChanged;
-            Extensions.Changed -= OnExtensionsChanged;
-            _statusWatch?.Dispose();
         }
 
         base.Dispose(disposing);

@@ -144,7 +144,7 @@
                                 var picked = past.SessionId == ResumeId;
                                 <button class="past-item @(picked ? "picked" : "")" role="option" aria-selected="@picked"
                                         disabled="@running"
-                                        title="@(running ? "Already running: open it from the sidebar." : past.SessionId)"
+                                        title="@(running ? "Already running: open it from the agent list." : past.SessionId)"
                                         @onclick="() => { _resumeId = past.SessionId; Touch(); }">
                                     <span class="past-top">
                                         <span class="past-title">@(past.Title ?? "Untitled")</span>
@@ -434,7 +434,7 @@
     }
 
     /// <summary>
-    /// A conversation the dashboard is already running is open in the sidebar,
+    /// A conversation the dashboard is already running is in the agent list,
     /// and resuming it a second time would run it twice, so it cannot be picked.
     /// </summary>
     private bool IsRunning(string sessionId) =>

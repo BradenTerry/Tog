@@ -95,7 +95,7 @@ public sealed record HostResult(bool Ok, string Message, string? SessionId = nul
 /// <para>
 /// The dashboard is the host, so closing it ends the agents with it. That is the
 /// same trade editors make for local agents. The sessions it runs are kept in
-/// <see cref="HostedAgentStore"/>, which is what brings them back to the sidebar
+/// <see cref="HostedAgentStore"/>, which is what brings them back to the agent list
 /// as stopped agents on the next start.
 /// </para>
 /// <para>
@@ -226,7 +226,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
 
     /// <summary>
     /// Picks up a saved conversation, one of the agent's own or one started
-    /// elsewhere, such as in a terminal. It joins the sidebar like any other.
+    /// elsewhere, such as in a terminal. It joins the agent list like any other.
     /// </summary>
     public async Task<HostResult> ResumeAsync(string sessionId, AgentStart start, CancellationToken ct = default)
     {
@@ -379,7 +379,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
         return new HostResult(true, "Stopped. Its conversation is kept; send it a message to pick it up again.");
     }
 
-    /// <summary>Takes an agent off the sidebar. Its conversation stays saved and can be resumed.</summary>
+    /// <summary>Takes an agent off the agent list. Its conversation stays saved and can be resumed.</summary>
     public async Task<HostResult> RemoveAsync(string sessionId, CancellationToken ct = default)
     {
         await StopAsync(sessionId, ct).ConfigureAwait(false);

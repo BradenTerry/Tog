@@ -6,8 +6,8 @@ namespace AgentsDashboard.App.Services;
 /// What you had typed to each agent and not sent yet.
 /// </summary>
 /// <remarks>
-/// The agent view is one page whose agent changes under it, so switching agents
-/// used to clear the box. Kept here, outside the page, a half-written message
+/// The chat panel is rebuilt whenever the agent changes under it, so switching
+/// agents used to clear the box. Kept here, outside the page, a half-written message
 /// waits for you when you come back, including after a visit to another page.
 /// Held in memory only: it is a draft, not something worth writing to disk.
 /// </remarks>

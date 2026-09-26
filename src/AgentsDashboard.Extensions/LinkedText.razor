@@ -1,4 +1,4 @@
-@* Text with the files it mentions as links into the agent's Files tab, and a
+@* Text with the files it mentions as links into the agent's editor, and a
    small one into VS Code. The scan reads the disk, so it is done when the text
    changes rather than on every render. *@
 @inject ITextLinker Linker
@@ -8,7 +8,7 @@
     {
         if (run.Href is { } href)
         {
-            <a class="file-link" href="@href" title="Open in the Files tab">@run.Text</a>
+            <a class="file-link" href="@href" title="Open in the editor">@run.Text</a>
             if (run.EditorHref is { } editor)
             {
                 <a class="file-link-vscode" href="@editor" title="Open in VS Code" aria-label="Open in VS Code">code</a>

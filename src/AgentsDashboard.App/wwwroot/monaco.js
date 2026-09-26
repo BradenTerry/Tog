@@ -1,9 +1,9 @@
 // Monaco, loaded only once a page actually asks for an editor.
 //
-// The bundle is 24 MB on disk and a few megabytes over the wire, and every page
-// in this app except the Files tab has no use for it, so nothing is fetched at
-// startup: ensureLoaded() injects the AMD loader the first time create() is
-// called and memoises the promise, and every later editor reuses it.
+// The bundle is 24 MB on disk and a few megabytes over the wire, and nothing but
+// an open file (and the diff's colouring) has any use for it, so nothing is
+// fetched at startup: ensureLoaded() injects the AMD loader the first time it is
+// needed and memoises the promise, and every later editor reuses it.
 //
 // The editor's text lives in the browser and the file lives on the server, so
 // the crossings that matter are Ctrl+S (the whole text goes up), the dirty flag
@@ -22,9 +22,9 @@ const editors = new Map();
 const models = new Map();
 
 // Where each file was scrolled to and where its caret was, by model URI. Kept
-// for the life of the page, because the Files tab is torn down every time you
-// switch to another tab and the editor with it: without this every return to a
-// file would land back at the top.
+// for the life of the page, because a file's editor is torn down when its tab is
+// closed or you switch to another agent: without this every return to a file
+// would land back at the top.
 const viewStates = new Map();
 
 // The gutter colours VS Code uses for its own change marks.
@@ -49,9 +49,9 @@ function restore(editor) {
     }
 }
 
-// The AMD loader resolves relative paths against the document, and the Files tab
-// lives at /worktree/<escaped path>/files, so a bare "monaco/vs" would be looked
-// for under the worktree segment. Absolute from the base href is the only form
+// The AMD loader resolves relative paths against the document, and an agent's
+// page lives at /chat/<session>, so a bare "monaco/vs" would be looked for under
+// that segment. Absolute from the base href is the only form
 // that survives a deep link.
 function asset(path) {
     return new URL(path, document.baseURI).href;
@@ -500,8 +500,8 @@ window.agentsEditor = {
         state.editor.setPosition({ lineNumber: line, column: 1 });
     },
 
-    // Colours lines for the Changes tab with Monaco's own tokenizer, so the diff
-    // is coloured exactly as the Files tab and VS Code colour the same file.
+    // Colours lines for the diff with Monaco's own tokenizer, so it is coloured
+    // exactly as the editor and VS Code colour the same file.
     // Nothing is drawn here: the server renders the diff, and this only answers
     // which class each run gets. The classes are Monaco's mtkN colour classes,
     // whose rules the theme service injects globally, so they apply outside an

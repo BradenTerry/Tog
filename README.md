@@ -19,7 +19,7 @@ you actually need from them are the three things a terminal is worst at.
 
 | Problem | What the dashboard does |
 | --- | --- |
-| An agent is blocked and you do not notice | Agents waiting on you sort to the top of the sidebar, longest-blocked first, with the question Claude recorded. An OS notification when one starts waiting. |
+| An agent is blocked and you do not notice | Agents waiting on you sort to the top of the agent list, longest-blocked first, with the question Claude recorded. An OS notification when one starts waiting. |
 | Reviewing the agent's work means eyeballing a terminal | A PR-style diff with line comments, submitted in one go as a markdown file the agent can act on, plus staging. See [docs/review.md](docs/review.md) and [docs/staging.md](docs/staging.md). |
 | Starting and steering agents means more terminals | Agents run in the dashboard over the Agent Client Protocol: replies stream in live, and permission prompts are answered in the app. See [docs/agent-control.md](docs/agent-control.md). |
 | Reading an agent's code means guessing what a symbol is | Hover, go to definition, find references and call hierarchy for C#, from Roslyn in-process. See [docs/code-intelligence.md](docs/code-intelligence.md). |
@@ -27,22 +27,31 @@ you actually need from them are the three things a terminal is worst at.
 
 ## Screens
 
-- **Sidebar** lists every agent, the ones waiting on you first, with **New agent**
-  at the top and **Settings** (the gear) at the bottom.
-- **Agent** shows where the selected agent works (repository, worktree, branch)
-  and has three tabs, plus any extensions add: **Chat** (its conversation and a box to message it),
-  **Changes** (the diff review, changed files as a tree, line and range comments
-  handed back to the agent, staging) and **Files** (browse and edit its worktree,
-  with hover, go to definition, references and call hierarchy for C#: see
-  [docs/code-intelligence.md](docs/code-intelligence.md)). Both are coloured by
-  Monaco: see [docs/syntax.md](docs/syntax.md). A file path in any of them opens
-  in that agent's Files tab.
+The window is laid out like VS Code, and every panel follows the agent you
+picked. See [docs/workbench.md](docs/workbench.md).
+
+- **Title bar** shows where the agent works (repository, worktree, branch), who is
+  waiting on you, three buttons that fold the left, bottom and right panels, and
+  **Settings** (the gear).
+- **Left panel: Files**, the agent's worktree as a tree. A click opens a file in
+  the editor as a preview tab; a double click keeps it.
+- **Editor** in the middle: a tab per open file, pinnable, each a Monaco editor
+  with hover, go to definition, references and call hierarchy for C# (see
+  [docs/code-intelligence.md](docs/code-intelligence.md)), plus the **Changes**
+  document, the diff with line and range comments handed back to the agent.
+  Both are coloured by Monaco: see [docs/syntax.md](docs/syntax.md).
+- **Right panel: Source control**, what to diff against, the changed files split
+  into staged and pending, staging, and the review to send.
+- **Bottom panel: Chat**, the conversation and a box to message the agent, with
+  the list of **Agents** down its right side, the ones waiting on you first, and
+  **New agent**.
+- Extensions add tabs to any of the three panels, the right one by default.
 - **New agent** starts one in a repository from Settings, in a new worktree or an
   existing one.
 - **Settings** holds the repositories New agent offers, the preferences, and the
   extensions.
 
-A file path an agent mentions in a reply is a link: it opens the file in the **Files** tab at that line, with
+A file path an agent mentions in a reply is a link: it opens the file in the editor at that line, with
 a second link beside it that opens the same place in VS Code.
 
 ## How it finds things

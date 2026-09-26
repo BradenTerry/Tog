@@ -21,8 +21,11 @@ dashboard is available, on purpose.
 
 - `IDashboardExtension.Configure(IExtensionBuilder b)` is the entry point. Keep
   exactly one public class implementing it.
-- `b.AddView<TComponent>(id, title, order:, appliesTo:)` adds a tab. `appliesTo`
-  runs on every render: answer from memory, no IO.
+- `b.AddView<TComponent>(id, title, defaultLocation:, order:, appliesTo:)` adds a
+  tab to a panel: `ViewLocation.RightPanel` (the default, beside Source control),
+  `LeftPanel` (beside Files) or `BottomPanel` (beside Chat). Naming a panel needs
+  `"apiVersion": "1.1"` in `extension.json`. `appliesTo` runs on every render:
+  answer from memory, no IO.
 - `b.AddIndicator<T>(viewId)` puts a short count on the tab. `IAgentIndicator.For`
   also runs on every render.
 - `b.AddWorker<T>(id)` runs `IExtensionWorker.RunAsync(stopping)` in the
@@ -38,8 +41,8 @@ and `Context`.
 
 Services available to `@inject` and to your own services' constructors:
 `IDashboardView` (every worktree, with git counts only for the one on screen, and a `Changed` event about once a second, on
-a background thread: use `InvokeAsync`), `INavigation` (a link into the agent's
-Files tab), `ITextLinker` and the `<LinkedText Text="..." Agent="Agent" />`
+a background thread: use `InvokeAsync`), `INavigation` (a link that opens a file in the
+agent's editor), `ITextLinker` and the `<LinkedText Text="..." Agent="Agent" />`
 component (paths in text become links), `IExtensionStorage` (a data folder of
 your own), and `ILogger<T>`.
 

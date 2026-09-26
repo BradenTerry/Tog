@@ -1,7 +1,7 @@
 @*
     Text an agent or a test runner wrote, with the files it mentions turned into
-    links: one into the Files tab at the line, and a small one that hands the
-    absolute path to VS Code. The Files tab is the agent's own, so following a
+    links: one into the editor at the line, and a small one that hands the
+    absolute path to VS Code. The editor is the agent's own, so following a
     path never leaves the agent it was mentioned by.
 
     Whether a candidate is a real file is answered from disk, so the scan is done
@@ -15,7 +15,7 @@
         if (segment.Reference is { } reference)
         {
             <a class="file-link" href="@Href(reference)"
-               title="Open in the Files tab">@segment.Text</a>
+               title="Open in the editor">@segment.Text</a>
 
             if (WorktreeFiles.Resolve(WorktreePath, reference.Path) is { } absolute)
             {
@@ -39,7 +39,7 @@
     [EditorRequired]
     public string WorktreePath { get; set; } = "";
 
-    /// <summary>The agent whose Files tab the links open.</summary>
+    /// <summary>The agent whose editor the links open in.</summary>
     [Parameter]
     [EditorRequired]
     public string SessionId { get; set; } = "";

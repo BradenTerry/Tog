@@ -30,7 +30,9 @@ twice:
   passes a diff hunk needs
 - `docs/agent-control.md` - ACP, the host, a turn, permissions, the bridge
 - `docs/staging.md` - the two-character status field, unstaging with no HEAD
-- `docs/editor.md` - Monaco in the Files tab, vendoring it, stamp-based saves
+- `docs/editor.md` - Monaco in the editor, vendoring it, stamp-based saves
+- `docs/workbench.md` - the VS Code-style layout, the panels, editor tabs, the
+  shared ChangesModel, what is kept per machine
 - `docs/code-intelligence.md` - Roslyn in-process, the on-demand load, why
   references land in a panel rather than a peek widget
 
@@ -88,7 +90,7 @@ a run of rows has to walk them in the order they are drawn and pick the side at
 the end, not filter by side from the start: filtering stops dead at the first
 row of the other kind, which in a one-line replacement is the very next row.
 
-**SignalR caps a client-to-server message at 32 KB.** Saving from the Files tab
+**SignalR caps a client-to-server message at 32 KB.** Saving from the editor
 sends the whole edited file up the circuit, and most source files are over that.
 The hub does not report it as an error, it drops the circuit. `Program.cs` sets
 `MaximumReceiveMessageSize` to 4 MB, which covers `WorktreeFiles.MaxBytes` (2 MB)
@@ -103,14 +105,21 @@ an unnamed model every cross-file F12 is silently dropped. The C# providers are
 registered once for the page, not per editor: Monaco's registries are global and
 a second registration answers every hover twice.
 
-**The Changes tab controls its own rendering.** The agent view re-renders every
+**The heavy components control their own rendering.** The layout re-renders every
 second because the monitor publishes a snapshot every second. Re-rendering a diff
 of a few thousand lines at that rate saturates the circuit and the page stops
-answering clicks, so `ChangesTab` overrides `ShouldRender` and every handler calls
-`Touch()`. It also only draws the lines of files near the screen: `app.js`
+answering clicks, so `DiffDocument`, `SourceControlPanel`, `FileDocument` and
+`FileTreePanel` override `ShouldRender` and every handler calls `Touch()`. The
+diff also only draws the lines of files near the screen: `app.js`
 (`watchDiffWindow`) reports which files those are, and the rest are blocks the
 height they measured at. The file trees draw only their visible rows through
 `Virtualize`, which is why `.tree-row` has a pinned height.
+
+**The panels talk through `Workbench`, not parameters.** It is scoped (one per
+window) and holds the agent the panels follow, the panels' state, the editor tabs
+per worktree, and one `ChangesModel` per worktree, which Source control and the
+Changes document share. A folded panel keeps its grid column at zero width
+rather than leaving the grid, or every column after it shifts.
 
 **The app stays minimal; features that are not about agents are extensions.**
 Tests moved out for that reason. A new tab for one language or tool belongs in an

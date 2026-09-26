@@ -15,13 +15,13 @@ public sealed record HostedAgentRecord(
     ContextUsage? Context = null);
 
 /// <summary>
-/// The agents in the sidebar, kept across restarts.
+/// The agents in the agent list, kept across restarts.
 /// </summary>
 /// <remarks>
 /// The dashboard hosts its agents, so closing it ends their processes. Their
 /// conversations are saved by Claude either way; this list is what lets them
 /// come back as stopped agents you can pick up again, rather than vanishing from
-/// the sidebar until you go looking for them under Resume.
+/// the agent list until you go looking for them under Resume.
 /// </remarks>
 public sealed class HostedAgentStore(AppPaths paths)
 {

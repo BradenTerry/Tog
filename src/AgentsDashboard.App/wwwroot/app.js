@@ -118,7 +118,7 @@ function keepScroll(element, key) {
 }
 
 // The nearest ancestor that scrolls, which is what "near the screen" is measured
-// against: the agent view's pane, not the window.
+// against: the document's own scroller, not the window.
 function scrollParent(element) {
     for (let node = element.parentElement; node && node !== document.body; node = node.parentElement) {
         const overflow = getComputedStyle(node).overflowY;
@@ -130,7 +130,7 @@ function scrollParent(element) {
     return null;
 }
 
-// Tells the Changes tab which files are within a screen or so of the viewport,
+// Tells the Changes document which files are within a screen or so of the viewport,
 // so it draws only their lines, along with the measured height of every file it
 // has drawn, so a file that scrolls away leaves a block exactly its own height.
 // Reports are batched: a fast scroll crosses many files, and one round trip per
@@ -217,7 +217,7 @@ function loadMermaid() {
 
 // Finishes a Markdown preview the server rendered: colours its code blocks with
 // Monaco, draws its diagrams, and routes links to other files in the repository
-// to the Files tab. Each step marks what it has done, so running this again
+// to the editor. Each step marks what it has done, so running this again
 // after a re-render only touches what is new.
 async function enhanceMarkdown(element, reference) {
     if (!element) {
@@ -366,7 +366,7 @@ function onDown(event) {
     drag.from = anchor;
     drag.to = anchor;
 
-    scroller = event.target.closest('.main') ?? document.scrollingElement;
+    scroller = event.target.closest('.doc-scroll, .main') ?? document.scrollingElement;
     paint(anchor);
 }
 
@@ -505,7 +505,7 @@ window.agentsDashboard = {
     // getting taller, without waiting for the server to say something changed.
     keepScroll: (element, key) => keepScroll(element, key),
     enhanceMarkdown: (element, reference) => enhanceMarkdown(element, reference),
-    // Small per-machine preferences, such as whether the agent list is folded.
+    // Small per-machine preferences, such as which panels are showing.
     // Storage can be unavailable, in which case the default simply stands.
     getPref: (key) => {
         try {
@@ -574,77 +574,120 @@ window.agentsDashboard = {
     },
 };
 
-// The agent list's width, dragged by the handle on its right edge. Done here
-// rather than on the circuit for the same reason as line selection: a drag is a
-// stream of moves, and a round trip for each would lag behind the pointer. The
-// width is a CSS variable on the root element, not a style on the shell, so a
-// Blazor render never puts it back, and it is kept per machine like the fold.
+// The borders between the panels, dragged. Done here rather than on the circuit
+// for the same reason as line selection: a drag is a stream of moves, and a round
+// trip for each would lag behind the pointer. Each size is a CSS variable on the
+// root element, not a style on the layout, so a Blazor render never puts it
+// back, and it is kept per machine. Double-click puts one back to its default;
+// the arrow keys move a focused border, so none of this is mouse-only.
 (() => {
-    const key = 'agentsDashboard.sidebarWidth';
-    const fallback = 300;
-    const min = 200;
+    // Which variable each border sets, which way it measures, and its limits.
+    // A panel is never so big the editor beside it has no room left.
+    const sashes = {
+        left: { name: '--wb-left', axis: 'x', min: 160, max: () => window.innerWidth * 0.4 },
+        right: { name: '--wb-right', axis: 'x', min: 200, max: () => window.innerWidth * 0.45 },
+        bottom: { name: '--wb-bottom', axis: 'y', min: 120, max: () => window.innerHeight - 180 },
+        agents: { name: '--wb-agents', axis: 'x', min: 180, max: () => window.innerWidth * 0.4 },
+    };
 
-    // Never so wide the page beside it has no room left.
-    const max = () => Math.max(min, Math.min(640, Math.round(window.innerWidth * 0.5)));
-    const clamp = (width) => Math.min(max(), Math.max(min, Math.round(width)));
+    const storageKey = (sash) => 'agentsDashboard.' + sash.name.slice(2);
+    const root = document.documentElement;
 
-    function current() {
-        const set = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-width'), 10);
-        return Number.isFinite(set) ? set : fallback;
+    function clamp(sash, px) {
+        return Math.round(Math.min(Math.max(sash.min, sash.max()), Math.max(sash.min, px)));
     }
 
-    function apply(width, save) {
-        const px = clamp(width);
-        document.documentElement.style.setProperty('--sidebar-width', px + 'px');
-        document.querySelectorAll('.sidebar-resize').forEach(handle => {
-            handle.setAttribute('aria-valuenow', String(px));
-            handle.setAttribute('aria-valuemin', String(min));
-            handle.setAttribute('aria-valuemax', String(max()));
-        });
+    function current(which) {
+        const sash = sashes[which];
+        const panel = panelOf(which);
+        if (panel) {
+            const box = panel.getBoundingClientRect();
+            return sash.axis === 'x' ? box.width : box.height;
+        }
 
+        return parseInt(getComputedStyle(root).getPropertyValue(sash.name), 10) || sash.min;
+    }
+
+    // The element whose size the border sets.
+    function panelOf(which) {
+        return document.querySelector({
+            left: '.wb-left',
+            right: '.wb-right',
+            bottom: '.wb-bottom',
+            agents: '.agent-list',
+        }[which]);
+    }
+
+    function apply(which, px, save) {
+        const sash = sashes[which];
+        const size = clamp(sash, px);
+        root.style.setProperty(sash.name, size + 'px');
         if (save) {
             try {
-                localStorage.setItem(key, String(px));
+                localStorage.setItem(storageKey(sash), String(size));
             } catch {
             }
         }
     }
 
-    function reset() {
-        document.documentElement.style.removeProperty('--sidebar-width');
+    function reset(which) {
+        const sash = sashes[which];
+        root.style.removeProperty(sash.name);
         try {
-            localStorage.removeItem(key);
+            localStorage.removeItem(storageKey(sash));
         } catch {
         }
     }
 
-    try {
-        const saved = parseInt(localStorage.getItem(key) ?? '', 10);
-        if (Number.isFinite(saved)) {
-            apply(saved, false);
+    for (const [which, sash] of Object.entries(sashes)) {
+        try {
+            const saved = parseInt(localStorage.getItem(storageKey(sash)) ?? '', 10);
+            if (Number.isFinite(saved)) {
+                apply(which, saved, false);
+            }
+        } catch {
         }
-    } catch {
+    }
+
+    // How far the pointer has moved, turned into the panel's new size. The left
+    // panel grows as the pointer goes right; the right panel, the agent list and
+    // the bottom panel grow as it goes left or up, since they sit on the far side
+    // of their border.
+    function sizeFrom(which, start, startSize, event) {
+        const sash = sashes[which];
+        const delta = sash.axis === 'x' ? event.clientX - start : event.clientY - start;
+        return which === 'left' ? startSize + delta : startSize - delta;
     }
 
     document.addEventListener('pointerdown', (event) => {
-        const handle = event.target.closest?.('.sidebar-resize');
+        const handle = event.target.closest?.('.sash[data-sash]');
         if (!handle || event.button !== 0) {
             return;
         }
 
-        event.preventDefault();
-        const sidebar = handle.closest('.sidebar');
-        const left = sidebar ? sidebar.getBoundingClientRect().left : 0;
-        handle.setPointerCapture(event.pointerId);
-        document.body.classList.add('resizing-sidebar');
+        const which = handle.dataset.sash;
+        const sash = sashes[which];
+        if (!sash) {
+            return;
+        }
 
-        const move = (e) => apply(e.clientX - left, false);
+        event.preventDefault();
+        const start = sash.axis === 'x' ? event.clientX : event.clientY;
+        const startSize = current(which);
+        const holding = sash.axis === 'x' ? 'resizing-col' : 'resizing-row';
+
+        handle.setPointerCapture(event.pointerId);
+        handle.classList.add('dragging');
+        document.body.classList.add(holding);
+
+        const move = (e) => apply(which, sizeFrom(which, start, startSize, e), false);
         const up = () => {
             handle.removeEventListener('pointermove', move);
             handle.removeEventListener('pointerup', up);
             handle.removeEventListener('pointercancel', up);
-            document.body.classList.remove('resizing-sidebar');
-            apply(current(), true);
+            handle.classList.remove('dragging');
+            document.body.classList.remove(holding);
+            apply(which, current(which), true);
         };
 
         handle.addEventListener('pointermove', move);
@@ -652,33 +695,36 @@ window.agentsDashboard = {
         handle.addEventListener('pointercancel', up);
     });
 
-    // Double-click puts it back to the default width.
     document.addEventListener('dblclick', (event) => {
-        if (event.target.closest?.('.sidebar-resize')) {
-            reset();
+        const handle = event.target.closest?.('.sash[data-sash]');
+        if (handle && sashes[handle.dataset.sash]) {
+            reset(handle.dataset.sash);
         }
     });
 
-    // The arrow keys move it too, so the handle is not mouse-only.
     document.addEventListener('keydown', (event) => {
-        if (!event.target.closest?.('.sidebar-resize')) {
+        const handle = event.target.closest?.('.sash[data-sash]');
+        const which = handle?.dataset.sash;
+        const sash = sashes[which];
+        if (!sash) {
             return;
         }
 
         const step = event.shiftKey ? 64 : 16;
-        if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+        const grow = which === 'left' ? 'ArrowRight' : sash.axis === 'x' ? 'ArrowLeft' : 'ArrowUp';
+        const shrink = which === 'left' ? 'ArrowLeft' : sash.axis === 'x' ? 'ArrowRight' : 'ArrowDown';
+        if (event.key === grow || event.key === shrink) {
             event.preventDefault();
-            apply(current() + (event.key === 'ArrowRight' ? step : -step), true);
-        } else if (event.key === 'Home' || event.key === 'End') {
-            event.preventDefault();
-            apply(event.key === 'End' ? max() : min, true);
+            apply(which, current(which) + (event.key === grow ? step : -step), true);
         }
     });
 
-    // A window made narrower can leave a saved width past half of it.
+    // A window made smaller can leave a saved size past what now fits.
     window.addEventListener('resize', () => {
-        if (document.documentElement.style.getPropertyValue('--sidebar-width')) {
-            apply(current(), false);
+        for (const [which, sash] of Object.entries(sashes)) {
+            if (root.style.getPropertyValue(sash.name)) {
+                apply(which, parseInt(root.style.getPropertyValue(sash.name), 10), false);
+            }
         }
     });
 })();

@@ -1,0 +1,218 @@
+@inherits StateComponent
+@inject Workbench Bench
+@inject AgentDirectory Directory
+@inject ExtensionHost Extensions
+
+@* One of the three panels: a strip of tabs, the app's own first and then any
+   extension's that asked for this panel, over what the tab in front shows. A
+   tab you have opened stays built while another is in front, hidden rather than
+   thrown away, so it keeps its scroll and what it had read; they are all
+   rebuilt when the panel moves to another agent. *@
+
+<section class="wb-panel" aria-label="@Label">
+    <div class="ptabs" role="tablist" aria-label="@Label">
+        @foreach (var tab in Tabs)
+        {
+            var active = tab.Key == ActiveKey;
+            <button type="button" role="tab" class="ptab @(active ? "active" : "")" aria-selected="@(active ? "true" : "false")"
+                    @onclick="() => Bench.Show(Side, tab.Key)">
+                @tab.Title
+                @if (tab.Count is { Length: > 0 } count)
+                {
+                    <span class="count @tab.Tone" title="@tab.Tooltip">@count</span>
+                }
+            </button>
+        }
+    </div>
+
+    <div class="ptab-body">
+        @if (Agent is not { } agent)
+        {
+            <div class="panel-note faint">@(Bench.SessionId is null ? "Pick an agent to see its work here." : "That agent is not in the list.")</div>
+        }
+        else if (Tabs.Count == 0)
+        {
+            <div class="panel-note faint">
+                @(Side == PanelSide.Bottom ? "Nothing to show." : "This agent is not working in a git worktree, so there is nothing to show here.")
+            </div>
+        }
+        else
+        {
+            @foreach (var tab in Tabs.Where(t => _visited.Contains(t.Key)))
+            {
+                var active = tab.Key == ActiveKey;
+                <div class="ptab-layer @(active ? "" : "hidden")" @key="(tab.Key, tab.View?.Generation, agent.SessionId)">
+                    @switch (tab.Key)
+                    {
+                        case Workbench.FilesTab:
+                            <FileTreePanel WorktreePath="@(agent.WorktreePath!)" />
+                            break;
+
+                        case Workbench.SourceControlTab:
+                            <SourceControlPanel WorktreePath="@(agent.WorktreePath!)" SessionId="@agent.SessionId" />
+                            break;
+
+                        case Workbench.ChatTab:
+                            <ChatPanel SessionId="@agent.SessionId" IsVisible="@(active && Bench.Panel(Side).Open)" />
+                            break;
+
+                        default:
+                            @* Keyed by generation as well, so a reloaded extension's view
+                               is built fresh from the new copy's type rather than handed
+                               new parameters. *@
+                            <div class="panel-scroll ext-view">
+                                <ExtensionViewHost Live="tab.View!" Agent="ApiModel.Agent(agent, State)"
+                                                   IsVisible="@(active && Bench.Panel(Side).Open)" />
+                            </div>
+                            break;
+                    }
+                </div>
+            }
+        }
+    </div>
+</section>
+
+@code {
+    [Parameter, EditorRequired]
+    public PanelSide Side { get; set; }
+
+    private sealed record Tab(string Key, string Title, LiveView? View = null, string? Count = null, string? Tone = null, string? Tooltip = null);
+
+    /// <summary>The tabs opened for the agent on screen, which stay built until the panel moves to another.</summary>
+    private readonly HashSet<string> _visited = new(StringComparer.Ordinal);
+    private string? _shownSession;
+
+    private string Label => Side switch
+    {
+        PanelSide.Left => "Left panel",
+        PanelSide.Right => "Right panel",
+        _ => "Bottom panel",
+    };
+
+    private ChatTarget? Agent =>
+        Bench.SessionId is { } id ? Directory.Targets(Snapshot.Value).FirstOrDefault(t => t.SessionId == id) : null;
+
+    private List<Tab> Tabs
+    {
+        get
+        {
+            var tabs = new List<Tab>();
+            if (Agent is not { } agent)
+            {
+                return tabs;
+            }
+
+            // The app's own tab leads each panel. The files and the diff need a
+            // worktree; the conversation does not.
+            switch (Side)
+            {
+                case PanelSide.Left when agent.WorktreePath is not null:
+                    tabs.Add(new Tab(Workbench.FilesTab, "Files"));
+                    break;
+                case PanelSide.Right when agent.WorktreePath is not null:
+                    tabs.Add(new Tab(Workbench.SourceControlTab, "Source control", Count: ChangeCount(agent)));
+                    break;
+                case PanelSide.Bottom:
+                    tabs.Add(new Tab(Workbench.ChatTab, "Chat"));
+                    break;
+            }
+
+            var api = ApiModel.Agent(agent, State);
+            foreach (var live in Extensions.Views.Where(v => Workbench.SideOf(v.View.DefaultLocation) == Side))
+            {
+                if (!Applies(live, api))
+                {
+                    continue;
+                }
+
+                var indicator = Extensions.IndicatorFor(live.View, api);
+                tabs.Add(new Tab(live.View.Key, live.View.Title, live, indicator?.Text, indicator is null ? null : ToneClass(indicator.Tone), indicator?.Tooltip));
+            }
+
+            return tabs;
+        }
+    }
+
+    /// <summary>The tab in front: the one chosen, or the first when that one is not here for this agent.</summary>
+    private string? ActiveKey
+    {
+        get
+        {
+            var tabs = Tabs;
+            var wanted = Bench.Panel(Side).Tab;
+            return tabs.Any(t => t.Key == wanted) ? wanted : tabs.FirstOrDefault()?.Key;
+        }
+    }
+
+    /// <summary>A view whose filter throws is left out rather than taking the panel down with it.</summary>
+    private static bool Applies(LiveView live, AgentsDashboard.Extensions.AgentContext agent)
+    {
+        try
+        {
+            return live.View.AppliesTo?.Invoke(agent) ?? true;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    private string? ChangeCount(ChatTarget agent) =>
+        agent.WorktreePath is { } path && State.Worktree(path)?.Status is { } s && s.Changed + s.Staged + s.Untracked is > 0 and var n
+            ? n.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : null;
+
+    private static string ToneClass(AgentsDashboard.Extensions.Tone tone) => tone switch
+    {
+        AgentsDashboard.Extensions.Tone.Danger => "danger",
+        AgentsDashboard.Extensions.Tone.Warning => "warning",
+        AgentsDashboard.Extensions.Tone.Success => "success",
+        AgentsDashboard.Extensions.Tone.Info => "info",
+        _ => "",
+    };
+
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+        Bench.Changed += OnChanged;
+        Extensions.Changed += OnChanged;
+    }
+
+    private void OnChanged() => _ = InvokeAsync(StateHasChanged);
+
+    protected override void OnParametersSet() => Track();
+
+    /// <summary>Keeps the set of built tabs: cleared for a new agent, and the one in front added.</summary>
+    private void Track()
+    {
+        if (_shownSession != Bench.SessionId)
+        {
+            _shownSession = Bench.SessionId;
+            _visited.Clear();
+        }
+
+        if (ActiveKey is { } key)
+        {
+            _visited.Add(key);
+        }
+    }
+
+    protected override bool ShouldRender()
+    {
+        // Every render path comes through here, the snapshot's and the bench's,
+        // so this is where the tab in front is marked as built.
+        Track();
+        return true;
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            Bench.Changed -= OnChanged;
+            Extensions.Changed -= OnChanged;
+        }
+
+        base.Dispose(disposing);
+    }
+}

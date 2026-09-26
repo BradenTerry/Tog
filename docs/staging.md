@@ -1,8 +1,9 @@
-# Staging from the Changes tab
+# Staging from Source control
 
-Reading a diff and deciding what to commit are the same sitting, so the Changes
-tab does both. Each file's header says where its changes are and offers to move
-them; the toolbar stages or unstages everything.
+Reading a diff and deciding what to commit are the same sitting, so the review
+does both. Source control in the right panel lists the files staged above
+pending, with a button on each row and each section to move them. In the Changes
+document each file's header says where its changes are and offers to move them.
 
 | Badge | Means |
 | --- | --- |

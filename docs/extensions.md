@@ -55,16 +55,25 @@ does not load.
 
 | Call | Adds |
 | --- | --- |
-| `AddView<T>(id, title, defaultLocation, order, appliesTo)` | A tab in the agent view, after Chat, Changes and Files |
+| `AddView<T>(id, title, defaultLocation, order, appliesTo)` | A tab in one of the three panels, after the app's own |
 | `AddIndicator<T>(viewId)` | A short count on that tab, such as failing tests |
 | `AddWorker<T>(id)` | Background work while loaded, restarted with backoff if it throws |
 | `Services` | The extension's own DI container |
 
-`ViewLocation` has one value today, `AgentTab`. It is a *default* location on
-purpose: side and bottom panels are expected, and where a view sits is meant to
-be the user's choice, so an extension says where it would like to go and the
-app decides. Views are written against `AgentViewBase` and nothing about where
-they are drawn, so moving one needs no change to it.
+`ViewLocation` says which panel the view is a tab in (see
+[workbench.md](workbench.md)):
+
+| Value | Where | Since |
+| --- | --- | --- |
+| `RightPanel` | After Source control. The default | 1.1 |
+| `LeftPanel` | After Files | 1.1 |
+| `BottomPanel` | After Chat, beside the agent list | 1.1 |
+| `AgentTab` | The 1.0 agent view's tab strip, which is gone. Drawn in the right panel | 1.0 |
+
+An extension that names one of the panels needs `"apiVersion": "1.1"` in its
+manifest; one built against 1.0 still loads and lands on the right. Views are
+written against `AgentViewBase` and nothing about where they are drawn, so
+moving one to another panel needs no change to it.
 
 ## Where they come from
 
@@ -85,7 +94,7 @@ sequenceDiagram
     participant C as ExtensionCatalog (Core)
     participant A as ExtensionLoadContext
     participant E as Extension
-    participant P as ChatPage
+    participant P as WorkbenchPanel
 
     H->>C: discover installed, linked, --extension
     C-->>H: manifests, no code run
@@ -114,8 +123,8 @@ loaded assembly is locked). The cache is cleared at startup, when nothing is
 loaded.
 
 **Rendered through `DynamicComponent`, never the router.** Routes are fixed when
-the app starts. An extension's tab lives at `/chat/<agent>/<id>.<view>`, and
-`ChatPage` looks the view up and draws it in `ExtensionViewHost`, which wraps it
+the app starts. An extension's tab is `<id>.<view>`, and `/chat/<agent>/<id>.<view>`
+brings it up. `WorkbenchPanel` looks the view up and draws it in `ExtensionViewHost`, which wraps it
 in an `ErrorBoundary`. A view that throws shows its error and Retry; without the
 boundary the exception would end the circuit, which in a one-window app is
 everything. What no boundary catches: an exception on a thread the extension

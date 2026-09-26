@@ -379,7 +379,7 @@ public sealed class WorktreeFiles(IGitCli git)
         return window.IndexOf((byte)0) >= 0;
     }
 
-    /// <summary>The files arranged as a tree, for the browser's sidebar.</summary>
+    /// <summary>The files arranged as a tree, for the Files tree.</summary>
     public static PathTreeNode<WorktreeFile> Tree(IEnumerable<WorktreeFile> files) =>
         PathTree.Build(files.Select(f => (f.Path, f)));
 }

@@ -1,6 +1,6 @@
 # Code intelligence
 
-The Files tab shows what a symbol is, where it is defined, where it is used and
+The editor shows what a symbol is, where it is defined, where it is used and
 who calls it. VS Code gets that from a language server running beside the
 editor. The dashboard is already a .NET process, so it gets it from Roslyn
 in-process instead, which means no second process to install, start or keep
@@ -77,7 +77,7 @@ stateDiagram-v2
 | Shift+F12 | Find all references, in a panel under the editor | `SymbolFinder.FindReferencesAsync` |
 | Shift+Alt+H | Callers and callees of the method under the caret | `SymbolFinder.FindCallersAsync`; callees by walking the body's invocations |
 
-The Files tab header carries a chip for the worktree's solution, showing not
+A C# file's bar carries a chip for the worktree's solution, showing not
 loaded, what the load is doing, "ready" with the project count, or failed with
 the reason in its tooltip, and a Reload beside it.
 
@@ -85,8 +85,8 @@ References and callers go to a **panel under the editor** rather than Monaco's
 peek widgets. The peek widgets want a text model for every file they show, which
 means loading every referenced file into the browser; the panel shows the line
 of code from the server and opens the file only when you click it. A row opens
-its file in the tab that is already there rather than navigating, so a list of
-results can be walked without losing the panel or the tree.
+its file in a tab of its own, or moves the caret when it is the file already in
+front, so a list of results can be walked without losing the panel.
 
 The row marks the symbol inside that line, and it has to guess where: the preview
 arrives trimmed, so the column no longer indexes into it. What survives the trim
@@ -95,7 +95,7 @@ the mark goes on the identifier of that length nearest the column from below, an
 on nothing at all when no identifier of that length fits.
 
 Definition targets in other files go through Monaco's editor opener, which the
-dashboard handles by opening that file in the Files tab at that line, exactly
+dashboard handles by opening that file in its own tab at that line, exactly
 as a clicked reference would.
 
 ## What is deliberately not here

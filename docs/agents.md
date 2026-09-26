@@ -54,7 +54,7 @@ is running right now" rather than a tally of everything that ever ran.
 
 A subagent, or a shell command started with `run_in_background`, keeps going
 after the turn that started it ends, so an idle agent is not necessarily done.
-The agent view lists that work in a strip above the message box, and the sidebar
+The chat lists that work in a strip above the message box, and the agent list
 says "2 running in background" under the agent.
 
 Subagents come from the files above. Background commands come from the

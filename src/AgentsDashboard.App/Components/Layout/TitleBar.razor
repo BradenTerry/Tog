@@ -1,0 +1,108 @@
+@inherits StateComponent
+@inject Workbench Bench
+@inject AgentDirectory Directory
+@inject NavigationManager Nav
+
+@* Across the top: where the agent in view works, who is waiting on you, and
+   the three buttons that fold the panels away. Each button is a picture of the
+   window with its panel filled in while that panel shows. *@
+
+<header class="titlebar">
+    <a class="brand" href="" title="Agents Dashboard">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-name">Agents</span>
+    </a>
+
+    @if (Agent is { } agent)
+    {
+        <nav class="where" aria-label="Where the agent works" title="@(agent.WorktreePath ?? agent.Cwd)">
+            @if (agent.RepoName is { } repoName)
+            {
+                <span class="where-item">@repoName</span>
+                <span class="where-sep" aria-hidden="true">/</span>
+            }
+            @if (agent.WorktreeName is { } worktreeName)
+            {
+                <span class="where-item">@worktreeName</span>
+            }
+            @if (agent.Branch is { Length: > 0 } branch)
+            {
+                <span class="where-branch mono" title="Branch">
+                    <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+                        <path d="M5 3v10M5 13a1.5 1.5 0 1 0 0-.01M5 3a1.5 1.5 0 1 0 0 .01M11 5a1.5 1.5 0 1 0 0-.01M11 6.5c0 3-6 2-6 5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
+                    </svg>
+                    @branch
+                </span>
+            }
+            else if (agent.Detached)
+            {
+                <span class="where-branch" title="No branch is checked out: commits made here belong to no branch">detached HEAD</span>
+            }
+        </nav>
+    }
+
+    <span class="spacer"></span>
+
+    @if (Snapshot.Waiting.Count > 0)
+    {
+        <span class="chip waiting" title="@Fmt.Count(Snapshot.Waiting.Count, "agent") waiting on you">@Snapshot.Waiting.Count waiting</span>
+    }
+
+    <div class="layout-toggles" role="group" aria-label="Panels">
+        @LayoutButton((PanelSide.Left, "Left panel", "M2.5 3.5h4v9h-4z", "M6.5 2.5v11"))
+        @LayoutButton((PanelSide.Bottom, "Bottom panel", "M2.5 9.5h11v3h-11z", "M1.5 9.5h13"))
+        @LayoutButton((PanelSide.Right, "Right panel", "M9.5 3.5h4v9h-4z", "M9.5 2.5v11"))
+    </div>
+
+    <a class="icon-btn @(IsAt("settings") ? "active" : "")" href="settings" title="Settings" aria-label="Settings">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1.08 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+        </svg>
+    </a>
+</header>
+
+@code {
+    private ChatTarget? Agent =>
+        Bench.SessionId is { } id ? Directory.Targets(Snapshot.Value).FirstOrDefault(t => t.SessionId == id) : null;
+
+    private bool IsAt(string page) => Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0] == page;
+
+    private RenderFragment LayoutButton((PanelSide Side, string Name, string Fill, string Edge) button) => __builder =>
+    {
+        var open = Bench.Panel(button.Side).Open;
+        <button type="button" class="layout-btn @(open ? "on" : "")" @onclick="() => Bench.Toggle(button.Side)"
+                title="@(open ? "Hide" : "Show") the @button.Name.ToLowerInvariant()"
+                aria-label="@button.Name" aria-pressed="@(open ? "true" : "false")">
+            <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true">
+                <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" />
+                <path class="fill" d="@button.Fill" fill="currentColor" stroke="none" />
+                <path d="@button.Edge" />
+            </svg>
+        </button>
+    };
+
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+        Bench.Changed += OnChanged;
+        Nav.LocationChanged += OnLocationChanged;
+    }
+
+    private void OnChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e) =>
+        _ = InvokeAsync(StateHasChanged);
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            Bench.Changed -= OnChanged;
+            Nav.LocationChanged -= OnLocationChanged;
+        }
+
+        base.Dispose(disposing);
+    }
+}

@@ -48,6 +48,6 @@ public enum LoadState
     Failed,
 }
 
-/// <summary>The chip the Files tab shows for a worktree's solution.</summary>
+/// <summary>The chip the editor shows for a worktree's solution.</summary>
 /// <param name="Message">Progress while loading, the reason when failed, else null.</param>
 public sealed record LoadStatus(LoadState State, string? Message, int Projects, int Documents);

@@ -23,7 +23,8 @@
                 style="@Indent(row.Depth)"
                 title="@(node.IsFile ? node.Path : null)"
                 aria-expanded="@(node.IsFile ? null : open.ToString().ToLowerInvariant())"
-                @onclick="() => Activate(node)">
+                @onclick="() => Activate(node)"
+                @ondblclick="() => Keep(node)">
             @RowContent((node, open))
         </button>
     }
@@ -36,7 +37,8 @@
                     class="tree-hit"
                     title="@(node.IsFile ? node.Path : null)"
                     aria-expanded="@(node.IsFile ? null : open.ToString().ToLowerInvariant())"
-                    @onclick="() => Activate(node)">
+                    @onclick="() => Activate(node)"
+                    @ondblclick="() => Keep(node)">
                 @RowContent((node, open))
             </button>
             <span class="tree-actions">@Actions(node)</span>
@@ -88,6 +90,13 @@
 
     [Parameter]
     public EventCallback<string> OnSelect { get; set; }
+
+    /// <summary>A double click on a file, which opens it to stay rather than as a preview.</summary>
+    [Parameter]
+    public EventCallback<string> OnKeep { get; set; }
+
+    private Task Keep(PathTreeNode<TValue> node) =>
+        node.IsFile && OnKeep.HasDelegate ? OnKeep.InvokeAsync(node.Path) : Task.CompletedTask;
 
     private Task Activate(PathTreeNode<TValue> node) =>
         node.IsFile ? OnSelect.InvokeAsync(node.Path) : OnToggle.InvokeAsync(node.Path);

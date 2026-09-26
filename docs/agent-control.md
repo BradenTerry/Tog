@@ -17,7 +17,7 @@ and says why when you start an agent.
 
 ```mermaid
 flowchart LR
-  UI["Sidebar, agent view,<br/>New agent, Changes"] --> D["AgentDirectory"]
+  UI["Chat, agent list,<br/>New agent, Source control"] --> D["AgentDirectory"]
   D --> H["AgentHost<br/>(one per app)"]
   H --> C["AcpClient<br/>typed ACP"]
   C --> R["JsonRpcConnection<br/>line-delimited JSON-RPC"]
@@ -36,14 +36,14 @@ flowchart LR
   hosts all sessions: ACP is built for many sessions per connection, and a Node
   process per agent would cost memory for nothing. It is started on first use and
   again after it dies.
-- **`HostedAgentStore`** is the list of agents in the sidebar, kept in
+- **`HostedAgentStore`** is the list of agents in the agent list, kept in
   `~/.agents-dashboard/agents.json` so they come back after a restart.
 
 ## The app is the host
 
 Agents run inside the dashboard, so closing it ends them, like local agents in an
 editor. Nothing is lost: the SDK saves every conversation to the same transcripts
-the Claude CLI uses, and the sidebar lists the agents again on the next start as
+the Claude CLI uses, and the agent list shows the agents again on the next start as
 **Stopped**. Sending one a message resumes it with `session/resume` and then
 prompts it. A turn in progress when the app closed is the only thing that stops.
 
@@ -107,9 +107,9 @@ names it keeps rewriting itself; the tool is in the tooltip and the transcript.
 The client advertises no file system and no terminal capability, so the agent
 uses its own tools for both, exactly as in a terminal: the dashboard watches the
 work, it does not perform it. When a tool call needs your approval, the agent
-sends `session/request_permission`; the agent view shows the call's title and
+sends `session/request_permission`; the chat shows the call's title and
 description with the options the agent offered (typically Yes and No), and the
-sidebar marks the agent as waiting on you. **Stop turn** declines an open prompt
+agent list marks the agent as waiting on you. **Stop turn** declines an open prompt
 and cancels the turn.
 
 Which calls ask is the permission mode, set per agent when it starts (Manual,

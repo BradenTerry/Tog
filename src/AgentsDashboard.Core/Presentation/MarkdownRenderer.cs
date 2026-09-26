@@ -6,7 +6,7 @@ using Markdig.Syntax.Inlines;
 namespace AgentsDashboard.Core.Presentation;
 
 /// <summary>
-/// Turns a Markdown file from a worktree into HTML for the Files tab's preview.
+/// Turns a Markdown file from a worktree into HTML for the editor's preview.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -19,7 +19,7 @@ namespace AgentsDashboard.Core.Presentation;
 /// Links are sorted three ways. One to a web page opens outside the app. One to
 /// another file in the repository is marked with <c>data-file</c>, the path it
 /// resolves to from the file being previewed, and its target is taken away, so a
-/// click opens that file in the Files tab instead of the router treating the path
+/// click opens that file in the editor instead of the router treating the path
 /// as a page of this app. An anchor within the page is left alone.
 /// </para>
 /// <para>
@@ -84,7 +84,7 @@ public static class MarkdownRenderer
 
     /// <summary>
     /// A relative link as a worktree-relative path. The anchor and query are
-    /// dropped: the Files tab opens files, not places in them. A link that climbs
+    /// dropped: the editor opens files, not places in them. A link that climbs
     /// out of the worktree resolves to nothing.
     /// </summary>
     public static string? Resolve(string directory, string url)

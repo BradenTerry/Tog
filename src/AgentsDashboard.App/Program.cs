@@ -33,7 +33,7 @@ builder.Logging.SetMinimumLevel(options.Verbose ? LogLevel.Information : LogLeve
 var port = options.Port ?? FreePort();
 builder.WebHost.UseUrls($"http://127.0.0.1:{port}");
 
-// The Files tab saves by sending the whole edited file up the circuit, and the
+// The editor saves by sending the whole edited file up the circuit, and the
 // hub's default cap on a client-to-server message is 32 KB, which most source
 // files are comfortably over. WorktreeFiles.MaxBytes refuses to open anything
 // past 2 MB, so that plus room for the interop envelope is the real ceiling.
@@ -60,6 +60,7 @@ builder.Services.AddSingleton<SubagentReader>();
 builder.Services.AddSingleton<AgentDirectory>();
 builder.Services.AddSingleton<ChatDrafts>();
 builder.Services.AddSingleton<WorktreeViews>();
+builder.Services.AddScoped<Workbench>();
 
 // Agents
 // Run over the Agent Client Protocol, inside this process. Claude is one agent

@@ -19,7 +19,7 @@ public interface IDashboardView
 /// <summary>Links into the app's own views.</summary>
 public interface INavigation
 {
-    /// <summary>The address of a file in an agent's Files tab, at a line.</summary>
+    /// <summary>The address of a file in an agent's editor, at a line.</summary>
     string FileHref(string agentId, string relativePath, int? line = null);
 }
 
@@ -34,7 +34,7 @@ public interface ITextLinker
 }
 
 /// <summary>
-/// A run of text. <paramref name="Href"/> opens it in the Files tab and
+/// A run of text. <paramref name="Href"/> opens it in the editor and
 /// <paramref name="EditorHref"/> in VS Code; both are null for plain text.
 /// </summary>
 public sealed record LinkedRun(string Text, string? Href = null, string? EditorHref = null);

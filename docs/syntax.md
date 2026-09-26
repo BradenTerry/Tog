@@ -1,7 +1,7 @@
 # Syntax colouring
 
-Code in the diff is coloured by Monaco's tokenizer, the same one the Files tab
-and VS Code use, so a file looks the same in both tabs and every language Monaco
+Code in the diff is coloured by Monaco's tokenizer, the same one the editor
+and VS Code use, so a file looks the same in the diff and the editor and every language Monaco
 ships is covered. The diff itself is still rendered on the server; Monaco only
 answers which class each run of a line gets.
 
@@ -14,7 +14,7 @@ service injects, so they colour a plain span outside any editor. `mtk1` is the
 theme's plain foreground and is dropped, so uncoloured code keeps the page's own
 text colour.
 
-The Changes tab asks once per file, after the render that first draws it, and
+The Changes document asks once per file, after the render that first draws it, and
 shows that file plain until the answer arrives. One call per file keeps each
 answer well inside the circuit's message size. Two details are easy to break:
 

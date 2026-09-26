@@ -19,7 +19,7 @@ public sealed class ExtensionContext(ExtensionInfo info, IServiceProvider servic
 
 /// <summary>
 /// A base for a view. The app sets <see cref="Agent"/> on every render, which
-/// happens about once a second while the agent view is open.
+/// happens about once a second while the agent is on screen.
 /// </summary>
 /// <remarks>
 /// Views stay built while another tab is in front, so they are re-rendered with

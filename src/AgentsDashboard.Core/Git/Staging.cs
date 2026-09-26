@@ -18,7 +18,7 @@ public readonly record struct FileStage(bool Staged, bool Unstaged, bool Untrack
 /// </summary>
 /// <remarks>
 /// Reading a diff and deciding what to commit are the same sitting, so the
-/// Changes tab does both. Paths are always passed after <c>--</c>, so a file
+/// review does both. Paths are always passed after <c>--</c>, so a file
 /// whose name looks like an option cannot be read as one.
 /// </remarks>
 public sealed class Staging(IGitCli git)

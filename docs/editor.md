@@ -1,10 +1,12 @@
 # The file editor
 
-The Files tab is an editor, not a viewer. An agent leaves a worktree in a state
+The editor in the middle of the window edits files, it does not just show them.
+Files open in it from the Files tree on the left, a tab per file (see
+[workbench.md](workbench.md) for the tabs). An agent leaves a worktree in a state
 you want to nudge rather than rewrite: a wrong constant, a stray line, a comment
 that is now a lie. Opening VS Code for that is a context switch away from the
-dashboard you are watching, so the tab edits in place and keeps the VS Code link
-for the times a real editor is the right tool.
+dashboard you are watching. So the editor edits in place, and keeps a VS Code
+link for the times a real editor is the right tool.
 
 ## Monaco, and why it is not committed
 
@@ -36,16 +38,16 @@ Two consequences worth knowing:
   rather than only the second.
 - **Nothing is fetched until an editor is created.** `monaco.js` is a small
   shim that registers `window.agentsEditor`; it injects Monaco's AMD loader on
-  the first `create()` and memoises the promise. Every page in the app except
-  this tab therefore pays nothing for it.
+  the first `create()` and memoises the promise. Until a file is opened, or a
+  diff needs colouring, the app pays nothing for it.
 
 Monaco 0.56's `editor.main.js` installs its own `MonacoEnvironment.getWorker`
 and injects its own stylesheet, and both resolve next to the bundle. Since the
 bundle is served from the app's own origin there is nothing to override, which
 is why there is no `getWorkerUrl` here. The loader's `paths` are made absolute
-from `document.baseURI` rather than left relative, because the Files tab lives
-at `/worktree/<escaped path>/files` and a relative `monaco/vs` would be looked
-for under the worktree segment.
+from `document.baseURI` rather than left relative, because an agent's page lives
+at `/chat/<session>` and a relative `monaco/vs` would be looked for under that
+segment.
 
 ## Saving
 
@@ -69,7 +71,7 @@ write: normalising them would turn a one line edit into a whole-file diff.
 sequenceDiagram
     participant U as User
     participant M as Monaco (browser)
-    participant T as FilesTab (circuit)
+    participant T as FileDocument (circuit)
     participant F as WorktreeFiles
     participant D as Disk
 
@@ -115,28 +117,25 @@ flips, so a keystroke costs nothing on the circuit.
 
 `Urls.AgentFile(session, file, line)` builds
 `chat/<session>/files?file=<rel>&line=N`: a path an agent mentions opens in that
-agent's own Files tab, so following it never leaves the agent. The file is in the
-query string rather than the route so the tab stays one route per agent.
-
-The agent view keys the Files tab on the worktree alone, deliberately. Keying
-it on the file as well would tear the editor down and build a new one for every
-link followed, losing the loaded Monaco instance and the scroll position with
-it; instead the tab pushes the new text and line into the editor that is already
-there.
+agent's own editor, so following it never leaves the agent. `ChatPage` opens the
+file as a kept tab, or brings forward the tab it already has and moves its caret
+to the line, then drops the query from the address so the same link works again.
+A file that is already open is never reread to follow a link: that would throw
+away whatever is being edited in it.
 
 `CodeEditor` renders its host `div` once and returns `false` from `ShouldRender`
-forever after, for the same reason `ChangesTab` does: the agent view
-re-renders every second because the monitor publishes a snapshot that often, and
-the host is full of children Blazor did not create.
+forever after, for the same reason `DiffDocument` guards its own rendering: the
+layout re-renders every second because the monitor publishes a snapshot that
+often, and the host is full of children Blazor did not create.
 
 ## Change marks
 
 The editor marks lines that differ from the diff base the way VS Code does: a
 green bar for added lines, blue for modified, a red wedge at the foot of the line
 above a deletion, and matching ticks in the scrollbar and the minimap. The base is
-the one the Changes tab last compared against, kept per worktree in
-`WorktreeViews`, so the two tabs never disagree about what changed; switching the
-base in Changes re-marks an open file.
+the one Source control last compared against, kept per worktree in
+`WorktreeViews`, so the editor and the diff never disagree about what changed;
+switching the base in Source control re-marks every open file.
 
 `DiffReader.ReadFileAsync` diffs the one file with `-U0`, so every hunk is exactly
 one change, and `ChangeMarks.From` turns hunks into marks: only additions is
@@ -148,17 +147,19 @@ between those, Monaco's decorations move with edits and stay on their lines.
 A link into a file with no line in it lands on the first change, since that is
 almost always what the agent was pointing at.
 
-## Coming back to the tab
+## Coming back to a file
 
-Every tab opened for an agent stays built while that agent is on screen; the
-ones not in front are hidden with `visibility`, not `display`. Rebuilding the
-Files tab meant listing the worktree, reading the file and starting a fresh
-Monaco, which flickered on every switch, and a `display: none` box loses both its
-scroll position and Monaco's size. Switching agents does rebuild them.
+Every open file is its own `FileDocument` with its own Monaco editor, and the
+ones not in front stay built, hidden with `visibility`, not `display`. So each
+keeps its undo stack, its scroll and anything unsaved, and switching tabs costs
+nothing. A `display: none` box loses both its scroll position and Monaco's size.
+Switching agents swaps the editor's tabs for that agent's, and switching back
+rebuilds them.
 
-What should survive that lives outside the tab. `WorktreeViews` keeps the folded
-directories and the open file per worktree; the tree starts fully folded the
-first time, apart from the path to the open file. `monaco.js` keeps each file's
-view state (scroll and caret) by model URI for the life of the page, and
+What should survive a rebuild lives outside the document. `Workbench` keeps the
+open tabs per worktree, and `WorktreeViews` keeps the Files tree's folded
+directories and whether Markdown shows as a preview. The tree starts fully
+folded the first time, apart from the path to the open file. `monaco.js` keeps
+each file's view state (scroll and caret) by model URI for the life of the page.
 `keepScroll` in `app.js` keeps the tree's scroll position, retrying the restore
 as content arrives until it lands or you scroll yourself.

@@ -1,0 +1,100 @@
+@inherits StateComponent
+@inject AgentDirectory Directory
+@inject Workbench Bench
+@inject NavigationManager Nav
+
+@* Every agent, down the right of the bottom panel beside the conversation, like a
+   messaging app's list of conversations. Picking one moves every panel to it. *@
+
+<div class="agent-list">
+    <div class="agent-list-head">
+        <span class="panel-label">Agents</span>
+        @if (Snapshot.Waiting.Count > 0)
+        {
+            <span class="chip waiting" title="@Fmt.Count(Snapshot.Waiting.Count, "agent") waiting on you">@Snapshot.Waiting.Count waiting</span>
+        }
+        <a class="icon-btn spacer @(IsAt("new") ? "active" : "")" href="new" title="New agent" aria-label="New agent">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"
+                 stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+        </a>
+    </div>
+
+    <div class="chat-list-items">
+        @if (Targets.Count == 0)
+        {
+            <p class="faint chat-list-empty">No agents yet. Start one with New agent.</p>
+        }
+
+        @foreach (var target in Targets)
+        {
+            <a class="chat-item @(target.SessionId == Bench.SessionId && IsAtAgent ? "active" : "")" href="@Urls.Chat(target.SessionId)"
+               title="@($"{target.Label} ({target.Where}, {AgentDirectory.StateWord(target)})")">
+                <span class="dot @AgentDirectory.DotClass(target.State)" aria-hidden="true"></span>
+                <span class="chat-item-body">
+                    <span class="chat-item-top">
+                        <span class="chat-item-name @(target.LabelIsPrompt ? "untitled" : "")">@target.Label</span>
+                        @* A running clock for an agent that is doing something, or
+                           waiting; a fixed time for one that has stopped, since a
+                           ticking clock beside it reads as though it were still going. *@
+                        <span class="chat-item-time">
+                            @(target.State is ChatState.Parked or ChatState.Failed
+                                ? Fmt.At(target.Since, Snapshot.Value.TakenAt)
+                                : Fmt.Duration(Snapshot.Value.TakenAt - target.Since))
+                        </span>
+                    </span>
+                    <span class="chat-item-where">@target.Where</span>
+                    @if (target.BackgroundCount > 0 && target.State is not (ChatState.Parked or ChatState.Failed))
+                    {
+                        <span class="chat-item-bg">@target.BackgroundCount running in background</span>
+                    }
+                    @if (target.WaitingFor is { Length: > 0 } question)
+                    {
+                        <span class="chat-item-snippet waiting">@AgentSession.Shorten(question, 80)</span>
+                    }
+                    else if (target.LastReply is { Length: > 0 } reply)
+                    {
+                        <span class="chat-item-snippet">@AgentSession.Shorten(reply, 80)</span>
+                    }
+                    else if (target.State is ChatState.Parked or ChatState.Failed)
+                    {
+                        <span class="chat-item-snippet">@AgentDirectory.StateWord(target)</span>
+                    }
+                </span>
+            </a>
+        }
+    </div>
+</div>
+
+@code {
+    private IReadOnlyList<ChatTarget> Targets => Directory.Targets(Snapshot.Value);
+
+    private string Relative => Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0];
+
+    private bool IsAt(string page) => Relative == page;
+
+    /// <summary>The selection is shown only while an agent's view is the page, not over Settings.</summary>
+    private bool IsAtAgent => Relative.Length == 0 || Relative.StartsWith("chat", StringComparison.Ordinal);
+
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+        Nav.LocationChanged += OnLocationChanged;
+        Directory.Changed += OnDirectoryChanged;
+    }
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e) =>
+        _ = InvokeAsync(StateHasChanged);
+
+    private void OnDirectoryChanged() => _ = InvokeAsync(StateHasChanged);
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            Nav.LocationChanged -= OnLocationChanged;
+            Directory.Changed -= OnDirectoryChanged;
+        }
+
+        base.Dispose(disposing);
+    }
+}

@@ -4,7 +4,7 @@ using Microsoft.CodeAnalysis.Text;
 namespace AgentsDashboard.Core.Code;
 
 /// <summary>
-/// One warm Roslyn solution per worktree, and the queries the Files tab runs
+/// One warm Roslyn solution per worktree, and the queries the editor runs
 /// against it.
 /// </summary>
 /// <remarks>
@@ -38,7 +38,7 @@ public sealed class CodeIntelligence(SolutionLoader loader)
     /// <summary>Raised with the worktree path whenever its load state changes.</summary>
     public event Action<string>? StatusChanged;
 
-    /// <summary>Where a worktree's solution is, for the chip in the Files tab.</summary>
+    /// <summary>Where a worktree's solution is, for the chip in the editor.</summary>
     public LoadStatus Status(string worktreePath)
     {
         var key = Key(worktreePath);

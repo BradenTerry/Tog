@@ -14,7 +14,7 @@ public sealed record ExtensionView(
     int Order,
     Func<AgentContext, bool>? AppliesTo)
 {
-    /// <summary>The view's address in the agent view's URL, namespaced by the extension.</summary>
+    /// <summary>The view's address as a panel tab and in the URL, namespaced by the extension.</summary>
     public string Key => ExtensionId + "." + ViewId;
 }
 
@@ -34,7 +34,7 @@ internal sealed class ExtensionBuilder(ExtensionInfo info) : IExtensionBuilder
     public void AddView<TComponent>(
         string id,
         string title,
-        ViewLocation defaultLocation = ViewLocation.AgentTab,
+        ViewLocation defaultLocation = ViewLocation.RightPanel,
         int order = 100,
         Func<AgentContext, bool>? appliesTo = null)
         where TComponent : IComponent
