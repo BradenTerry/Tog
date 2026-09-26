@@ -101,7 +101,7 @@ The API assembly is itself a Razor class library, so it can also carry a few
 host components extensions are expected to reuse, starting with `FileLinks`
 (stack traces and paths become links into the Files tab). The look comes from
 the app's existing CSS vocabulary (`card`, `banner`, `row`, `chip`, `faint`,
-`mono`), which the template's `CLAUDE.md` lists so extensions look native
+`mono`), which the template's `AGENTS.md` lists so extensions look native
 without shipping any CSS.
 
 ### What an extension must not do
@@ -579,12 +579,13 @@ BuildStatus/
   BuildStatusExtension.cs   IDashboardExtension with one AddAgentTab call
   BuildStatusTab.razor      inherits AgentTabBase, shows the agent's worktree
   _Imports.razor
-  CLAUDE.md                 the API in one page, the two project rules,
+  AGENTS.md                 the API in one page, the two project rules,
                             the CSS vocabulary, the ShouldRender warning,
                             and "run dotnet watch build; the app reloads"
+  CLAUDE.md                 "@AGENTS.md", so Claude reads it in any folder
 ```
 
-The `CLAUDE.md` is the part that makes "I just want Claude to create it" work:
+The `AGENTS.md` is the part that makes "I just want Claude to create it" work:
 Claude Code opens the folder, reads it, and has everything it needs without
 reading the dashboard's source. Pointing it at the dashboard repo as well gives
 it the built-in tabs as examples.
@@ -730,7 +731,7 @@ the load context with shadow copying and the shared-assembly list; the
 registry, `ExtensionTab` with `ErrorBoundary`, the worker supervisor; the
 Extensions card with enable, disable, consent and error display; linked folders
 and `--extension`, `--no-extensions`; reload on demand (a button); the Tests
-move described above; the template with its `CLAUDE.md`. Starts with a
+move described above; the template with its `AGENTS.md`. Starts with a
 half-day spike to confirm the two unknowns: that a component type from a
 collectible context renders and re-renders correctly under `DynamicComponent`,
 and how much a non-unloading reload actually leaks.
