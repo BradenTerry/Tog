@@ -4,6 +4,7 @@
 @inject SettingsStore Settings
 @inject PastSessionReader PastSessions
 @inject WorktreeCreator Creator
+@inject Workbench Bench
 
 @* Starts an agent over ACP, or resumes one. Every setting left on the agent's
    default is not sent, so the agent's own default stands rather than one pinned
@@ -305,12 +306,27 @@
         _model = _settings.DefaultModel ?? "";
         _effort = _settings.DefaultEffort ?? "";
         _permissionMode = _settings.DefaultPermissionMode ?? "";
+
+        // Opened for a particular worktree, from the Worktrees view.
+        if (Bench.NewAgentIn is { } place)
+        {
+            _repo = place.RepoRoot;
+            _worktree = place.WorktreePath;
+        }
     }
 
     /// <summary>The repositories configured in Settings, minus any since hidden, by name.</summary>
+    /// <remarks>
+    /// A repository the form was opened for is listed even when it is not in
+    /// Settings: the Worktrees view also shows repositories found only because an
+    /// agent is running in them.
+    /// </remarks>
     private IReadOnlyList<string> Repos =>
         _settings.RepoRoots
             .Where(r => !_settings.HiddenRoots.Contains(r, StringComparer.Ordinal))
+            .Concat(Bench.NewAgentIn is { } place && !_settings.RepoRoots.Contains(place.RepoRoot, StringComparer.Ordinal)
+                ? [place.RepoRoot]
+                : [])
             .OrderBy(RepoName, StringComparer.OrdinalIgnoreCase)
             .ThenBy(r => r, StringComparer.Ordinal)
             .ToList();

@@ -67,4 +67,10 @@ public sealed class RememberedView
 
     /// <summary>Whether Markdown files show rendered rather than in the editor.</summary>
     public bool MarkdownPreview { get; set; }
+
+    /// <summary>
+    /// "Keep" was pressed on the agent list's offer to remove this merged
+    /// worktree, so it is not offered again while the app runs.
+    /// </summary>
+    public bool CleanupDismissed { get; set; }
 }

@@ -81,6 +81,8 @@ builder.Services.AddSingleton<Staging>();
 builder.Services.AddSingleton<WorktreeFiles>();
 builder.Services.AddSingleton<RepoDiscovery>();
 builder.Services.AddSingleton<WorktreeCreator>();
+builder.Services.AddSingleton<WorktreeCleanup>();
+builder.Services.AddSingleton<WorktreeInventory>();
 
 // Code
 // Singletons because the whole point of the Roslyn solution is that it stays

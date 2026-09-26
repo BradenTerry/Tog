@@ -27,7 +27,12 @@
         @LayoutButton((PanelSide.Right, "Right panel", "M9.5 3.5h4v9h-4z", "M9.5 2.5v11"))
     </div>
 
-    <button type="button" class="icon-btn @(SettingsInFront ? "active" : "")" @onclick="OpenSettings" title="Settings" aria-label="Settings">
+    <button type="button" class="icon-btn @(InFront(EditorDoc.WorktreesKey) ? "active" : "")" @onclick="() => Open(EditorDoc.WorktreesKey)"
+            title="Worktrees: every worktree, what it takes on disk, and cleaning up" aria-label="Worktrees">
+        <WorktreesGlyph Size="16" />
+    </button>
+
+    <button type="button" class="icon-btn @(InFront(EditorDoc.SettingsKey) ? "active" : "")" @onclick="() => Open(EditorDoc.SettingsKey)" title="Settings" aria-label="Settings">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"
              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="12" cy="12" r="3" />
@@ -40,15 +45,24 @@
     private ChatTarget? Agent =>
         Bench.SessionId is { } id ? Directory.Targets(Snapshot.Value).FirstOrDefault(t => t.SessionId == id) : null;
 
-    private bool SettingsInFront => Bench.Editors(Agent?.WorktreePath ?? "").ActiveKey == EditorDoc.SettingsKey;
+    private bool InFront(string key) => Bench.Editors(Agent?.WorktreePath ?? "").ActiveKey == key;
 
     /// <summary>
-    /// Settings opens as a tab beside the agent's files. From a page that has no
-    /// editor, New agent's address for one, it goes back to the agent first.
+    /// Settings and Worktrees open as tabs beside the agent's files. From a page
+    /// that has no editor, New agent's address for one, it goes back to the agent
+    /// first.
     /// </summary>
-    private void OpenSettings()
+    private void Open(string key)
     {
-        Bench.OpenSettings(Agent?.WorktreePath);
+        if (key == EditorDoc.WorktreesKey)
+        {
+            Bench.OpenWorktrees(Agent?.WorktreePath);
+        }
+        else
+        {
+            Bench.OpenSettings(Agent?.WorktreePath);
+        }
+
         var page = Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0];
         if (page.Length > 0 && !page.StartsWith("chat", StringComparison.Ordinal))
         {

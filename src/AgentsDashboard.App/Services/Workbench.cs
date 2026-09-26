@@ -91,13 +91,29 @@ public sealed class Workbench(IServiceProvider services) : IDisposable
     /// <summary>Whether the New agent dialog is up over the window.</summary>
     public bool NewAgentOpen { get; private set; }
 
+    /// <summary>
+    /// Where the New agent dialog should start, when whatever opened it knew: the
+    /// Worktrees view's "New agent" names a repository and a worktree. Read by
+    /// the form as it is built, and cleared when the dialog opens without one.
+    /// </summary>
+    public (string RepoRoot, string WorktreePath)? NewAgentIn { get; private set; }
+
     public void OpenNewAgent()
     {
+        NewAgentIn = null;
         if (!NewAgentOpen)
         {
             NewAgentOpen = true;
             Raise();
         }
+    }
+
+    /// <summary>Opens the New agent dialog with a repository and one of its worktrees already picked.</summary>
+    public void OpenNewAgent(string repoRoot, string worktreePath)
+    {
+        NewAgentIn = (repoRoot, worktreePath);
+        NewAgentOpen = true;
+        Raise();
     }
 
     public void CloseNewAgent()
@@ -252,15 +268,31 @@ public sealed class Workbench(IServiceProvider services) : IDisposable
     /// and leaves you on the agent. Without an agent in view the tabs are kept
     /// under the empty worktree, which is where the editor looks then.
     /// </summary>
-    public void OpenSettings(string? worktreePath)
+    public void OpenSettings(string? worktreePath) => OpenPage(worktreePath, EditorDoc.SettingsKey, DocKind.Settings);
+
+    /// <summary>
+    /// Opens the Worktrees view, every worktree of every repo, the way Settings
+    /// opens. With <paramref name="remove"/> it opens straight onto the dialog
+    /// that removes that worktree, which is how the agent list's offer lands.
+    /// </summary>
+    public void OpenWorktrees(string? worktreePath, string? remove = null)
+    {
+        RemoveRequest = remove;
+        OpenPage(worktreePath, EditorDoc.WorktreesKey, DocKind.Worktrees);
+    }
+
+    /// <summary>A worktree whose remove dialog the Worktrees view should open, taken once.</summary>
+    public string? RemoveRequest { get; set; }
+
+    private void OpenPage(string? worktreePath, string key, DocKind kind)
     {
         var group = Editors(worktreePath ?? "");
-        if (group.Find(EditorDoc.SettingsKey) is null)
+        if (group.Find(key) is null)
         {
-            group.Docs.Insert(group.InsertAt(), new EditorDoc(EditorDoc.SettingsKey, DocKind.Settings, null));
+            group.Docs.Insert(group.InsertAt(), new EditorDoc(key, kind, null));
         }
 
-        group.ActiveKey = EditorDoc.SettingsKey;
+        group.ActiveKey = key;
         Raise();
     }
 
@@ -442,6 +474,9 @@ public enum DocKind
 
     /// <summary>The app's settings, which belong to no file.</summary>
     Settings,
+
+    /// <summary>Every worktree of every repo, and cleaning them up.</summary>
+    Worktrees,
 }
 
 /// <summary>A worktree's open documents, in the order they were opened.</summary>
@@ -480,6 +515,7 @@ public sealed class EditorDoc(string key, DocKind kind, string? path)
 {
     public const string ChangesKey = "changes";
     public const string SettingsKey = "settings";
+    public const string WorktreesKey = "worktrees";
 
     public static string FileKey(string path) => "file:" + path;
 
@@ -509,6 +545,7 @@ public sealed class EditorDoc(string key, DocKind kind, string? path)
     {
         DocKind.Changes => "Changes",
         DocKind.Settings => "Settings",
+        DocKind.Worktrees => "Worktrees",
         _ => Path![(Path!.LastIndexOf('/') + 1)..],
     };
 }
