@@ -2,7 +2,6 @@
 @implements IDisposable
 @inject Workbench Bench
 @inject DashboardState State
-@inject AgentDirectory Directory
 @inject MonitorService Monitor
 @inject IJSRuntime Js
 @inject AgentsDashboard.Core.Platform.OpenRequests Requests
@@ -117,9 +116,7 @@
     [JSInvokable]
     public void Forward(int? line) => Bench.GoForward(CurrentWorktree, line);
 
-    private string CurrentWorktree => (Bench.SessionId is { } id
-        ? Directory.Targets(State.Snapshot).FirstOrDefault(t => t.SessionId == id)?.WorktreePath
-        : null) ?? "";
+    private string CurrentWorktree => Bench.WorktreeInView(State.Snapshot) ?? "";
 
     private void OnLayoutChanged() => _ = SaveLayout();
 
@@ -156,9 +153,7 @@
     /// </summary>
     private void WatchWorktree()
     {
-        var path = Bench.SessionId is { } id
-            ? Directory.Targets(State.Snapshot).FirstOrDefault(t => t.SessionId == id)?.WorktreePath
-            : null;
+        var path = Bench.WorktreeInView(State.Snapshot);
 
         if (path == _watchedPath)
         {

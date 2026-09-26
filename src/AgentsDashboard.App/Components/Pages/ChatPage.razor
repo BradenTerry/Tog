@@ -21,7 +21,7 @@
    under the empty one, and what would be the "nothing open" hint says why
    there are no files. *@
 @{
-    var worktree = Current?.WorktreePath ?? "";
+    var worktree = Bench.WorktreeInView(Snapshot.Value) ?? "";
 }
 <EditorArea WorktreePath="@worktree" @key="worktree">
     <Empty>
@@ -96,7 +96,14 @@
             return;
         }
 
+        // A link into the agent's files or changes is about its worktree, so a
+        // worktree picked by hand gives way to it.
         var worktree = agent.WorktreePath;
+        if (worktree is not null && (File is not null || Tab is "files" or "changes"))
+        {
+            Bench.FollowAgent();
+        }
+
         switch (Tab)
         {
             case "chat":

@@ -1,9 +1,8 @@
 @inherits StateComponent
 @inject Workbench Bench
-@inject AgentDirectory Directory
 @inject NavigationManager Nav
 
-@* Across the top: the repository and branch of the agent in view, who is
+@* Across the top: the repository, worktree and branch whose files are open, who is
    waiting on you, a newer build when one is waiting, and the three buttons
    that fold the panels away. The full
    directory and the worktree are in the status bar along the bottom. Each
@@ -17,11 +16,26 @@
         <span class="brand-name">Agents</span>
     </span>
 
-    @if (Agent is { } agent)
+    @* The repository and worktree whose files are open, which is the agent's
+       until one is picked here. A click lists every worktree of every repo. *@
+    @{
+        var worktree = Bench.WorktreeInView(Snapshot.Value);
+        var place = worktree is null ? null : Workbench.Find(Snapshot.Value, worktree);
+        var agent = Agent;
+    }
+    @if (place is { } p)
     {
-        <nav class="where" aria-label="Where the agent works" title="@(agent.WorktreePath ?? agent.Cwd)">
-            <span class="where-item">@(agent.RepoName ?? Path.GetFileName(agent.Cwd.TrimEnd('/')))</span>
-            @if (agent.Branch is { Length: > 0 } branch)
+        var info = p.Worktree.Worktree;
+        <button type="button" class="where @(Bench.Pinned ? "pinned" : "")" @onclick="OpenPicker"
+                aria-haspopup="menu" aria-expanded="@(_picker is not null ? "true" : "false")"
+                title="@(Bench.Pinned ? info.Path + "\nPicked by hand: stays when you switch agents." : info.Path)">
+            <span class="where-item">@p.Repo.Name</span>
+            @if (info.Name != p.Repo.Name)
+            {
+                <span class="where-sep">/</span>
+                <span class="where-item">@info.Name</span>
+            }
+            @if (info.Branch is { Length: > 0 } branch)
             {
                 <span class="where-branch mono" title="Branch">
                     <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
@@ -30,11 +44,62 @@
                     <span class="truncate">@branch</span>
                 </span>
             }
-            else if (agent.Detached)
+            else if (info.Detached)
             {
                 <span class="where-branch" title="No branch is checked out: commits made here belong to no branch">detached HEAD</span>
             }
-        </nav>
+            @if (Bench.Pinned)
+            {
+                <svg class="where-pin" viewBox="0 0 16 16" width="12" height="12" aria-label="Pinned">
+                    <path d="M6 2h4l-.5 4 2.5 2.5v1H4v-1L6.5 6zM8 9.5V14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" />
+                </svg>
+            }
+            <svg class="where-caret" viewBox="0 0 16 16" width="10" height="10" aria-hidden="true">
+                <path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+        </button>
+    }
+    else if (Snapshot.Repos.Count > 0)
+    {
+        <button type="button" class="where" @onclick="OpenPicker" aria-haspopup="menu"
+                title="@(agent is null ? "Open a worktree's files" : $"{agent.Cwd}\nNot a git worktree. Pick one to open its files.")">
+            <span class="where-item @(agent is null ? "faint" : "")">@(agent is null ? "Open a worktree" : Path.GetFileName(agent.Cwd.TrimEnd('/')))</span>
+            <svg class="where-caret" viewBox="0 0 16 16" width="10" height="10" aria-hidden="true">
+                <path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+        </button>
+    }
+
+    @if (_picker is { } at)
+    {
+        <ContextMenu X="at.X" Y="at.Y" OnClose="() => _picker = null">
+            @if (agent is not null || Bench.Pinned)
+            {
+                <button type="button" class="context-item" role="menuitemradio" aria-checked="@(Bench.Pinned ? "false" : "true")"
+                        @onclick="Follow">
+                    <span class="context-check">@(Bench.Pinned ? "" : "\u2713")</span>
+                    Follow the agent
+                    <span class="faint">@(agent?.Where ?? "none picked")</span>
+                </button>
+            }
+            @foreach (var repo in Snapshot.Repos.OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase))
+            {
+                <hr class="context-sep" />
+                <div class="context-label">@repo.Name</div>
+                @foreach (var w in repo.Worktrees.Where(w => !w.Worktree.Prunable)
+                              .OrderByDescending(w => w.Worktree.IsPrimary)
+                              .ThenBy(w => w.Worktree.Name, StringComparer.OrdinalIgnoreCase))
+                {
+                    var current = Bench.Pinned && w.Worktree.Path == worktree;
+                    <button type="button" class="context-item" role="menuitemradio" aria-checked="@(current ? "true" : "false")"
+                            title="@w.Worktree.Path" @onclick="() => Pin(w)">
+                        <span class="context-check">@(current ? "\u2713" : "")</span>
+                        @w.Worktree.Name
+                        <span class="faint mono">@(w.Worktree.Branch ?? (w.Worktree.Detached ? "detached" : ""))</span>
+                    </button>
+                }
+            }
+        </ContextMenu>
     }
 
     <span class="spacer"></span>
@@ -67,10 +132,28 @@
 </header>
 
 @code {
-    private ChatTarget? Agent =>
-        Bench.SessionId is { } id ? Directory.Targets(Snapshot.Value).FirstOrDefault(t => t.SessionId == id) : null;
+    private ChatTarget? Agent => Bench.Agent(Snapshot.Value);
 
-    private bool InFront(string key) => Bench.Editors(Agent?.WorktreePath ?? "").ActiveKey == key;
+    /// <summary>Where the worktree picker is open, under the pointer; null while it is shut.</summary>
+    private (double X, double Y)? _picker;
+
+    private void OpenPicker(MouseEventArgs e) => _picker = _picker is null ? (e.ClientX, e.ClientY) : null;
+
+    private void Pin(WorktreeView worktree)
+    {
+        _picker = null;
+        Bench.PinWorktree(worktree.Worktree.Path, worktree.RepoRoot);
+        BackToEditor();
+    }
+
+    private void Follow()
+    {
+        _picker = null;
+        Bench.FollowAgent();
+        BackToEditor();
+    }
+
+    private bool InFront(string key) => Bench.Editors(Bench.WorktreeInView(Snapshot.Value) ?? "").ActiveKey == key;
 
     /// <summary>
     /// Settings and Worktrees open as tabs beside the agent's files. From a page
@@ -81,13 +164,19 @@
     {
         if (key == EditorDoc.WorktreesKey)
         {
-            Bench.OpenWorktrees(Agent?.WorktreePath);
+            Bench.OpenWorktrees(Bench.WorktreeInView(Snapshot.Value));
         }
         else
         {
-            Bench.OpenSettings(Agent?.WorktreePath);
+            Bench.OpenSettings(Bench.WorktreeInView(Snapshot.Value));
         }
 
+        BackToEditor();
+    }
+
+    /// <summary>From a page that has no editor, New agent's address for one, goes back to the agent's.</summary>
+    private void BackToEditor()
+    {
         var page = Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0];
         if (page.Length > 0 && !page.StartsWith("chat", StringComparison.Ordinal))
         {

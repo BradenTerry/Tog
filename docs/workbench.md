@@ -48,6 +48,18 @@ The panels do not pass parameters to each other. They talk through `Workbench`,
 a scoped service (one per window) that holds:
 
 - the agent every panel follows, set by `ChatPage` from its route
+- the worktree in view (`WorktreeInView`), which the editor, Files and Source
+  control show. It follows the agent until one is picked from the title bar,
+  and a picked worktree stays while you switch agents, so you can keep reading
+  in one place and answer agents elsewhere. "Follow the agent" in the same
+  menu lets go of it, and so does a link into an agent's files or changes.
+  While another worktree is picked, the chat's header offers "Change to worktree",
+  which picks the agent's worktree in its place. When the agent's worktree is
+  the one open, the header says so instead, and the agent list marks every
+  agent working there.
+  With nothing picked and the agent closed or removed, the last worktree an
+  agent was in stays. A worktree removed since is stood in for by its
+  repository's main worktree
 - each panel's open state and the tab in front
 - the open documents, per worktree (`EditorGroup`)
 - one `ChangesModel` per worktree
