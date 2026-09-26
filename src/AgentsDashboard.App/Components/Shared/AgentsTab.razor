@@ -1,5 +1,6 @@
 @inject ClaudeCli Cli
 @inject MonitorService Monitor
+@inject AgentsDashboard.Core.Platform.IClipboard Clipboard
 @implements IDisposable
 
 @* Every session working in this worktree, plus the ones parked here. *@
@@ -7,20 +8,8 @@
 <div class="card" style="margin-bottom: 14px;">
     <div class="card-head"><h2>Start an agent here</h2></div>
     <div class="card-body">
-        <div class="inline">
-            <input type="text" placeholder="What should it work on? Leave empty to start it idle."
-                   aria-label="First prompt for the new agent"
-                   value="@_prompt"
-                   @oninput="e => { _prompt = e.Value?.ToString() ?? string.Empty; Touch(); }"
-                   @onkeydown="OnStartKey" />
-            <button class="primary" @onclick="Start" disabled="@_busy">
-                @(_busy ? "Working..." : "Start agent")
-            </button>
-        </div>
-        <p class="faint" style="margin: 8px 0 0;">
-            Starts a background agent with <span class="mono">claude --bg</span> in this worktree.
-            With no prompt it starts idle and does nothing until you send it one.
-        </p>
+        @* The same form as the Fleet page, with the worktree fixed to this one. *@
+        <StartAgentForm WorktreePath="@View.Worktree.Path" OnStarted="OnStarted" />
     </div>
 </div>
 
@@ -52,50 +41,54 @@
             <div class="row">
                 <div class="stack" style="flex: 1;">
                     <span class="faint">Last said</span>
-                    <div class="reply">@reply</div>
+                    <div class="reply">
+                        <FileLinks Text="@reply" WorktreePath="@View.Worktree.Path" />
+                    </div>
                 </div>
             </div>
         }
 
         <div class="row">
+            <a class="btn small primary" href="@Urls.Chat(agent.SessionId)">Chat</a>
             @if (agent.IsBackground && agent.JobId is { Length: > 0 } job)
             {
-                <button class="small" @onclick="() => Compose(agent.SessionId)" disabled="@_busy">
-                    Send a message
-                </button>
                 <button class="ghost small" @onclick="() => Stop(job)" disabled="@_busy">Stop</button>
+                <button class="ghost small" @onclick="() => ToggleLogs(job)" disabled="@_busy">Logs</button>
+                <button class="ghost small" @onclick="() => CopyAttach(job)">
+                    @(_copied == job ? "Copied" : "Copy attach command")
+                </button>
                 <span class="faint spacer mono">@job</span>
             }
             else
             {
                 <span class="faint">
-                    Started outside the dashboard, so it belongs to its own terminal. Reviews and
-                    messages reach it through the clipboard.
+                    Started outside the dashboard, so it belongs to its own terminal. The chat
+                    shows its conversation and copies your messages for you to paste there.
                 </span>
             }
         </div>
 
-        @if (_composing == agent.SessionId)
+        @if (agent.JobId is { Length: > 0 } logJob && _logsFor == logJob)
         {
             <div class="row" style="display: block;">
-                <textarea rows="3" placeholder="What should it do next?"
-                          aria-label="Message for the agent"
-                          value="@_draft"
-                          @oninput="e => { _draft = e.Value?.ToString() ?? string.Empty; Touch(); }"></textarea>
-                <div class="inline" style="margin-top: 8px;">
-                    <button class="primary" @onclick="() => Send(agent)"
-                            disabled="@(_busy || string.IsNullOrWhiteSpace(_draft))">
-                        Send
+                <div class="inline" style="margin-bottom: 6px;">
+                    <button class="ghost small" @onclick="() => LoadLogs(logJob)" disabled="@_logsBusy">
+                        @(_logsBusy ? "Reading..." : "Refresh")
                     </button>
-                    <button class="ghost" @onclick="CancelCompose">Cancel</button>
-                    <span class="faint spacer">
-                        @(agent.Status == AgentStatus.Active
-                            ? "This agent is working. Sending stops it first, which interrupts what it is doing."
-                            : "The agent is stopped and resumed under the same conversation.")
-                    </span>
+                    <span class="faint mono spacer">claude logs @logJob</span>
                 </div>
+                @if (_logsFailed)
+                {
+                    <p class="faint" style="margin: 0;">Logs are only available while the session is running.</p>
+                    <p class="mono faint" style="margin: 4px 0 0;">@_logs</p>
+                }
+                else
+                {
+                    <pre class="logs">@_logs</pre>
+                }
             </div>
         }
+
     </article>
 }
 
@@ -112,31 +105,29 @@
         {
             <div class="row">
                 <div class="stack" style="flex: 1;">
-                    <span class="truncate">@(parked.Name ?? parked.Id)</span>
-                    <span class="faint mono">@parked.Id</span>
+                    <div class="inline">
+                        <span class="truncate">@(parked.Name ?? parked.Id)</span>
+                        @if (parked.IsFailed)
+                        {
+                            <span class="chip danger">failed</span>
+                        }
+                    </div>
+                    <div class="inline">
+                        <span class="faint mono">@parked.Id</span>
+                        @if (parked.StartedAt is { } startedAt)
+                        {
+                            <span class="faint mono">since @Fmt.Duration(Now - startedAt)</span>
+                        }
+                    </div>
                 </div>
-                <button class="small" @onclick="() => Compose(parked.SessionId)" disabled="@_busy">
-                    Send a message
-                </button>
+                <a class="btn small" href="@Urls.Chat(parked.SessionId)">Chat</a>
+                @if (parked.IsFailed)
+                {
+                    <button class="ghost small" @onclick="() => Respawn(parked.Id)" disabled="@_busy">Respawn</button>
+                }
                 <button class="ghost small" @onclick="() => Remove(parked.Id)" disabled="@_busy">Remove</button>
             </div>
 
-            @if (_composing == parked.SessionId)
-            {
-                <div class="row" style="display: block;">
-                    <textarea rows="3" placeholder="What should it do next?"
-                              aria-label="Message for the parked agent"
-                              value="@_draft"
-                              @oninput="e => { _draft = e.Value?.ToString() ?? string.Empty; Touch(); }"></textarea>
-                    <div class="inline" style="margin-top: 8px;">
-                        <button class="primary" @onclick="() => Resume(parked)"
-                                disabled="@(_busy || string.IsNullOrWhiteSpace(_draft))">
-                            Send and restart
-                        </button>
-                        <button class="ghost" @onclick="CancelCompose">Cancel</button>
-                    </div>
-                </div>
-            }
         }
     </div>
 }
@@ -169,14 +160,19 @@
     [Parameter, EditorRequired]
     public DateTimeOffset Now { get; set; }
 
-    private string _prompt = "";
-    private string _draft = "";
-    private string? _composing;
     private string? _message;
     private bool _failed;
     private bool _busy;
+    private bool _disposed;
     /// <summary>Every background agent the CLI knows about, running or not.</summary>
     private IReadOnlyList<BackgroundAgent> _known = [];
+    /// <summary>The job whose logs panel is open, or null when none is.</summary>
+    private string? _logsFor;
+    private string _logs = "";
+    private bool _logsFailed;
+    private bool _logsBusy;
+    /// <summary>The job whose attach command was just copied, for the brief confirmation.</summary>
+    private string? _copied;
     private CancellationTokenSource? _work;
 
     /// <summary>
@@ -257,42 +253,103 @@
         || path.StartsWith(root + "/", StringComparison.Ordinal)
         || path.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal);
 
-    private async Task OnStartKey(KeyboardEventArgs e)
+    /// <summary>
+    /// Reports what the start form did, then re-reads the parked list.
+    /// </summary>
+    /// <remarks>
+    /// The form runs the CLI itself, so this is the tail of <see cref="Act"/>
+    /// rather than another call: a start changes what is parked here, and waiting
+    /// for the next poll to notice would read as nothing having happened.
+    /// </remarks>
+    private async Task OnStarted(CliResult result)
     {
-        if (e.Key == "Enter")
-        {
-            await Start();
-        }
-    }
-
-    private async Task Start()
-    {
-        await Act(async () =>
-        {
-            var (result, id) = await Cli.StartAsync(View.Worktree.Path, _prompt);
-            if (!result.Ok)
-            {
-                return result;
-            }
-
-            _prompt = "";
-            return new CliResult(true, id is null ? "Started." : $"Started {id}.");
-        });
+        _failed = !result.Ok;
+        _message = result.Message;
+        Monitor.InvalidateWorktrees();
+        await LoadParked();
     }
 
     private async Task Stop(string jobId) =>
         await Act(async () => await Cli.StopAsync(jobId));
 
+    private async Task Respawn(string jobId) =>
+        await Act(async () => await Cli.RespawnAsync(jobId));
+
+    private async Task ToggleLogs(string jobId)
+    {
+        if (_logsFor == jobId)
+        {
+            _logsFor = null;
+            _logs = "";
+            Touch();
+            return;
+        }
+
+        _logsFor = jobId;
+        await LoadLogs(jobId);
+    }
+
+    /// <summary>
+    /// Reads a session's recent output.
+    /// </summary>
+    /// <remarks>
+    /// On a button rather than a tail: the CLI only serves the scrollback it
+    /// already has, and polling a process every second to watch it is what
+    /// <c>claude attach</c> is for. A failure here is ordinary rather than
+    /// exceptional, so the CLI's own words are kept and shown.
+    /// </remarks>
+    private async Task LoadLogs(string jobId)
+    {
+        _logsBusy = true;
+        Touch();
+
+        CliResult result;
+        try
+        {
+            result = await Cli.LogsAsync(jobId);
+        }
+        catch (Exception e) when (e is IOException or InvalidOperationException)
+        {
+            result = CliResult.Failed(e.Message);
+        }
+
+        _logsBusy = false;
+        _logsFailed = !result.Ok;
+        _logs = result.Message;
+        Touch();
+    }
+
+    /// <summary>
+    /// Puts the attach line on the clipboard.
+    /// </summary>
+    /// <remarks>
+    /// Copied rather than run: attach is interactive and wants a terminal, which
+    /// the dashboard does not have.
+    /// </remarks>
+    private async Task CopyAttach(string jobId)
+    {
+        if (!Clipboard.TryCopy(ClaudeCommands.AttachCommand(jobId)))
+        {
+            _failed = true;
+            _message = "There is no clipboard tool on this machine to copy with.";
+            Touch();
+            return;
+        }
+
+        _copied = jobId;
+        Touch();
+
+        await Task.Delay(TimeSpan.FromSeconds(2));
+
+        if (!_disposed && _copied == jobId)
+        {
+            _copied = null;
+            Touch();
+        }
+    }
+
     private async Task Remove(string jobId) =>
         await Act(async () => await Cli.RemoveAsync(jobId));
-
-    private async Task Send(AgentSession agent) =>
-        await Act(async () =>
-            await Cli.SendAsync(agent.JobId!, agent.SessionId, View.Worktree.Path, _draft));
-
-    private async Task Resume(BackgroundAgent parked) =>
-        await Act(async () =>
-            await Cli.SendAsync(parked.Id, parked.SessionId, View.Worktree.Path, _draft));
 
     /// <summary>
     /// Runs one CLI action, then re-reads what changed.
@@ -323,31 +380,13 @@
         _failed = !result.Ok;
         _message = result.Message;
 
-        if (result.Ok)
-        {
-            CancelCompose();
-        }
-
         Monitor.InvalidateWorktrees();
         await LoadParked();
     }
 
-    private void Compose(string sessionId)
-    {
-        Touch();
-        _composing = sessionId;
-        _draft = "";
-    }
-
-    private void CancelCompose()
-    {
-        Touch();
-        _composing = null;
-        _draft = "";
-    }
-
     public void Dispose()
     {
+        _disposed = true;
         _work?.Cancel();
         _work?.Dispose();
     }

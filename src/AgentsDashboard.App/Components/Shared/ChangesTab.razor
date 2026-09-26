@@ -1,7 +1,6 @@
 @inject DiffReader Diffs
 @inject ReviewDraftStore Drafts
 @inject FeedbackDispatcher Dispatcher
-@inject SettingsStore SettingsStore
 @inject ClaudeCli Cli
 @inject Staging Staging
 @inject IJSRuntime Js
@@ -129,6 +128,11 @@ else if (_diff is { } set)
                             }
                             @file.Path
                         </span>
+                        @if (WorktreeFiles.Resolve(WorktreePath, file.Path) is { } absolute)
+                        {
+                            <a class="btn ghost small" href="@EditorLinks.VsCode(absolute)"
+                               title="Open in VS Code">Open in VS Code</a>
+                        }
                         <span class="spacer"></span>
                         @{
                             var stage = StageOf(file.Path);
@@ -310,7 +314,31 @@ else if (_diff is { } set)
                     @(_submitting ? "Submitting..." : "Submit review")
                 </button>
                 <button class="ghost" @onclick="Discard">Discard</button>
+
+                <label class="inline spacer" style="gap: 6px;">
+                    <span class="faint">Send to</span>
+                    <select aria-label="Which agent to send the review to"
+                            value="@(_recipient ?? "")"
+                            @onchange="e => { _recipient = e.Value?.ToString() is { Length: > 0 } v ? v : null; Touch(); }">
+                        <option value="">Nobody, just write the file</option>
+                        <option value="@NewAgent">Start a new agent on it</option>
+                        @foreach (var candidate in Recipients)
+                        {
+                            <option value="@candidate.Id">
+                                @candidate.Label (@(candidate.Running ? "running" : "parked"))
+                            </option>
+                        }
+                    </select>
+                </label>
             </div>
+
+            @if (Recipients.Count == 0 && View.Agents.Count > 0)
+            {
+                <p class="faint" style="margin: 8px 0 0;">
+                    The agents here were started outside the dashboard, so they belong to their own
+                    terminals. The prompt goes to your clipboard to paste into one.
+                </p>
+            }
         </div>
     }
 }
@@ -323,7 +351,7 @@ else if (_diff is { } set)
         <p class="muted" style="margin: 0 0 8px;">
             @if (submission.Sent)
             {
-                <span>Handed to the agent. </span>
+                <span>@(_recipient == NewAgent ? "A new agent is on it." : "Handed to the agent.") </span>
             }
             else if (submission.ClipboardCopied)
             {
@@ -352,6 +380,13 @@ else if (_diff is { } set)
 
     [Parameter, EditorRequired]
     public WorktreeView View { get; set; } = default!;
+
+    /// <summary>
+    /// The background agent a review goes to by default, when the tab is opened
+    /// from that agent's own view. Null picks the first agent working here.
+    /// </summary>
+    [Parameter]
+    public string? PreferredRecipient { get; set; }
 
     [Inject]
     private DashboardState State { get; set; } = default!;
@@ -392,6 +427,18 @@ else if (_diff is { } set)
 
     private readonly HashSet<string> _coloured = new(StringComparer.Ordinal);
 
+    /// <summary>Files drawn but not yet coloured, handed to Monaco after the render.</summary>
+    private readonly List<string> _toColour = [];
+
+    /// <summary>
+    /// Set once Monaco has failed to load, after which every file is coloured by
+    /// the server's own highlighter instead of being asked for again.
+    /// </summary>
+    private bool _monacoFailed;
+
+    /// <summary>Monaco's answer for one block of lines: where each run ends, and its class.</summary>
+    private sealed record MonacoRuns(int[][] Ends, string[][] Classes);
+
     /// <summary>Where each file's changes are, refreshed alongside the diff.</summary>
     private IReadOnlyDictionary<string, FileStage> _stages = new Dictionary<string, FileStage>();
 
@@ -401,6 +448,23 @@ else if (_diff is { } set)
     private (string File, DiffSide Side, int Start, int End)? _editing;
     private string _body = "";
     private bool _submitting;
+
+    /// <summary>Background agents in this worktree, running or parked.</summary>
+    private IReadOnlyList<BackgroundAgent> _known = [];
+
+    /// <summary>
+    /// The short id of the agent to hand the review to, or null for nobody.
+    /// </summary>
+    private string? _recipient;
+
+    private bool _pickedRecipient;
+
+    /// <summary>
+    /// The recipient that is not an agent yet. Chosen, the review starts a
+    /// background agent in this worktree with the review as its first
+    /// instruction, which is the whole job in one step when nothing is running.
+    /// </summary>
+    private const string NewAgent = "new";
     private bool _copied;
     private ReviewSubmission? _submission;
     private CancellationTokenSource? _load;
@@ -458,6 +522,7 @@ else if (_diff is { } set)
         {
             await Load();
             await ReadStages();
+            await LoadRecipients();
         }
     }
 
@@ -510,6 +575,7 @@ else if (_diff is { } set)
                 _collapsed.Clear();
                 _colours.Clear();
                 _coloured.Clear();
+                _toColour.Clear();
                 _selected = null;
                 FoldPastBudget(result);
                 await ReadStages();
@@ -552,27 +618,174 @@ else if (_diff is { } set)
         }
     }
 
-    /// <summary>The coloured runs for one diff line, colouring its file on first use.</summary>
+    /// <summary>
+    /// The coloured runs for one diff line. A file's first draw queues it for
+    /// Monaco and shows it plain until the answer comes back.
+    /// </summary>
     private IReadOnlyList<Segment> Coloured(string path, DiffLine line)
     {
         if (_coloured.Add(path) && _diff?.Files.FirstOrDefault(f => f.Path == path) is { } file)
         {
-            Colour(file);
+            if (_monacoFailed)
+            {
+                ColourOnServer(file);
+            }
+            else
+            {
+                _toColour.Add(path);
+            }
         }
 
         return _colours.GetValueOrDefault((path, line.OldLine, line.NewLine), []);
     }
 
     /// <summary>
-    /// Colours a file's hunks.
+    /// The lines Monaco reads for one file: two blocks per hunk.
     /// </summary>
     /// <remarks>
-    /// Two passes per hunk, because a diff interleaves two different versions of
-    /// the file. Reading them as one stream would let an added line's opening
-    /// quote be closed by a removed line's, and colour the rest of the hunk as a
-    /// string. Each hunk starts afresh, since a hunk begins after a gap.
+    /// Two, because a diff interleaves two different versions of the file.
+    /// Reading them as one stream would let an added line's opening quote be
+    /// closed by a removed line's, and colour the rest of the hunk as a string.
+    /// Each hunk starts afresh, since a hunk begins after a gap. Blocks alternate:
+    /// the new side (context and additions), then the old (context and removals).
     /// </remarks>
-    private void Colour(DiffFile file)
+    private static List<List<DiffLine>> Blocks(DiffFile file)
+    {
+        var blocks = new List<List<DiffLine>>(file.Hunks.Count * 2);
+        foreach (var hunk in file.Hunks)
+        {
+            blocks.Add(hunk.Lines.Where(l => l.Kind != DiffLineKind.Removed).ToList());
+            blocks.Add(hunk.Lines.Where(l => l.Kind != DiffLineKind.Added).ToList());
+        }
+
+        return blocks;
+    }
+
+    /// <summary>
+    /// Asks Monaco to colour the files drawn since the last render.
+    /// </summary>
+    /// <remarks>
+    /// One call per file, because the answer comes back up the circuit and has
+    /// to stay inside its message size. A diff reloaded while Monaco was working
+    /// replaces the one it was colouring, so the answer is dropped.
+    /// </remarks>
+    private async Task ColourQueued()
+    {
+        var diff = _diff;
+        var paths = _toColour.ToList();
+        _toColour.Clear();
+
+        foreach (var path in paths)
+        {
+            if (diff?.Files.FirstOrDefault(f => f.Path == path) is not { } file)
+            {
+                continue;
+            }
+
+            var blocks = Blocks(file);
+            MonacoRuns?[]? answer;
+            try
+            {
+                answer = await Js.InvokeAsync<MonacoRuns?[]>(
+                    "agentsEditor.colourLines",
+                    path,
+                    blocks.Select(b => b.Select(l => l.Text).ToArray()).ToArray());
+            }
+            catch (JSException)
+            {
+                // Monaco did not load. The server's highlighter is the fallback,
+                // for this file and every one after it.
+                _monacoFailed = true;
+                answer = null;
+            }
+            catch (Exception e) when (e is InvalidOperationException or TaskCanceledException or JSDisconnectedException)
+            {
+                // The circuit went away.
+                return;
+            }
+
+            if (!ReferenceEquals(diff, _diff))
+            {
+                return;
+            }
+
+            if (answer is null || answer.Length != blocks.Count || answer.All(a => a is null))
+            {
+                ColourOnServer(file);
+            }
+            else
+            {
+                Store(file, blocks, answer);
+            }
+
+            Touch();
+            StateHasChanged();
+        }
+    }
+
+    private void Store(DiffFile file, List<List<DiffLine>> blocks, MonacoRuns?[] answer)
+    {
+        for (var b = 0; b < blocks.Count; b++)
+        {
+            if (answer[b] is not { } runs)
+            {
+                continue;
+            }
+
+            var newSide = b % 2 == 0;
+            for (var i = 0; i < blocks[b].Count && i < runs.Ends.Length; i++)
+            {
+                var line = blocks[b][i];
+
+                // Context lines are in both blocks with the same text. The new
+                // side's reading stands.
+                if (!newSide && line.Kind != DiffLineKind.Removed)
+                {
+                    continue;
+                }
+
+                _colours[(file.Path, line.OldLine, line.NewLine)] = Split(line.Text, runs.Ends[i], runs.Classes[i]);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Turns Monaco's runs into segments. mtk1 is the theme's plain foreground,
+    /// which is left to the page's own text colour so plain code matches the
+    /// rest of the diff.
+    /// </summary>
+    private static IReadOnlyList<Segment> Split(string text, int[] ends, string[] classes)
+    {
+        if (text.Length == 0)
+        {
+            return [];
+        }
+
+        var segments = new List<Segment>(ends.Length);
+        var at = 0;
+        for (var i = 0; i < ends.Length && at < text.Length; i++)
+        {
+            var end = Math.Min(ends[i], text.Length);
+            if (end <= at)
+            {
+                continue;
+            }
+
+            var css = classes[i] == "mtk1" ? null : classes[i];
+            segments.Add(new Segment(text[at..end], css));
+            at = end;
+        }
+
+        if (at < text.Length)
+        {
+            segments.Add(new Segment(text[at..], null));
+        }
+
+        return segments.All(s => s.Css is null) ? [] : segments;
+    }
+
+    /// <summary>Colours a file with the server's approximate highlighter, when Monaco cannot.</summary>
+    private void ColourOnServer(DiffFile file)
     {
         var highlighter = new LineHighlighter(file.Path);
         if (!highlighter.Enabled)
@@ -580,22 +793,14 @@ else if (_diff is { } set)
             return;
         }
 
-        foreach (var hunk in file.Hunks)
+        var blocks = Blocks(file);
+        for (var b = 0; b < blocks.Count; b++)
         {
             highlighter.Reset();
-            foreach (var line in hunk.Lines.Where(l => l.Kind != DiffLineKind.Removed))
-            {
-                _colours[(file.Path, line.OldLine, line.NewLine)] = highlighter.Next(line.Text);
-            }
-
-            highlighter.Reset();
-            foreach (var line in hunk.Lines.Where(l => l.Kind != DiffLineKind.Added))
+            foreach (var line in blocks[b])
             {
                 var runs = highlighter.Next(line.Text);
-
-                // Context lines already have their result from the new-side pass,
-                // and the text is the same either way.
-                if (line.Kind == DiffLineKind.Removed)
+                if (b % 2 == 0 || line.Kind == DiffLineKind.Removed)
                 {
                     _colours[(file.Path, line.OldLine, line.NewLine)] = runs;
                 }
@@ -711,6 +916,11 @@ else if (_diff is { } set)
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (_toColour.Count > 0)
+        {
+            _ = ColourQueued();
+        }
+
         if (!firstRender)
         {
             return;
@@ -798,8 +1008,6 @@ else if (_diff is { } set)
         Touch();
         StateHasChanged();
 
-        var settings = SettingsStore.Load();
-
         try
         {
             var submission = await Dispatcher.SubmitAsync(_draft);
@@ -807,9 +1015,7 @@ else if (_diff is { } set)
             _draft = new ReviewDraft { WorktreePath = WorktreePath };
             _copied = false;
 
-            _submission = settings.SendReviewToAgent
-                ? await HandOver(submission)
-                : submission;
+            _submission = await HandOver(submission);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
@@ -820,6 +1026,9 @@ else if (_diff is { } set)
             _submitting = false;
             Touch();
         }
+
+        // Sending stops the agent, so who is running has changed.
+        await LoadRecipients();
     }
 
     /// <summary>
@@ -832,19 +1041,97 @@ else if (_diff is { } set)
     /// </remarks>
     private async Task<ReviewSubmission> HandOver(ReviewSubmission submission)
     {
-        var target = View.Agents.FirstOrDefault(a => a.IsBackground && a.JobId is { Length: > 0 });
-        if (target is null)
+        if (_recipient == NewAgent)
         {
+            var (started, id) = await Cli.StartAsync(WorktreePath, submission.Prompt);
             return submission with
             {
-                SendError = View.Agents.Count == 0
-                    ? null
-                    : "No background agent here to hand it to. Paste the prompt into the agent's terminal.",
+                Sent = started.Ok,
+                SendError = started.Ok
+                    ? id is null ? null : $"Started agent {id} on it."
+                    : started.Message,
             };
         }
 
-        var sent = await Cli.SendAsync(target.JobId!, target.SessionId, WorktreePath, submission.Prompt);
+        var target = Recipients.FirstOrDefault(a => a.Id == _recipient);
+        if (target is null)
+        {
+            return submission;
+        }
+
+        var sent = await Cli.SendAsync(target.Id, target.SessionId, WorktreePath, submission.Prompt);
         return submission with { Sent = sent.Ok, SendError = sent.Ok ? null : sent.Message };
+    }
+
+    /// <summary>
+    /// Who the review can be handed to: the background agents working in this
+    /// worktree, running or parked.
+    /// </summary>
+    /// <remarks>
+    /// Only background agents, because they are the only kind the CLI can be told
+    /// to continue. A parked one is as good a recipient as a running one; it is
+    /// resumed with the review as its next instruction, which is often exactly
+    /// what you want after reading its work.
+    /// </remarks>
+    private IReadOnlyList<Recipient> Recipients
+    {
+        get
+        {
+            var running = View.Agents
+                .Where(a => a.IsBackground)
+                .ToDictionary(a => a.SessionId, a => a.Label, StringComparer.Ordinal);
+
+            return _known
+                .Where(a => IsUnder(a.Cwd, WorktreePath))
+                .Select(a => new Recipient(
+                    a.Id,
+                    a.SessionId,
+                    running.TryGetValue(a.SessionId, out var label) ? label : a.Name ?? a.Id,
+                    running.ContainsKey(a.SessionId)))
+                .OrderByDescending(a => a.Running)
+                .ToList();
+        }
+    }
+
+    private sealed record Recipient(string Id, string SessionId, string Label, bool Running);
+
+    private static bool IsUnder(string path, string root) =>
+        string.Equals(path, root, StringComparison.Ordinal)
+        || path.StartsWith(root + "/", StringComparison.Ordinal)
+        || path.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal);
+
+    /// <summary>
+    /// Reads who is available, and picks a default the first time.
+    /// </summary>
+    /// <remarks>
+    /// Only the first time: once you have chosen a recipient, a later refresh must
+    /// not quietly move the review to a different agent.
+    /// </remarks>
+    private async Task LoadRecipients()
+    {
+        try
+        {
+            _known = await Cli.ListAsync(includeStopped: true);
+        }
+        catch (Exception e) when (e is IOException or InvalidOperationException)
+        {
+            _known = [];
+        }
+
+        if (!_pickedRecipient)
+        {
+            _pickedRecipient = true;
+
+            // An agent already working here is the obvious default. With none,
+            // starting one on the review is more use than writing a file nobody
+            // has been told about.
+            _recipient = Recipients.FirstOrDefault(r => r.Id == PreferredRecipient)?.Id
+                ?? Recipients.FirstOrDefault()?.Id
+                ?? NewAgent;
+        }
+
+        Touch();
+        StateHasChanged();
     }
 
     private async Task Copy(string text)

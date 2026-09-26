@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using AgentsDashboard.App.Components;
 using AgentsDashboard.App.Services;
 using AgentsDashboard.Core.Claude;
+using AgentsDashboard.Core.Code;
 using AgentsDashboard.Core.Git;
 using AgentsDashboard.Core.Monitoring;
 using AgentsDashboard.Core.Platform;
@@ -31,7 +32,13 @@ builder.Logging.SetMinimumLevel(options.Verbose ? LogLevel.Information : LogLeve
 var port = options.Port ?? FreePort();
 builder.WebHost.UseUrls($"http://127.0.0.1:{port}");
 
-builder.Services.AddRazorComponents().AddInteractiveServerComponents();
+// The Files tab saves by sending the whole edited file up the circuit, and the
+// hub's default cap on a client-to-server message is 32 KB, which most source
+// files are comfortably over. WorktreeFiles.MaxBytes refuses to open anything
+// past 2 MB, so that plus room for the interop envelope is the real ceiling.
+builder.Services.AddRazorComponents()
+    .AddInteractiveServerComponents()
+    .AddHubOptions(o => o.MaximumReceiveMessageSize = 4 * 1024 * 1024);
 
 // Platform
 builder.Services.AddSingleton<IClock, SystemClock>();
@@ -39,7 +46,7 @@ builder.Services.AddSingleton<IProcessProbe, ProcessProbe>();
 builder.Services.AddSingleton<IClipboard, Clipboard>();
 
 // Storage and settings
-builder.Services.AddSingleton(new AppPaths());
+builder.Services.AddSingleton(new AppPaths(options.DataDir));
 builder.Services.AddSingleton<SettingsStore>();
 builder.Services.AddSingleton<ReviewDraftStore>();
 
@@ -47,9 +54,11 @@ builder.Services.AddSingleton<ReviewDraftStore>();
 builder.Services.AddSingleton(new ClaudePaths());
 builder.Services.AddSingleton<SessionRegistryReader>();
 builder.Services.AddSingleton<TranscriptLocator>();
+builder.Services.AddSingleton<ConversationReader>();
 builder.Services.AddSingleton<TranscriptReader>();
 builder.Services.AddSingleton<SubagentReader>();
 builder.Services.AddSingleton(_ => new ClaudeCli());
+builder.Services.AddSingleton<AgentDirectory>();
 
 // Git
 builder.Services.AddSingleton<IGitCli>(_ => new GitCli());
@@ -59,6 +68,13 @@ builder.Services.AddSingleton<DiffReader>();
 builder.Services.AddSingleton<Staging>();
 builder.Services.AddSingleton<WorktreeFiles>();
 builder.Services.AddSingleton<RepoDiscovery>();
+
+// Code
+// Singletons because the whole point of the Roslyn solution is that it stays
+// warm: a scoped one would be loaded again for every circuit, and a load costs
+// seconds and hundreds of megabytes.
+builder.Services.AddSingleton<SolutionLoader>();
+builder.Services.AddSingleton<CodeIntelligence>();
 
 // Tests
 builder.Services.AddSingleton<ITestProcessScanner, TestProcessScanner>();

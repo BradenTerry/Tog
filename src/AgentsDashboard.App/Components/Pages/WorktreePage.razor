@@ -11,7 +11,7 @@
             <h1>Worktree not found</h1>
             <p class="mono">@Decoded</p>
             <p>It may have been removed, or its repository is no longer being watched.</p>
-            <a class="btn" href="">Back to overview</a>
+            <a class="btn" href="">Back to agents</a>
         </div>
     }
     else
@@ -63,7 +63,7 @@
                 break;
 
             case "files":
-                <FilesTab WorktreePath="@Decoded" @key="Decoded" />
+                <FilesTab WorktreePath="@Decoded" InitialFile="@File" InitialLine="@Line" @key="Decoded" />
                 break;
 
             case "tests":
@@ -83,6 +83,18 @@
 
     [Parameter]
     public string? Tab { get; set; }
+
+    /// <summary>
+    /// The file a link asked for, and the line in it. They live in the query
+    /// string rather than the route because the worktree path is already one
+    /// escaped segment, and the tab is keyed on the worktree alone so following
+    /// one of these links moves the editor rather than rebuilding it.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "file")]
+    public string? File { get; set; }
+
+    [SupplyParameterFromQuery(Name = "line")]
+    public int? Line { get; set; }
 
     private string Decoded => Uri.UnescapeDataString(Path);
 

@@ -1,0 +1,558 @@
+@page "/"
+@page "/chat"
+@page "/chat/{SessionId}"
+@page "/chat/{SessionId}/{Tab}"
+@inherits StateComponent
+@inject ClaudeCli Cli
+@inject AgentDirectory Directory
+@inject MonitorService Monitor
+@inject TranscriptLocator Locator
+@inject ConversationReader Conversations
+@inject AgentsDashboard.Core.Platform.IClipboard Clipboard
+@inject IJSRuntime Js
+
+@* One agent: where it works, and three views of it. The conversation reads like
+   every messaging app, newest at the bottom with the box to type in under it.
+   Changes and Files show its worktree, so its work can be reviewed and handed
+   back to it without leaving it. The list of agents is the sidebar. *@
+
+<PageTitle>@(Current?.Label ?? "Chat") - Agents Dashboard</PageTitle>
+
+<section class="chat-main agent-view">
+        @if (Current is not { } agent)
+        {
+            <div class="empty chat-empty">
+                <h2>@(SessionId is null ? "Pick an agent" : "Agent not found")</h2>
+                <p>
+                    @(SessionId is null
+                        ? "Choose an agent on the left to read its conversation and talk to it."
+                        : "It may have been removed, or it has not reached the registry yet.")
+                </p>
+            </div>
+        }
+        else
+        {
+            <header class="chat-head">
+                <span class="dot @DotClass(agent.State)" aria-hidden="true"></span>
+                <div class="stack" style="flex: 1; min-width: 0;">
+                    <strong class="truncate chat-title">@agent.Label</strong>
+                    <span class="faint truncate">@StateWord(agent)</span>
+                </div>
+                <div class="inline">
+                    @if (agent.JobId is { } job && agent.State is ChatState.Active or ChatState.Idle or ChatState.Waiting)
+                    {
+                        <button class="ghost small" @onclick="() => { _logsOpen = !_logsOpen; }">
+                            @(_logsOpen ? "Hide logs" : "Logs")
+                        </button>
+                        <button class="ghost small" @onclick="() => Act(() => Cli.StopAsync(job))" disabled="@_busy">Stop</button>
+                    }
+                    @if (agent.JobId is { } failedJob && agent.State == ChatState.Failed)
+                    {
+                        <button class="small" @onclick="() => Act(() => Cli.RespawnAsync(failedJob))" disabled="@_busy">Respawn</button>
+                    }
+                    @if (agent.JobId is { } attachJob)
+                    {
+                        <button class="ghost small" @onclick="() => CopyAttach(attachJob)">
+                            @(_copiedAttach ? "Copied" : "Copy attach command")
+                        </button>
+                    }
+                </div>
+            </header>
+
+            @* Where the agent works, always in view: its repository, its worktree and
+               branch, and the folder itself. *@
+            <div class="agent-where">
+                @if (agent.RepoName is { } repoName)
+                {
+                    <span class="where-item"><span class="faint">Repository</span> <strong>@repoName</strong></span>
+                }
+                @if (agent.WorktreeName is { } worktreeName)
+                {
+                    <span class="where-item"><span class="faint">Worktree</span> <strong>@worktreeName</strong></span>
+                }
+                @if (agent.Branch is { Length: > 0 } branch)
+                {
+                    <span class="chip mono">@branch</span>
+                }
+                <span class="mono faint truncate where-path" title="@(agent.WorktreePath ?? agent.Cwd)">@(agent.WorktreePath ?? agent.Cwd)</span>
+            </div>
+
+            <nav class="tabs agent-tabs">
+                <a class="tab @TabClass("chat")" href="@Urls.Chat(agent.SessionId)">Chat</a>
+                @if (agent.WorktreePath is not null)
+                {
+                    <a class="tab @TabClass("changes")" href="@Urls.Chat(agent.SessionId, "changes")">
+                        Changes
+                        @if (ChangeCount(agent) > 0)
+                        {
+                            <span class="count">@ChangeCount(agent)</span>
+                        }
+                    </a>
+                    <a class="tab @TabClass("files")" href="@Urls.Chat(agent.SessionId, "files")">Files</a>
+                }
+            </nav>
+
+            @if (_logsOpen && agent.JobId is { } logsJob)
+            {
+                <div class="chat-logs">
+                    <LogsPanel JobId="@logsJob" @key="logsJob" />
+                </div>
+            }
+
+            @if (_notice is { Length: > 0 })
+            {
+                <div class="banner @(_noticeFailed ? "danger" : "info") chat-notice">
+                    @_notice
+                    <button class="ghost small spacer" @onclick="() => { _notice = null; }">Dismiss</button>
+                </div>
+            }
+
+            @if (CurrentTab == "changes" && WorktreeOf(agent) is { } changesView)
+            {
+                <div class="agent-pane">
+                    <div class="page wide">
+                        <ChangesTab WorktreePath="@changesView.Worktree.Path" View="changesView"
+                                    PreferredRecipient="@agent.JobId" @key="changesView.Worktree.Path" />
+                    </div>
+                </div>
+            }
+            else if (CurrentTab == "files" && agent.WorktreePath is { } filesIn)
+            {
+                <div class="agent-pane">
+                    <div class="page wide">
+                        <FilesTab WorktreePath="@filesIn" InitialFile="@File" InitialLine="@Line" @key="filesIn" />
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="chat-thread" @ref="_thread">
+                    @if (_entries.Count == 0 && _pending.Count == 0)
+                    {
+                        <div class="chat-hint">
+                            @(_transcriptMissing
+                                ? "No conversation found for this agent yet. It appears here as soon as the agent writes its transcript."
+                                : "No messages yet. Say what you want it to do.")
+                        </div>
+                    }
+
+                    @foreach (var entry in _entries)
+                    {
+                        switch (entry.Kind)
+                        {
+                            case ChatKind.You:
+                                <div class="msg you">
+                                    <div class="bubble">@entry.Text</div>
+                                    <span class="msg-meta">You · @When(entry.At)</span>
+                                </div>
+                                break;
+
+                            case ChatKind.Agent:
+                                <div class="msg agent">
+                                    <div class="bubble">
+                                        <FileLinks Text="@entry.Text" WorktreePath="@(agent.WorktreePath ?? agent.Cwd ?? "")" />
+                                    </div>
+                                    <span class="msg-meta">Agent · @When(entry.At)</span>
+                                </div>
+                                break;
+
+                            case ChatKind.Activity:
+                                <details class="activity">
+                                    <summary>@ConversationReader.Describe(entry.Steps)</summary>
+                                    <ul>
+                                        @foreach (var step in entry.Steps)
+                                        {
+                                            <li><span class="mono activity-tool">@step.Tool</span> <span class="activity-what">@step.Summary</span></li>
+                                        }
+                                    </ul>
+                                </details>
+                                break;
+
+                            case ChatKind.Notice:
+                                <div class="chat-notice-line">@entry.Text</div>
+                                break;
+                        }
+                    }
+
+                    @foreach (var pending in _pending)
+                    {
+                        <div class="msg you pending @(pending.State == SendState.Failed ? "failed" : "")">
+                            <div class="bubble">@pending.Text</div>
+                            <span class="msg-meta">
+                                @switch (pending.State)
+                                {
+                                    case SendState.Sending:
+                                        <span>Sending. Stopping the agent and handing it your message...</span>
+                                        break;
+                                    case SendState.Sent:
+                                        <span>Delivered. Waiting for the agent to pick it up.</span>
+                                        break;
+                                    default:
+                                        <span class="failed-text">Not sent: @pending.Error</span>
+                                        <button class="ghost small" @onclick="() => Retry(pending)">Edit and retry</button>
+                                        <button class="ghost small" @onclick="() => _pending.Remove(pending)">Dismiss</button>
+                                        break;
+                                }
+                            </span>
+                        </div>
+                    }
+
+                    @if (agent.State == ChatState.Waiting)
+                    {
+                        <div class="chat-waiting">
+                            <span class="dot waiting" aria-hidden="true"></span>
+                            <span>
+                                <strong>Waiting on you.</strong>
+                                @(agent.WaitingFor ?? "It is blocked on a question or a permission prompt.")
+                            </span>
+                        </div>
+                    }
+                    else if (agent.State == ChatState.Active)
+                    {
+                        <div class="chat-working"><span class="dot active" aria-hidden="true"></span> Working...</div>
+                    }
+                </div>
+
+                <form class="chat-composer" @onsubmit="Send">
+                    <div class="composer-row">
+                        <textarea @ref="_box" rows="1"
+                                  placeholder="@Placeholder(agent)"
+                                  aria-label="Message for @agent.Label"
+                                  value="@_draft"
+                                  disabled="@(!CanSend(agent))"
+                                  @oninput="e => _draft = e.Value?.ToString() ?? string.Empty"></textarea>
+                        <button type="submit" class="primary"
+                                disabled="@(_sending || string.IsNullOrWhiteSpace(_draft) || !CanSend(agent))">
+                            @(agent.IsBackground ? "Send" : "Copy")
+                        </button>
+                    </div>
+                    <div class="composer-hint">@Hint(agent)</div>
+                </form>
+            }
+        }
+</section>
+
+@code {
+    [Parameter]
+    public string? SessionId { get; set; }
+
+    [Parameter]
+    public string? Tab { get; set; }
+
+    /// <summary>The file a link asked the Files tab to open, and the line in it.</summary>
+    [SupplyParameterFromQuery(Name = "file")]
+    public string? File { get; set; }
+
+    [SupplyParameterFromQuery(Name = "line")]
+    public int? Line { get; set; }
+
+    private enum SendState { Sending, Sent, Failed }
+
+    /// <summary>A message on its way, shown until the transcript records it.</summary>
+    private sealed class Pending(string text)
+    {
+        public string Text { get; } = text;
+        public DateTimeOffset SentAt { get; } = DateTimeOffset.Now;
+        public SendState State { get; set; } = SendState.Sending;
+        public string? Error { get; set; }
+    }
+
+    private IReadOnlyList<ChatEntry> _entries = [];
+    private bool _transcriptMissing;
+    private readonly List<Pending> _pending = [];
+
+    private string _draft = "";
+    private bool _sending;
+    private bool _busy;
+    private bool _logsOpen;
+    private bool _copiedAttach;
+    private string? _notice;
+    private bool _noticeFailed;
+
+    private ElementReference _thread;
+    private ElementReference _box;
+    private string? _shownSession;
+    private string? _shownTab;
+    private int _shownCount = -1;
+    private bool _forceScroll;
+
+    private DateTimeOffset Now => Snapshot.Value.TakenAt;
+
+    private ChatTarget? Current =>
+        SessionId is null ? null : Directory.Targets(Snapshot.Value).FirstOrDefault(t => t.SessionId == SessionId);
+
+    private string CurrentTab => Tab is "changes" or "files" ? Tab : "chat";
+
+    private string TabClass(string tab) => CurrentTab == tab ? "active" : "";
+
+    private WorktreeView? WorktreeOf(ChatTarget agent) =>
+        agent.WorktreePath is { } path ? State.Worktree(path) : null;
+
+    private int ChangeCount(ChatTarget agent) =>
+        WorktreeOf(agent)?.Status is { } s ? s.Changed + s.Staged + s.Untracked : 0;
+
+    private static string DotClass(ChatState state) => AgentDirectory.DotClass(state);
+
+    private static string StateWord(ChatTarget target) => AgentDirectory.StateWord(target);
+
+    private static bool CanSend(ChatTarget target) => target.State != ChatState.Failed;
+
+    private static string Placeholder(ChatTarget target) => target.State switch
+    {
+        ChatState.Failed => "This agent failed. Respawn it to talk to it again.",
+        ChatState.Parked => "Message it to restart it...",
+        _ when !target.IsBackground => "Write a message to copy into its terminal...",
+        _ => "Message the agent...",
+    };
+
+    private static string Hint(ChatTarget target)
+    {
+        const string Keys = "Enter to send, Shift+Enter for a new line.";
+        return target.State switch
+        {
+            ChatState.Failed => "Respawn restarts it with its conversation kept.",
+            _ when !target.IsBackground =>
+                "This agent was started in a terminal, so the dashboard cannot type into it. Your message is copied for you to paste there.",
+            ChatState.Active => Keys + " It is working: sending stops it first, which interrupts what it is doing.",
+            ChatState.Parked => Keys + " It is parked: sending restarts it with your message.",
+            _ => Keys + " It picks up from where the conversation left off.",
+        };
+    }
+
+    private string When(DateTimeOffset at) =>
+        at == DateTimeOffset.MinValue ? "" : Now - at < TimeSpan.FromHours(12) ? at.ToLocalTime().ToString("t") : at.ToLocalTime().ToString("MMM d, t");
+
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+        State.Changed += OnSnapshot;
+        Directory.Changed += OnDirectoryChanged;
+    }
+
+    /// <summary>A parked agent just listed by the CLI may be the one this page was opened on.</summary>
+    private void OnDirectoryChanged() => _ = InvokeAsync(() =>
+    {
+        ReadConversation();
+        StateHasChanged();
+    });
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (RendererInfo.IsInteractive)
+        {
+            await Directory.RefreshAsync();
+        }
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (_shownSession != SessionId)
+        {
+            _shownSession = SessionId;
+            _entries = [];
+            _pending.Clear();
+            _logsOpen = false;
+            _notice = null;
+            _draft = "";
+            _forceScroll = true;
+        }
+
+        if (_shownTab != CurrentTab)
+        {
+            _shownTab = CurrentTab;
+            _forceScroll = true;
+        }
+
+        ReadConversation();
+    }
+
+    /// <summary>
+    /// Keeps the open conversation current. Runs on the monitor's tick, so a
+    /// working agent's replies appear as it writes them.
+    /// </summary>
+    private void OnSnapshot() => _ = InvokeAsync(() =>
+    {
+        ReadConversation();
+        StateHasChanged();
+    });
+
+    private void ReadConversation()
+    {
+        if (Current is not { } target)
+        {
+            _entries = [];
+            return;
+        }
+
+        var path = Locator.Locate(target.SessionId, target.Cwd ?? "");
+        _transcriptMissing = path is null;
+        if (path is null)
+        {
+            return;
+        }
+
+        _entries = Conversations.Read(target.SessionId, path);
+
+        // A delivered message stops being "pending" once the transcript has it.
+        _pending.RemoveAll(p => p.State == SendState.Sent && _entries.Any(e =>
+            e.Kind == ChatKind.You
+            && e.At >= p.SentAt.AddMinutes(-1)
+            && string.Equals(e.Text.Trim(), p.Text.Trim(), StringComparison.Ordinal)));
+    }
+
+    private async Task Send()
+    {
+        if (Current is not { } target || _sending)
+        {
+            return;
+        }
+
+        var text = _draft.Trim();
+        if (text.Length == 0 || !CanSend(target))
+        {
+            return;
+        }
+
+        if (!target.IsBackground)
+        {
+            var copied = Clipboard.TryCopy(text);
+            _noticeFailed = !copied;
+            _notice = copied
+                ? "Copied. Paste it into the agent's terminal: it was started there, so the dashboard cannot type into it."
+                : "There is no clipboard tool on this machine to copy with.";
+            if (copied)
+            {
+                _draft = "";
+                await ResetBox();
+            }
+
+            return;
+        }
+
+        var pending = new Pending(text);
+        _pending.Add(pending);
+        _draft = "";
+        _sending = true;
+        _forceScroll = true;
+        StateHasChanged();
+        await ResetBox();
+
+        CliResult result;
+        try
+        {
+            result = await Cli.SendAsync(target.JobId!, target.SessionId, target.WorktreePath ?? target.Cwd ?? "", text);
+        }
+        catch (Exception e) when (e is IOException or InvalidOperationException)
+        {
+            result = CliResult.Failed(e.Message);
+        }
+
+        _sending = false;
+        if (result.Ok)
+        {
+            pending.State = SendState.Sent;
+        }
+        else
+        {
+            pending.State = SendState.Failed;
+            pending.Error = result.Message;
+        }
+
+        Monitor.InvalidateWorktrees();
+        await Directory.RefreshAsync();
+    }
+
+    private void Retry(Pending pending)
+    {
+        _pending.Remove(pending);
+        _draft = pending.Text;
+    }
+
+    private async Task ResetBox()
+    {
+        try
+        {
+            await Js.InvokeVoidAsync("agentsDashboard.resetComposer", _box);
+        }
+        catch (Exception e) when (e is JSException or InvalidOperationException or TaskCanceledException)
+        {
+            // The circuit went away. Nothing to reset.
+        }
+    }
+
+    private async Task Act(Func<Task<CliResult>> action)
+    {
+        _busy = true;
+        _notice = null;
+        StateHasChanged();
+
+        CliResult result;
+        try
+        {
+            result = await action();
+        }
+        catch (Exception e) when (e is IOException or InvalidOperationException)
+        {
+            result = CliResult.Failed(e.Message);
+        }
+
+        _busy = false;
+        _noticeFailed = !result.Ok;
+        _notice = result.Message;
+        Monitor.InvalidateWorktrees();
+        await Directory.RefreshAsync();
+    }
+
+    private async Task CopyAttach(string job)
+    {
+        _copiedAttach = Clipboard.TryCopy(ClaudeCommands.AttachCommand(job));
+        if (!_copiedAttach)
+        {
+            _noticeFailed = true;
+            _notice = "There is no clipboard tool on this machine to copy with.";
+            return;
+        }
+
+        StateHasChanged();
+        await Task.Delay(TimeSpan.FromSeconds(2));
+        _copiedAttach = false;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // The thread and the composer are only drawn on the Chat tab.
+        if (Current is null || CurrentTab != "chat")
+        {
+            return;
+        }
+
+        try
+        {
+            await Js.InvokeVoidAsync("agentsDashboard.bindComposer", _box);
+
+            var count = _entries.Count + _pending.Count;
+            if (_forceScroll || count != _shownCount)
+            {
+                var force = _forceScroll;
+                _forceScroll = false;
+                _shownCount = count;
+                await Js.InvokeVoidAsync("agentsDashboard.scrollThread", _thread, force);
+            }
+        }
+        catch (Exception e) when (e is JSException or InvalidOperationException or TaskCanceledException)
+        {
+            // The circuit went away mid-render.
+        }
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            State.Changed -= OnSnapshot;
+            Directory.Changed -= OnDirectoryChanged;
+        }
+
+        base.Dispose(disposing);
+    }
+}

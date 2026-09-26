@@ -1,96 +1,111 @@
 @inherits StateComponent
 @inject NavigationManager Nav
+@inject AgentDirectory Directory
 
-<nav class="sidebar" aria-label="Repositories and worktrees">
-    <div class="brand">
-        <div class="brand-mark" aria-hidden="true">A</div>
-        <div class="brand-name">Agents</div>
+@* The whole left side is the list of agents, like a messaging app's list of
+   conversations: starting one at the top, settings tucked away at the bottom. *@
+
+<nav class="sidebar" aria-label="Agents">
+    <div class="sidebar-head">
+        <h1>Agents</h1>
         @if (Snapshot.Waiting.Count > 0)
         {
-            <span class="chip waiting brand-sub">@Snapshot.Waiting.Count waiting</span>
+            <span class="chip waiting" title="@Fmt.Count(Snapshot.Waiting.Count, "agent") waiting on you">@Snapshot.Waiting.Count waiting</span>
         }
+        <a class="btn small primary spacer @(IsAt("new") ? "active" : "")" href="new">New agent</a>
     </div>
 
-    <div class="nav">
-        <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-            Overview
-            @if (ActiveCount > 0)
-            {
-                <span class="count">@ActiveCount active</span>
-            }
-        </NavLink>
-        <NavLink class="nav-link" href="repos">
-            Repositories
-            <span class="count">@Snapshot.Repos.Count</span>
-        </NavLink>
-    </div>
-
-    <div class="tree">
-        @foreach (var repo in Snapshot.Repos)
+    <div class="chat-list-items">
+        @if (Targets.Count == 0)
         {
-            <div class="tree-repo">
-                <div class="tree-repo-name" title="@repo.Root">@repo.Name</div>
-                @foreach (var worktree in repo.Worktrees)
-                {
-                    var path = worktree.Worktree.Path;
-                    <a class="tree-item @(IsCurrent(path) ? "active" : "")"
-                       href="@Urls.Worktree(path)" title="@path">
-                        <span class="dot @DotClass(worktree)" aria-hidden="true"></span>
-                        <span class="name">@worktree.Worktree.Name</span>
-                        <span class="badges">
-                            @if (worktree.WaitingCount > 0)
-                            {
-                                <span class="chip waiting" title="@Fmt.Count(worktree.WaitingCount, "agent") waiting">@worktree.WaitingCount</span>
-                            }
-                            @if (worktree.LatestRun is { State: TestRunState.Failed } failed)
-                            {
-                                <span class="chip danger" title="@Fmt.Count(failed.Failed, "test") failing">@failed.Failed</span>
-                            }
-                        </span>
-                    </a>
-                }
-            </div>
-        }
-
-        @if (Snapshot.Repos.Count == 0)
-        {
-            <p class="faint" style="padding: 12px 8px;">
-                No repositories yet. Start a Claude session in one, or add it under Repositories.
+            <p class="faint chat-list-empty">
+                No agents yet. Start one with New agent.
             </p>
         }
+
+        @foreach (var target in Targets)
+        {
+            <a class="chat-item @(target.SessionId == Selected ? "active" : "")" href="@Urls.Chat(target.SessionId)">
+                <span class="dot @AgentDirectory.DotClass(target.State)" aria-hidden="true"></span>
+                <span class="chat-item-body">
+                    <span class="chat-item-top">
+                        <span class="chat-item-name">@target.Label</span>
+                        <span class="chat-item-time">@Fmt.Duration(Snapshot.Value.TakenAt - target.Since)</span>
+                    </span>
+                    <span class="chat-item-where">@target.Where</span>
+                    @if (target.WaitingFor is { Length: > 0 } question)
+                    {
+                        <span class="chat-item-snippet waiting">@AgentSession.Shorten(question, 80)</span>
+                    }
+                    else if (target.LastReply is { Length: > 0 } reply)
+                    {
+                        <span class="chat-item-snippet">@AgentSession.Shorten(reply, 80)</span>
+                    }
+                    else if (target.State is ChatState.Parked or ChatState.Failed)
+                    {
+                        <span class="chat-item-snippet">@AgentDirectory.StateWord(target)</span>
+                    }
+                </span>
+            </a>
+        }
+    </div>
+
+    <div class="sidebar-foot">
+        <a class="icon-btn @(IsAt("settings") ? "active" : "")" href="settings" title="Settings" aria-label="Settings">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"
+                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1.08 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+        </a>
+        <span class="faint">@Fmt.Count(Targets.Count, "agent")</span>
     </div>
 </nav>
 
 @code {
-    private int ActiveCount => Snapshot.Repos.Sum(r => r.ActiveCount);
+    private IReadOnlyList<ChatTarget> Targets => Directory.Targets(Snapshot.Value);
 
-    /// <summary>
-    /// Whether the page is showing exactly this worktree. Compared as whole paths
-    /// rather than by URL prefix: a linked worktree lives inside the primary one,
-    /// so a prefix test marks the primary active whenever any of its worktrees is.
-    /// </summary>
-    private bool IsCurrent(string worktreePath) =>
-        Urls.ShowsWorktree(Nav.ToBaseRelativePath(Nav.Uri), worktreePath);
+    private string Relative => Nav.ToBaseRelativePath(Nav.Uri);
 
-    private static string DotClass(WorktreeView worktree) =>
-        worktree.WaitingCount > 0 ? "waiting"
-        : worktree.ActiveCount > 0 ? "active"
-        : "";
+    /// <summary>The session the agent view is open on, read from the URL.</summary>
+    private string? Selected
+    {
+        get
+        {
+            var path = Relative.Split('?', '#')[0];
+            if (!path.StartsWith("chat/", StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            var segment = path["chat/".Length..].Split('/')[0];
+            return segment.Length == 0 ? null : Uri.UnescapeDataString(segment);
+        }
+    }
+
+    private bool IsAt(string page) => Relative.Split('?', '#')[0] == page;
 
     protected override void OnInitialized()
     {
         base.OnInitialized();
         Nav.LocationChanged += OnLocationChanged;
+        Directory.Changed += OnDirectoryChanged;
+        State.Changed += Directory.RefreshIfStale;
+        Directory.RefreshIfStale();
     }
 
     private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e) =>
         _ = InvokeAsync(StateHasChanged);
+
+    private void OnDirectoryChanged() => _ = InvokeAsync(StateHasChanged);
 
     protected override void Dispose(bool disposing)
     {
         if (disposing)
         {
             Nav.LocationChanged -= OnLocationChanged;
+            Directory.Changed -= OnDirectoryChanged;
+            State.Changed -= Directory.RefreshIfStale;
         }
 
         base.Dispose(disposing);

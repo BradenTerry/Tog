@@ -21,7 +21,7 @@ function lineOf(element) {
     }
 
     const line = Number.parseInt(row.dataset.line, 10);
-    return Number.isNaN(line) ? null : { file: row.dataset.file, side: row.dataset.side, line };
+    return Number.isNaN(line) ? null : { row, file: row.dataset.file, side: row.dataset.side, line };
 }
 
 function clearPreview() {
@@ -30,33 +30,61 @@ function clearPreview() {
     }
 }
 
+// What the gesture has covered so far: the rows between where it started and
+// where the pointer is, narrowed to one side of the diff.
+//
+// A comment belongs to one side, but a changed block is removed lines followed
+// by added ones, so dragging down the gutter crosses from one side to the other
+// almost every time. The side that wins is the side under the pointer, and rows
+// of the other side inside the span are stepped over rather than ending the
+// drag. Anchoring on the side the press happened to land on instead stopped the
+// range at the first row of the other kind, which for a one-line replacement
+// meant a drag of any length still selected a single line.
+function span(to) {
+    const low = Math.min(drag.from, to);
+    const high = Math.max(drag.from, to);
+    const side = drag.rows[to].side;
+    const rows = [];
+
+    for (let i = low; i <= high; i++) {
+        if (drag.rows[i].side === side) {
+            rows.push(drag.rows[i]);
+        }
+    }
+
+    return { side, rows };
+}
+
 function paint(to) {
     if (!drag) {
         return;
     }
 
-    const low = Math.min(drag.from, to);
-    const high = Math.max(drag.from, to);
-
+    const picked = new Set(span(to).rows.map(row => row.element));
     for (const row of drag.rows) {
-        row.element.classList.toggle('picking', row.line >= low && row.line <= high);
+        row.element.classList.toggle('picking', picked.has(row.element));
     }
 }
 
-// Only the lines that can take part in this drag: the same file, and the same
-// side of it. Collected once so a move does not walk the whole page.
-function rowsFor(file, side) {
+// Every line of this file, both sides, in the order they are drawn: the drag
+// walks rows rather than line numbers, because the two sides number themselves
+// independently. Collected once so a move does not walk the whole page.
+function rowsFor(file) {
     const rows = [];
     for (const element of document.querySelectorAll('.diff-line')) {
-        if (element.dataset.file === file && element.dataset.side === side) {
+        if (element.dataset.file === file) {
             const line = Number.parseInt(element.dataset.line, 10);
             if (!Number.isNaN(line)) {
-                rows.push({ element, line });
+                rows.push({ element, line, side: element.dataset.side });
             }
         }
     }
 
     return rows;
+}
+
+function indexOf(row) {
+    return drag ? drag.rows.findIndex(candidate => candidate.element === row) : -1;
 }
 
 function onDown(event) {
@@ -72,17 +100,19 @@ function onDown(event) {
     // Stops the browser starting a text selection across the diff as you drag.
     event.preventDefault();
 
-    drag = {
-        file: start.file,
-        side: start.side,
-        from: start.line,
-        to: start.line,
-        extend: event.shiftKey,
-        rows: rowsFor(start.file, start.side),
-    };
+    drag = { file: start.file, rows: rowsFor(start.file), from: 0, to: 0, extend: event.shiftKey };
+
+    const anchor = indexOf(start.row);
+    if (anchor < 0) {
+        drag = null;
+        return;
+    }
+
+    drag.from = anchor;
+    drag.to = anchor;
 
     scroller = event.target.closest('.main') ?? document.scrollingElement;
-    paint(start.line);
+    paint(anchor);
 }
 
 function onMove(event) {
@@ -91,9 +121,12 @@ function onMove(event) {
     }
 
     const over = lineOf(document.elementFromPoint(event.clientX, event.clientY) ?? event.target);
-    if (over && over.file === drag.file && over.side === drag.side) {
-        drag.to = over.line;
-        paint(over.line);
+    if (over && over.file === drag.file) {
+        const index = indexOf(over.row);
+        if (index >= 0) {
+            drag.to = index;
+            paint(index);
+        }
     }
 
     edgeScroll(event.clientY);
@@ -129,7 +162,9 @@ function onUp() {
         return;
     }
 
-    const { file, side, from, to, extend } = drag;
+    const file = drag.file;
+    const extend = drag.extend;
+    const picked = span(drag.to);
     drag = null;
     clearInterval(edgeTimer);
     edgeTimer = null;
@@ -138,8 +173,9 @@ function onUp() {
     // is the only one on the row afterwards and the two cannot disagree.
     clearPreview();
 
+    const lines = picked.rows.map(row => row.line);
     dotnet?.invokeMethodAsync(
-        'SelectLines', file, side, Math.min(from, to), Math.max(from, to), extend);
+        'SelectLines', file, picked.side, Math.min(...lines), Math.max(...lines), extend);
 }
 
 // A mouse click on the gutter has already been handled here, so it must not also
@@ -151,7 +187,50 @@ function onClick(event) {
     }
 }
 
+// The chat composer. Enter sends and Shift+Enter starts a new line, the way every
+// messaging app works; a textarea on its own does the opposite. The box grows with
+// what is typed, up to a limit, so a long message is readable before it goes.
+function growComposer(box) {
+    box.style.height = 'auto';
+    box.style.height = Math.min(box.scrollHeight, 240) + 'px';
+}
+
 window.agentsDashboard = {
+    bindComposer: (box) => {
+        if (!box || box.dataset.bound) {
+            return;
+        }
+
+        box.dataset.bound = '1';
+        box.addEventListener('input', () => growComposer(box));
+        box.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+                event.preventDefault();
+                box.form?.requestSubmit();
+            }
+        });
+        growComposer(box);
+    },
+    resetComposer: (box) => {
+        if (box) {
+            box.value = '';
+            growComposer(box);
+            box.focus();
+        }
+    },
+    // Follows the newest message the way a chat does: pinned to the bottom while
+    // you are reading the bottom, left alone once you scroll up to read history.
+    // Forced when the thread is first opened or you have just sent something.
+    scrollThread: (thread, force) => {
+        if (!thread) {
+            return;
+        }
+
+        const nearBottom = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 120;
+        if (force || nearBottom) {
+            thread.scrollTop = thread.scrollHeight;
+        }
+    },
     copy: async (text) => {
         try {
             await navigator.clipboard.writeText(text);

@@ -23,19 +23,28 @@ you actually need from them are the three things a terminal is worst at.
 | A `dotnet test` run scrolls past and you cannot tell what is happening | Live pass/fail counts, a progress bar and failures streaming in **while the run is going**, for runs you start and runs an agent starts. See [docs/test-monitoring.md](docs/test-monitoring.md). |
 | Reviewing the agent's work means eyeballing a terminal | A PR-style diff with line comments, submitted in one go as a markdown file the agent can act on, plus staging. See [docs/review.md](docs/review.md) and [docs/staging.md](docs/staging.md). |
 | Starting and steering agents means more terminals | Start, message, stop and remove background agents from the worktree they work in. See [docs/agent-control.md](docs/agent-control.md). |
+| Reading an agent's code means guessing what a symbol is | Hover, go to definition, find references and call hierarchy for C#, from Roslyn in-process. See [docs/code-intelligence.md](docs/code-intelligence.md). |
 
 ## Screens
 
-- **Overview** groups every discovered repository, its worktrees, their git state
-  and the agents in each, with the waiting rail pinned above.
-- **Worktree** has four tabs: **Agents** (start, message, stop and remove agents;
-  sessions, subagents, skills used),
-  **Changes** (the diff review, changed files as a tree, line and range comments,
-  staging),
-  **Files** (browse everything in the worktree), **Tests** (live runs and history).
-  Code in both **Changes** and **Files** is syntax coloured, on the server, with
-  no highlighter to load: see [docs/syntax.md](docs/syntax.md).
-- **Repositories** lists what is watched, and holds the preferences.
+- **Sidebar** lists every agent, the ones waiting on you first, with **New agent**
+  at the top and **Settings** (the gear) at the bottom.
+- **Agent** shows where the selected agent works (repository, worktree, branch)
+  and has three tabs: **Chat** (its conversation and a box to message it),
+  **Changes** (the diff review, changed files as a tree, line and range comments
+  handed back to the agent, staging) and **Files** (browse and edit its worktree,
+  with hover, go to definition, references and call hierarchy for C#: see
+  [docs/code-intelligence.md](docs/code-intelligence.md)). Both are coloured by
+  Monaco: see [docs/syntax.md](docs/syntax.md).
+- **New agent** starts one in a repository from Settings, in a new worktree or an
+  existing one.
+- **Settings** holds the repositories New agent offers, and the preferences.
+- **Worktree** is still reachable from a file link, with the same tabs plus
+  **Agents** and **Tests** (live runs and history).
+
+A file path an agent mentions in a reply, or a test failure points at in its
+stack trace, is a link: it opens the file in the **Files** tab at that line, with
+a second link beside it that opens the same place in VS Code.
 
 ## How it finds things
 
@@ -121,6 +130,7 @@ that quietly stopped updating is worse than one that missed a tick.
 dotnet run --project src/AgentsDashboard.App              # native window
 dotnet run --project src/AgentsDashboard.App -- --browser # print a URL instead
 dotnet run --project src/AgentsDashboard.App -- --port 5000
+dotnet run --project src/AgentsDashboard.App -- --data-dir /tmp/dash # settings kept elsewhere
 ```
 
 The window is Photino over the platform's own webview (WebView2, WKWebView,

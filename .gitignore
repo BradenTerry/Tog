@@ -5,3 +5,14 @@ TestResults/
 .idea/
 *.user
 .DS_Store
+
+# Reviews the dashboard writes into a worktree for an agent to read. They are
+# feedback rather than work, and nothing clears them up afterwards.
+.agents-dashboard/
+
+# Worktrees `claude -w` creates inside the repository.
+.claude/worktrees/
+
+# Monaco, 24 MB of minified build output that tools/vendor-monaco.sh fetches on
+# the first build. It is a dependency, not source.
+src/AgentsDashboard.App/wwwroot/monaco/

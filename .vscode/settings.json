@@ -1,0 +1,13 @@
+{
+    "editor.insertSpaces": true,
+    "editor.tabSize": 4,
+    "files.exclude": {
+        "**/bin": true,
+        "**/obj": true,
+        "**/TestResults": true
+    },
+    "search.exclude": {
+        "**/wwwroot/monaco": true
+    },
+    "dotnet.defaultSolution": "AgentsDashboard.slnx"
+}

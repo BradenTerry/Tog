@@ -1,38 +1,41 @@
-@page "/repos"
+@page "/settings"
 @inherits StateComponent
 @inject SettingsStore Store
 @inject MonitorService Monitor
 
-<PageTitle>Repositories - Agents Dashboard</PageTitle>
+<PageTitle>Settings - Agents Dashboard</PageTitle>
 
 <div class="page">
-    <div class="page-head"><h1>Repositories</h1></div>
+    <div class="page-head"><h1>Settings</h1></div>
     <p class="page-sub">
-        A repository appears on its own as soon as a Claude session runs in it. Add one here to
-        keep it on screen when nothing is running, or hide one you would rather not see.
+        The repositories you add here are the ones New agent offers to start in.
     </p>
 
     <div class="card">
-        <div class="card-head"><h2>Watched</h2></div>
+        <div class="card-head"><h2>Repositories</h2></div>
 
-        @if (Snapshot.Repos.Count == 0)
+        @if (_settings.RepoRoots.Count == 0)
         {
-            <div class="row faint">Nothing yet.</div>
+            <div class="row faint">None yet. Add one below, or pick one Claude is already running in.</div>
         }
 
-        @foreach (var repo in Snapshot.Repos)
+        @foreach (var root in _settings.RepoRoots)
         {
+            var known = State.Repo(root);
             <div class="row">
-                <div class="stack" style="flex: 1;">
-                    <strong>@repo.Name</strong>
-                    <span class="mono faint truncate">@repo.Root</span>
+                <div class="stack" style="flex: 1; min-width: 0;">
+                    <strong>@(known?.Name ?? Fmt.Leaf(root))</strong>
+                    <span class="mono faint truncate">@root</span>
                 </div>
-                <span class="chip">@Fmt.Count(repo.Worktrees.Count, "worktree")</span>
-                @if (_settings.RepoRoots.Contains(repo.Root, StringComparer.Ordinal))
+                @if (known is not null)
                 {
-                    <span class="chip accent" title="Added by hand rather than discovered">pinned</span>
+                    <span class="chip">@Fmt.Count(known.Worktrees.Count, "worktree")</span>
                 }
-                <button class="ghost small" @onclick="() => Hide(repo.Root)">Hide</button>
+                else if (!Directory.Exists(root))
+                {
+                    <span class="chip danger" title="There is no directory at this path any more">missing</span>
+                }
+                <button class="ghost small" @onclick="() => Remove(root)">Remove</button>
             </div>
         }
     </div>
@@ -57,6 +60,28 @@
             }
         </div>
     </div>
+
+    @if (Discovered.Count > 0)
+    {
+        <div class="card">
+            <div class="card-head"><h2>Running elsewhere</h2></div>
+            <div class="row faint">
+                Claude sessions are running in these, but they are not in your list. Add one to start
+                new agents in it.
+            </div>
+            @foreach (var repo in Discovered)
+            {
+                <div class="row">
+                    <div class="stack" style="flex: 1; min-width: 0;">
+                        <strong>@repo.Name</strong>
+                        <span class="mono faint truncate">@repo.Root</span>
+                    </div>
+                    <button class="small" @onclick="() => AddRoot(repo.Root)">Add</button>
+                    <button class="ghost small" @onclick="() => Hide(repo.Root)">Hide</button>
+                </div>
+            }
+        </div>
+    }
 
     @if (_settings.HiddenRoots.Count > 0)
     {
@@ -90,19 +115,6 @@
 
         <div class="row">
             <div class="stack" style="flex: 1;">
-                <strong>Hand submitted reviews to a background agent</strong>
-                <span class="faint">
-                    The review file and the clipboard copy happen either way. This only controls
-                    whether an agent working in that worktree is told about it.
-                </span>
-            </div>
-            <input type="checkbox" checked="@_settings.SendReviewToAgent"
-                   @onchange="e => Set(_settings with { SendReviewToAgent = (bool)e.Value! })"
-                   aria-label="Hand submitted reviews to a background agent" />
-        </div>
-
-        <div class="row">
-            <div class="stack" style="flex: 1;">
                 <strong>Git status interval</strong>
                 <span class="faint">
                     Seconds between status reads for a worktree an agent is working in. Worktrees
@@ -113,6 +125,57 @@
                    value="@_settings.GitPollSeconds"
                    @onchange="e => SetInterval(e.Value?.ToString())"
                    aria-label="Git status interval in seconds" />
+        </div>
+
+        <div class="row">
+            <div class="stack" style="flex: 1;">
+                <strong>Default model</strong>
+                <span class="faint">
+                    Preselected in every start form. Left to the CLI, the model your own Claude
+                    settings already choose keeps applying.
+                </span>
+            </div>
+            <select value="@_settings.DefaultModel"
+                    @onchange="e => Set(_settings with { DefaultModel = Blank(e.Value) })"
+                    aria-label="Default model">
+                <option value="">Leave to the CLI</option>
+                @foreach (var model in StartChoices.Models)
+                {
+                    <option value="@model">@model</option>
+                }
+            </select>
+        </div>
+
+        <div class="row">
+            <div class="stack" style="flex: 1;">
+                <strong>Default effort</strong>
+                <span class="faint">How hard a new agent thinks before it answers.</span>
+            </div>
+            <select value="@_settings.DefaultEffort"
+                    @onchange="e => Set(_settings with { DefaultEffort = Blank(e.Value) })"
+                    aria-label="Default effort">
+                <option value="">Leave to the CLI</option>
+                @foreach (var effort in StartChoices.Efforts)
+                {
+                    <option value="@effort">@effort</option>
+                }
+            </select>
+        </div>
+
+        <div class="row">
+            <div class="stack" style="flex: 1;">
+                <strong>Default permission mode</strong>
+                <span class="faint">What a new agent may do without asking you first.</span>
+            </div>
+            <select value="@_settings.DefaultPermissionMode"
+                    @onchange="e => Set(_settings with { DefaultPermissionMode = Blank(e.Value) })"
+                    aria-label="Default permission mode">
+                <option value="">Leave to the CLI</option>
+                @foreach (var mode in StartChoices.PermissionModes)
+                {
+                    <option value="@mode">@mode</option>
+                }
+            </select>
         </div>
     </div>
 
@@ -167,14 +230,26 @@
             _error = "That is not a repository root, but it will be resolved to one if it is inside a repository.";
         }
 
-        Set(_settings with
-        {
-            RepoRoots = [.. _settings.RepoRoots.Where(r => r != root), root],
-            HiddenRoots = _settings.HiddenRoots.Where(r => r != root).ToArray(),
-        });
-
+        AddRoot(root);
         _newRoot = "";
     }
+
+    private void AddRoot(string root) => Set(_settings with
+    {
+        RepoRoots = [.. _settings.RepoRoots.Where(r => r != root), root],
+        HiddenRoots = _settings.HiddenRoots.Where(r => r != root).ToArray(),
+    });
+
+    /// <summary>
+    /// Takes a repository off the list. It is not hidden: while Claude runs in
+    /// it, it still shows up under Running elsewhere.
+    /// </summary>
+    private void Remove(string root) =>
+        Set(_settings with { RepoRoots = _settings.RepoRoots.Where(r => r != root).ToArray() });
+
+    /// <summary>Repositories the monitor found through live sessions that are not in the list.</summary>
+    private IReadOnlyList<RepoView> Discovered =>
+        Snapshot.Repos.Where(r => !_settings.RepoRoots.Contains(r.Root, StringComparer.Ordinal)).ToList();
 
     private void Hide(string root) => Set(_settings with
     {
@@ -192,6 +267,13 @@
             Set(_settings with { GitPollSeconds = Math.Clamp(seconds, 2, 60) });
         }
     }
+
+    /// <summary>
+    /// A blank choice means "say nothing", which is not the same as a value: it
+    /// leaves the CLI's own default in place rather than pinning one here.
+    /// </summary>
+    private static string? Blank(object? value) =>
+        value?.ToString() is { Length: > 0 } chosen ? chosen : null;
 
     private void Set(Settings next)
     {

@@ -10,6 +10,18 @@
     <PackageVersion Include="Photino.NET" Version="4.0.16" />
   </ItemGroup>
 
+  <ItemGroup Label="Code intelligence">
+    <!-- Roslyn in-process, so the Files tab can answer "what is this, where is it
+         defined, who calls it" without a second language-server process. The
+         MSBuild workspace loads real projects; the locator points it at the SDK's
+         MSBuild before any Microsoft.Build type is loaded. -->
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="5.9.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.Workspaces.MSBuild" Version="5.9.0" />
+    <PackageVersion Include="Microsoft.Build.Locator" Version="1.11.2" />
+    <!-- Pinned only so it can be excluded: see the Core csproj. -->
+    <PackageVersion Include="Microsoft.Build.Framework" Version="17.11.48" />
+  </ItemGroup>
+
   <ItemGroup Label="Testing">
     <!-- xunit.v3 runs on Microsoft.Testing.Platform natively, and MTP >= 2.3.0
          streams its TRX report to disk as the run progresses. That is what the

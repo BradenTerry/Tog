@@ -21,9 +21,13 @@ twice:
   the telemetry installer
 - `docs/review.md` - diff bases, the comment draft, the submit order
 - `docs/agents.md` - the session registry, work summaries, notification rules
-- `docs/syntax.md` - server-side colouring, the two passes a diff hunk needs
-- `docs/agent-control.md` - the CLI lifecycle, why sending stops the agent first
+- `docs/syntax.md` - Monaco colouring in the diff, the server fallback, the two
+  passes a diff hunk needs
+- `docs/agent-control.md` - the chat, the CLI lifecycle, why sending stops the agent first
 - `docs/staging.md` - the two-character status field, unstaging with no HEAD
+- `docs/editor.md` - Monaco in the Files tab, vendoring it, stamp-based saves
+- `docs/code-intelligence.md` - Roslyn in-process, the on-demand load, why
+  references land in a panel rather than a peek widget
 
 A change to one of those subsystems belongs in its doc, with at most a line in
 the README. Keep the README a landing page.
@@ -74,6 +78,28 @@ page sideways. `.main` also pins `overflow-x: hidden`.
 **Line selection is dragged in JavaScript, not on the circuit.** `app.js` follows
 mousedown/mousemove/mouseup and calls `SelectLines` once on release. Its preview
 class is `picking`; the server renders `in-range`. Never let the two share a class.
+
+**A unified diff interleaves two line numberings.** Removed rows are numbered on
+the left, added and context rows on the right, so consecutive rows on screen are
+not consecutive numbers and are often not even the same side. Anything that walks
+a run of rows has to walk them in the order they are drawn and pick the side at
+the end, not filter by side from the start: filtering stops dead at the first
+row of the other kind, which in a one-line replacement is the very next row.
+
+**SignalR caps a client-to-server message at 32 KB.** Saving from the Files tab
+sends the whole edited file up the circuit, and most source files are over that.
+The hub does not report it as an error, it drops the circuit. `Program.cs` sets
+`MaximumReceiveMessageSize` to 4 MB, which covers `WorktreeFiles.MaxBytes` (2 MB)
+plus the interop envelope. Anything that ships file contents to the server has to
+stay inside that.
+
+**A Monaco model has to be named after its file.** `monaco.js` creates every
+model with `monaco.Uri.file(absolutePath)`, and swapping files swaps the model
+rather than calling `setValue`. Monaco addresses a definition in another file by
+URI and has nothing to compare an anonymous `inmemory://model/1` against, so with
+an unnamed model every cross-file F12 is silently dropped. The C# providers are
+registered once for the page, not per editor: Monaco's registries are global and
+a second registration answers every hover twice.
 
 **The Changes tab controls its own rendering.** The worktree page re-renders every
 second because the monitor publishes a snapshot every second. Re-rendering a diff
