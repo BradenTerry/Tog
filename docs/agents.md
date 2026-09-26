@@ -46,9 +46,23 @@ command (`sed`, a script) shows as the command, the same as in the terminal.
 ## Subagents
 
 Subagents run inside the parent agent's process and have no session of their own.
-Claude writes one small file per subagent beside the transcript and removes it
-when the subagent finishes, which makes the directory listing an answer to "what
-is running right now" rather than a tally of everything that ever ran.
+Claude writes one small file per subagent beside the transcript
+(`<session>/subagents/agent-<id>.meta.json`, with the Agent call's
+`toolUseId`) and its conversation next to it (`agent-<id>.jsonl`, every line
+marked `isSidechain`).
+
+Claude used to remove the meta file when the subagent finished, so the listing
+was "what is running now". It now keeps it, since a finished subagent can be
+resumed, and the listing is every subagent that ever ran. Which are running is
+read from the parent transcript instead: a foreground subagent is done when its
+Agent call's result arrives, a background one when a `<task-notification>`
+naming the call says it stopped. A subagent whose own transcript is written
+more than a few seconds after that was resumed, and counts as running again.
+
+Clicking a subagent in the chat's background strip shows its conversation in
+the thread in place of the agent's, read-only and following it as it writes:
+its first message is the task the agent gave it. It cannot be messaged; it
+answers to the agent.
 
 ## Background work
 

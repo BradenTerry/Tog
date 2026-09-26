@@ -137,6 +137,10 @@ description with the options the agent offered (typically Yes and No), and the
 agent list marks the agent as waiting on you. **Stop turn** declines an open prompt
 and cancels the turn.
 
+Every session is also given the dashboard's own MCP server, when the agent
+says it can reach one over HTTP (`mcpCapabilities.http`): the tools extensions
+add with `AddAgentTool`. See [extensions.md](extensions.md#agent-tools).
+
 Which calls ask is the permission mode, set per agent when it starts (Manual,
 Accept edits, Plan, Auto, Bypass permissions), plus your own Claude settings: a
 command your settings already allow is not asked about.

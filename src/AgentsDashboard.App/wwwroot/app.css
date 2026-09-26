@@ -1082,6 +1082,32 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent-dim); }
 }
 
 .composer-row button { height: 40px; padding: 0 18px; }
+/* A subagent's conversation shown in the chat in place of the agent's. */
+.subagent-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--accent-bg);
+    font-size: 12px;
+    min-width: 0;
+}
+.subagent-composer { flex-direction: row; align-items: center; gap: 10px; font-size: 12px; }
+button.subagent-link {
+    width: 100%;
+    border: none;
+    background: none;
+    color: inherit;
+    text-align: left;
+    font: inherit;
+    cursor: pointer;
+    padding: 3px 6px 3px 18px;
+    border-radius: var(--radius-sm);
+}
+button.subagent-link:hover { background: var(--surface-2); }
+button.subagent-link.shown { background: var(--accent-bg); }
+
 /* Subagents and background commands still running, just above the message box. */
 .background-strip {
     border-top: 1px solid var(--border);

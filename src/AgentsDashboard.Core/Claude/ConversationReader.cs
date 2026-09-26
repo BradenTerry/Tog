@@ -45,19 +45,27 @@ public sealed class ConversationReader
     private sealed class Cursor
     {
         public string Path = "";
+        public bool Sidechain;
         public long Offset;
         public readonly List<ChatEntry> Entries = [];
     }
 
     /// <summary>The conversation so far, oldest first.</summary>
-    public IReadOnlyList<ChatEntry> Read(string sessionId, string transcriptPath)
+    public IReadOnlyList<ChatEntry> Read(string sessionId, string transcriptPath) => Read(sessionId, transcriptPath, sidechain: false);
+
+    /// <summary>
+    /// A conversation, keyed by <paramref name="key"/>. With
+    /// <paramref name="sidechain"/>, a subagent's own transcript, every line of
+    /// which is marked as a side chain that a session's conversation leaves out.
+    /// </summary>
+    public IReadOnlyList<ChatEntry> Read(string key, string transcriptPath, bool sidechain)
     {
         lock (_gate)
         {
-            if (!_cursors.TryGetValue(sessionId, out var cursor) || cursor.Path != transcriptPath)
+            if (!_cursors.TryGetValue(key, out var cursor) || cursor.Path != transcriptPath)
             {
-                cursor = new Cursor { Path = transcriptPath };
-                _cursors[sessionId] = cursor;
+                cursor = new Cursor { Path = transcriptPath, Sidechain = sidechain };
+                _cursors[key] = cursor;
             }
 
             ReadAppended(cursor);
@@ -107,7 +115,7 @@ public sealed class ConversationReader
                 }
 
                 consumed += lineBytes;
-                Consume(line, cursor.Entries);
+                Consume(line, cursor.Entries, cursor.Sidechain);
             }
 
             cursor.Offset = consumed;
@@ -124,7 +132,7 @@ public sealed class ConversationReader
     }
 
     /// <summary>Parses one transcript line and appends what it says to the thread.</summary>
-    public static void Consume(string line, List<ChatEntry> entries)
+    public static void Consume(string line, List<ChatEntry> entries, bool sidechain = false)
     {
         if (!line.Contains("\"user\"", StringComparison.Ordinal)
             && !line.Contains("\"assistant\"", StringComparison.Ordinal)
@@ -139,7 +147,7 @@ public sealed class ConversationReader
             using var doc = JsonDocument.Parse(line);
             var root = doc.RootElement;
             if (root.ValueKind != JsonValueKind.Object
-                || Bool(root, "isSidechain")
+                || (!sidechain && Bool(root, "isSidechain"))
                 || Bool(root, "isMeta"))
             {
                 return;

@@ -61,6 +61,18 @@ else
                     title="Take it off the list. The conversation stays saved and can be resumed from New agent.">Remove</button>
         </header>
 
+        @if (_viewing is { } viewing)
+        {
+            @* A subagent's own conversation, in place of the agent's. It cannot be
+               messaged: it answers to the agent that started it, not to you. *@
+            <div class="subagent-bar" role="status">
+                <span class="background-kind">@(viewing.AgentType ?? "Subagent")</span>
+                <strong class="truncate" title="@viewing.Description">@(viewing.Description ?? "Subagent")</strong>
+                <span class="faint">@(agent.Subagents?.Any(s => s.Id == viewing.Id) == true ? "running" : "finished"), read-only</span>
+                <button class="ghost small spacer" @onclick="() => View(null)">Back to the agent</button>
+            </div>
+        }
+
         @if (agent.FolderGone && !CanSend(agent))
         {
             <div class="banner danger chat-notice">
@@ -94,7 +106,7 @@ else
                     case ChatKind.You:
                         <div class="msg you">
                             <div class="bubble">@entry.Text</div>
-                            <span class="msg-meta">You · @When(entry.At)</span>
+                            <span class="msg-meta">@(_viewing is null ? "You" : "From the agent") · @When(entry.At)</span>
                         </div>
                         break;
 
@@ -104,7 +116,7 @@ else
                                 <FileLinks Text="@entry.Text" WorktreePath="@(agent.WorktreePath ?? agent.Cwd ?? "")"
                                            SessionId="@agent.SessionId" />
                             </div>
-                            <span class="msg-meta">Agent · @When(entry.At)</span>
+                            <span class="msg-meta">@(_viewing is null ? "Agent" : "Subagent") · @When(entry.At)</span>
                         </div>
                         break;
 
@@ -208,7 +220,7 @@ else
                 }
             }
 
-            @foreach (var pending in _pending)
+            @foreach (var pending in _viewing is null ? _pending : [])
             {
                 <div class="msg you pending @(pending.State == SendState.Failed ? "failed" : "")">
                     <div class="bubble">@pending.Text</div>
@@ -233,7 +245,7 @@ else
 
             @* What the agent is saying right now, before its transcript has it:
                streamed over ACP as it is written. *@
-            @if (_liveShown is { Length: > 0 } live)
+            @if (_viewing is null && _liveShown is { Length: > 0 } live)
             {
                 <div class="msg agent live">
                     <div class="bubble">
@@ -243,7 +255,10 @@ else
                 </div>
             }
 
-            @if (agent.Permission is { } ask)
+            @if (_viewing is not null)
+            {
+            }
+            else if (agent.Permission is { } ask)
             {
                 <div class="permission-card" role="alert">
                     <div class="stack" style="gap: 3px; min-width: 0;">
@@ -292,11 +307,13 @@ else
                 </summary>
                 @foreach (var sub in agent.Subagents ?? [])
                 {
-                    <span class="background-item" title="@sub.Description">
+                    var shown = _viewing?.Id == sub.Id;
+                    <button type="button" class="background-item subagent-link @(shown ? "shown" : "")"
+                            title="@(shown ? "Showing its conversation" : "Show its conversation")" @onclick="() => View(shown ? null : sub)">
                         <span class="background-kind">@(sub.AgentType ?? "Subagent")</span>
                         <span class="background-what">@(sub.Description ?? "Subagent")</span>
                         <span class="faint nums">@Fmt.Duration(Snapshot.Value.TakenAt - sub.StartedAt)</span>
-                    </span>
+                    </button>
                 }
                 @foreach (var command in agent.BackgroundCommands ?? [])
                 {
@@ -309,6 +326,15 @@ else
             </details>
         }
 
+        @if (_viewing is not null)
+        {
+            <div class="chat-composer subagent-composer faint">
+                A subagent takes its instructions from the agent, not from you.
+                <button class="ghost small" @onclick="() => View(null)">Back to the agent</button>
+            </div>
+        }
+        else
+        {
         <form class="chat-composer" @onsubmit="Send">
             <div class="composer-row">
                 @* Filled and emptied by app.js as a slash command is typed. *@
@@ -339,6 +365,7 @@ else
                 }
             </div>
         </form>
+        }
     </div>
 }
 
@@ -362,6 +389,17 @@ else
     }
 
     private IReadOnlyList<ChatEntry> _entries = [];
+
+    /// <summary>The subagent whose conversation the thread shows instead of the agent's, if one was picked.</summary>
+    private Subagent? _viewing;
+
+    private void View(Subagent? subagent)
+    {
+        _viewing = subagent;
+        _forceScroll = true;
+        _shownCount = -1;
+        ReadConversation();
+    }
     private bool _transcriptMissing;
     private readonly List<Pending> _pending = [];
 
@@ -505,6 +543,16 @@ else
         if (Current is not { } target)
         {
             _entries = [];
+            return;
+        }
+
+        if (_viewing is { } subagent)
+        {
+            // Kept apart from the agent's own cursor, under a key of its own, and
+            // read with the side-chain lines the agent's conversation leaves out.
+            var own = Locator.SubagentTranscript(target.SessionId, target.Cwd, subagent.Id);
+            _transcriptMissing = own is null;
+            _entries = own is null ? [] : Conversations.Read(target.SessionId + "/" + subagent.Id, own, sidechain: true);
             return;
         }
 

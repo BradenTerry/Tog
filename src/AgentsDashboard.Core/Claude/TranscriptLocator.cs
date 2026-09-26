@@ -58,6 +58,18 @@ public sealed class TranscriptLocator(ClaudePaths paths)
         return Directory.Exists(dir) ? dir : null;
     }
 
+    /// <summary>A subagent's own transcript, beside its meta file, if it has written one.</summary>
+    public string? SubagentTranscript(string sessionId, string cwd, string subagentId)
+    {
+        if (SubagentsDir(sessionId, cwd) is not { } dir || subagentId.Any(c => !char.IsAsciiLetterOrDigit(c)))
+        {
+            return null;
+        }
+
+        var path = Path.Combine(dir, $"agent-{subagentId}.jsonl");
+        return File.Exists(path) ? path : null;
+    }
+
     private string? Scan(string sessionId)
     {
         try

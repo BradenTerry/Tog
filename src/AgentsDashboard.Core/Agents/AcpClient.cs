@@ -13,6 +13,23 @@ public sealed record AcpConfigOption(string Id, string Name, string? Current, IR
 /// <param name="Hint">What its argument is, when it takes one.</param>
 public sealed record AcpCommand(string Name, string Description, string? Hint);
 
+/// <summary>An MCP server handed to an agent's sessions, reached over HTTP.</summary>
+/// <param name="Headers">Sent with every request. A value may name an environment variable as <c>${NAME}</c>, which the Claude CLI expands.</param>
+public sealed record McpServer(string Name, string Url, IReadOnlyList<KeyValuePair<string, string>>? Headers = null);
+
+/// <summary>The MCP servers to hand an agent session in a folder. The app's own tools, today.</summary>
+public interface IAgentMcpServers
+{
+    IReadOnlyList<McpServer> For(string cwd);
+
+    /// <summary>
+    /// Variables the agent process needs for those servers, such as a key a
+    /// header names. Kept out of the server list, which the SDK puts on the
+    /// CLI's command line where any process can read it.
+    /// </summary>
+    IReadOnlyDictionary<string, string> Environment { get; }
+}
+
 /// <summary>A conversation the agent knows about, from <c>session/list</c>.</summary>
 public sealed record AcpSessionInfo(string SessionId, string Cwd, string? Title, DateTimeOffset? UpdatedAt);
 
@@ -58,11 +75,32 @@ public sealed class AcpClient(JsonRpcConnection rpc)
         && session.ValueKind == JsonValueKind.Object
         && session.TryGetProperty(sessionCapability, out _);
 
+    /// <summary>
+    /// The servers in the shape ACP takes, or none when the agent did not say it
+    /// can reach an MCP server over HTTP: it would refuse the session.
+    /// </summary>
+    private object[] Servers(IReadOnlyList<McpServer>? servers) =>
+        servers is { Count: > 0 }
+        && AgentCapabilities.ValueKind == JsonValueKind.Object
+        && AgentCapabilities.TryGetProperty("mcpCapabilities", out var mcp)
+        && mcp.ValueKind == JsonValueKind.Object
+        && mcp.TryGetProperty("http", out var http)
+        && http.ValueKind == JsonValueKind.True
+            ? [.. servers.Select(s => new
+            {
+                type = "http",
+                name = s.Name,
+                url = s.Url,
+                headers = (s.Headers ?? []).Select(h => new { name = h.Key, value = h.Value }).ToArray(),
+            })]
+            : [];
+
     public async Task<(string SessionId, IReadOnlyList<AcpConfigOption> Options)> NewSessionAsync(
         string cwd,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        IReadOnlyList<McpServer>? servers = null)
     {
-        var result = await rpc.RequestAsync("session/new", new { cwd, mcpServers = Array.Empty<object>() }, ct)
+        var result = await rpc.RequestAsync("session/new", new { cwd, mcpServers = Servers(servers) }, ct)
             .ConfigureAwait(false);
 
         return (result.GetProperty("sessionId").GetString()!, ReadOptions(result));
@@ -75,11 +113,12 @@ public sealed class AcpClient(JsonRpcConnection rpc)
     public async Task<IReadOnlyList<AcpConfigOption>> ResumeSessionAsync(
         string sessionId,
         string cwd,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        IReadOnlyList<McpServer>? servers = null)
     {
         var result = await rpc.RequestAsync(
             "session/resume",
-            new { sessionId, cwd, mcpServers = Array.Empty<object>() },
+            new { sessionId, cwd, mcpServers = Servers(servers) },
             ct).ConfigureAwait(false);
 
         return ReadOptions(result);

@@ -60,6 +60,12 @@ public interface IExtensionBuilder
     /// the user presses Load on a file it handles.
     /// </summary>
     void AddCodeIntelligence<TProvider>() where TProvider : class, ICodeIntelligence;
+
+    /// <summary>
+    /// Adds a tool the agents the dashboard runs can call. Since API 1.2; an
+    /// extension that adds one needs <c>"apiVersion": "1.2"</c> in its manifest.
+    /// </summary>
+    void AddAgentTool<TTool>() where TTool : class, IAgentTool;
 }
 
 /// <summary>

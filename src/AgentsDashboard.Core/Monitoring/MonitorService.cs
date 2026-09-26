@@ -223,6 +223,16 @@ public sealed class MonitorService : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// A subagent the session heard back from, and whose own transcript has not
+    /// been written since, which a resumed one would be. A few seconds' grace,
+    /// since its last line lands just before the notice about it.
+    /// </summary>
+    public static bool Finished(Subagent subagent, IReadOnlyDictionary<string, DateTimeOffset>? finished) =>
+        subagent.ToolUseId is { } call
+        && finished?.TryGetValue(call, out var at) == true
+        && (subagent.LastActivity is not { } last || last <= at + TimeSpan.FromSeconds(10));
+
     private AgentSession Enrich(AgentSession session)
     {
         var transcript = _locator.Locate(session.SessionId, session.Cwd);
@@ -241,7 +251,9 @@ public sealed class MonitorService : IAsyncDisposable
             LastPrompt = facts.LastPrompt,
             LastReply = facts.LastReply,
             Skills = facts.Skills,
-            Subagents = _subagents.Read(session.SessionId, session.Cwd).Where(s => s.StartedAt >= since).ToList(),
+            Subagents = _subagents.Read(session.SessionId, session.Cwd)
+                .Where(s => s.StartedAt >= since && !Finished(s, facts.FinishedSubagents))
+                .ToList(),
             BackgroundCommands = (facts.BackgroundCommands ?? []).Where(c => c.StartedAt >= since).ToList(),
         };
     }

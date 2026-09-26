@@ -28,7 +28,9 @@ public sealed record Subagent(
     string? AgentType,
     string? Description,
     int SpawnDepth,
-    DateTimeOffset StartedAt);
+    DateTimeOffset StartedAt,
+    string? ToolUseId = null,
+    DateTimeOffset? LastActivity = null);
 
 /// <summary>A shell command an agent started in the background and has not heard back from.</summary>
 /// <param name="ToolUseId">The Bash call that started it, which its completion notice names.</param>
