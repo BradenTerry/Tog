@@ -3,6 +3,7 @@
 @inject SettingsStore Store
 @inject MonitorService Monitor
 @inject AgentHost Host
+@inject FolderPicker Folders
 
 <PageTitle>Settings - Agents Dashboard</PageTitle>
 
@@ -53,7 +54,15 @@
                        value="@_newRoot"
                        @oninput="e => _newRoot = e.Value?.ToString() ?? string.Empty"
                        @onkeydown="OnAddKey" />
-                <button class="primary" @onclick="Add" disabled="@string.IsNullOrWhiteSpace(_newRoot)">Add</button>
+                @if (Folders.Available)
+                {
+                    <button class="primary" @onclick="Browse" disabled="@_picking">Choose folder...</button>
+                    <button @onclick="Add" disabled="@string.IsNullOrWhiteSpace(_newRoot)">Add</button>
+                }
+                else
+                {
+                    <button class="primary" @onclick="Add" disabled="@string.IsNullOrWhiteSpace(_newRoot)">Add</button>
+                }
             </div>
             @if (_error is { Length: > 0 })
             {
@@ -198,6 +207,30 @@
     {
         base.OnInitialized();
         _settings = Store.Load();
+    }
+
+    private bool _picking;
+
+    /// <summary>
+    /// Opens the system folder chooser and adds what comes back, the same as
+    /// typing the path and pressing Add. Cancelling leaves the field alone.
+    /// </summary>
+    private async Task Browse()
+    {
+        _picking = true;
+        try
+        {
+            var start = Directory.Exists(_newRoot.Trim()) ? _newRoot.Trim() : null;
+            if (await Folders.PickAsync("Choose a repository", start) is { } chosen)
+            {
+                _newRoot = chosen;
+                Add();
+            }
+        }
+        finally
+        {
+            _picking = false;
+        }
     }
 
     private void OnAddKey(KeyboardEventArgs e)

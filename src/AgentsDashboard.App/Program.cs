@@ -99,6 +99,7 @@ builder.Services.AddSingleton<FeedbackDispatcher>();
 // The loop
 builder.Services.AddSingleton<DashboardState>();
 builder.Services.AddSingleton<INotifier, OsNotifier>();
+builder.Services.AddSingleton<FolderPicker>();
 builder.Services.AddSingleton<MonitorService>();
 builder.Services.AddHostedService<MonitorHost>();
 
@@ -126,7 +127,8 @@ if (options.Browser)
 
 // Photino owns the main thread and blocks until the window closes, so the host
 // is already started above rather than run to completion.
-DesktopWindow.Open(url, app.Services.GetRequiredService<ILoggerFactory>(), fallbackUrlPrinted: () =>
+DesktopWindow.Open(url, app.Services.GetRequiredService<ILoggerFactory>(),
+    app.Services.GetRequiredService<FolderPicker>(), fallbackUrlPrinted: () =>
     Console.WriteLine($"Agents Dashboard is running at {url}"));
 
 await app.StopAsync();
