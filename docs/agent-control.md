@@ -98,6 +98,19 @@ only sends it when a turn ends and after a compaction, so the figure is as of
 the last turn, not live. It is kept in `agents.json` so a stopped agent still
 shows it.
 
+The same `usage_update` can carry the subscription plan's rate limits, under
+`_meta["_claude/rateLimit"]`: the SDK's `rate_limit_event`, which the bridge
+passes along. `PlanLimit.Read` takes the headline limit (`rateLimitType`, with
+its `status`, `utilization` and `resetsAt`) and, when present, `unifiedWindows`,
+which has the 5-hour and weekly windows side by side. Shares are fractions and
+times Unix seconds. The status bar shows them on the right, amber from 75% or on
+a warning and red once Claude refuses. Three things to know about the figures:
+the SDK only sends them when they change, so they are as of the last hosted turn
+that reported them; agents run in a terminal never feed them; and an API-key
+login has no plan, so nothing shows. They are kept in `plan-usage.json` so the
+weekly figure survives a restart, and a reading is dropped once its window's
+reset time has passed.
+
 While an agent works, its status line says "Working" with animated dots rather
 than the tool it is in. The tool changes every second or two, so a status that
 names it keeps rewriting itself; the tool is in the tooltip and the transcript.

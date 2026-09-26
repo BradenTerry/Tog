@@ -108,6 +108,19 @@ public sealed class FakeAcpAgent : IAgentLauncher
             update = new { sessionUpdate = "usage_update", used, size, cost = new { amount = 0.12, currency = "USD" } },
         });
 
+        /// <summary>A usage update carrying the plan's rate limits, as the Claude bridge sends one.</summary>
+        public Task RateLimit(object rateLimit) => rpc.NotifyAsync("session/update", new
+        {
+            sessionId,
+            update = new Dictionary<string, object>
+            {
+                ["sessionUpdate"] = "usage_update",
+                ["used"] = 1_000,
+                ["size"] = 200_000,
+                ["_meta"] = new Dictionary<string, object> { ["_claude/rateLimit"] = rateLimit },
+            },
+        });
+
         public Task Tool(string title) => rpc.NotifyAsync("session/update", new
         {
             sessionId,
