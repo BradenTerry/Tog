@@ -154,7 +154,13 @@ now two components that share a `ChangesModel`:
   on.
 
 Clicking a file in Source control opens a tab with that file's changes alone, as
-VS Code does, previewed like a file until kept. The toolbar's other button opens
+VS Code does, previewed like a file until kept. That tab shows the whole file,
+the way the editor does, with removed lines in red and added lines in green in
+place, and opens scrolled to the first change. It is read apart from the
+model's diff (`DiffReader.ReadWholeFileAsync`, the diff with the whole file as
+context), again whenever the model's is. A file over 5000 lines falls back to
+its hunks, since every row is a button on the circuit and one file is drawn
+all at once. The toolbar's other button opens
 every change in one document, which is where a jump to a file is held on the
 model as `PendingScroll`: the document may not exist yet when the click lands.
 

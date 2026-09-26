@@ -36,6 +36,43 @@ public class DiffReaderTests
     }
 
     [Fact]
+    public async Task Reads_one_file_whole_with_its_changes_in_place()
+    {
+        using var repo = new TempRepo();
+        var lines = Enumerable.Range(1, 20).Select(n => $"line {n}").ToList();
+        repo.Write("long.txt", string.Join('\n', lines) + "\n");
+        repo.Commit("first");
+
+        lines[9] = "CHANGED";
+        repo.Write("long.txt", string.Join('\n', lines) + "\n");
+
+        var file = await Reader().ReadWholeFileAsync(repo.Path, "long.txt", null, DiffBase.WorkingTree, ct: Ct);
+
+        Assert.NotNull(file);
+        var all = Assert.Single(file.Hunks).Lines;
+        Assert.Equal(Enumerable.Range(1, 20).Select(n => (int?)n), all.Where(l => l.Kind != DiffLineKind.Removed).Select(l => l.NewLine));
+        Assert.Equal("line 10", all.Single(l => l.Kind == DiffLineKind.Removed).Text);
+        Assert.Equal("CHANGED", all.Single(l => l.Kind == DiffLineKind.Added).Text);
+    }
+
+    [Fact]
+    public async Task Reads_a_renamed_file_whole_against_its_old_name()
+    {
+        using var repo = new TempRepo();
+        repo.Write("old.txt", "one\ntwo\nthree\nfour\nfive\n");
+        repo.Commit("first");
+        repo.Git("mv", "old.txt", "new.txt");
+        repo.Write("new.txt", "one\ntwo\nTHREE\nfour\nfive\n");
+        repo.Git("add", "new.txt");
+
+        var file = await Reader().ReadWholeFileAsync(repo.Path, "new.txt", "old.txt", DiffBase.WorkingTree, ct: Ct);
+
+        Assert.NotNull(file);
+        Assert.Equal(1, file.Additions);
+        Assert.Equal(1, file.Deletions);
+    }
+
+    [Fact]
     public async Task Includes_untracked_files_as_additions()
     {
         using var repo = new TempRepo();

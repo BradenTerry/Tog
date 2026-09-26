@@ -568,8 +568,8 @@ window.agentsDashboard = {
     // thousands of pixels, which animates slowly and lands you somewhere you did
     // not watch yourself travel to. Smooth scrolling is also ignored outright in
     // some embedded webviews, so the jump would simply not happen.
-    scrollTo: (id) => {
-        document.getElementById(id)?.scrollIntoView({ block: 'start' });
+    scrollTo: (id, block) => {
+        document.getElementById(id)?.scrollIntoView({ block: block ?? 'start' });
     },
     startDiffSelection: (element, reference) => {
         diffOwners.set(element, reference);
