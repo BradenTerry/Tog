@@ -541,6 +541,18 @@ window.agentsDashboard = {
             thread.scrollTop = thread.scrollHeight;
         }
     },
+    // Keeps a context menu inside the window, flipping it to the other side of
+    // the pointer where it would run off, and focuses it so Escape closes it.
+    fitMenu: (menu) => {
+        const r = menu.getBoundingClientRect();
+        if (r.right > window.innerWidth - 4) {
+            menu.style.left = `${Math.max(4, r.left - r.width)}px`;
+        }
+        if (r.bottom > window.innerHeight - 4) {
+            menu.style.top = `${Math.max(4, r.top - r.height)}px`;
+        }
+        menu.focus();
+    },
     copy: async (text) => {
         try {
             await navigator.clipboard.writeText(text);

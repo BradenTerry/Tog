@@ -165,6 +165,70 @@ public class StagingIntegrationTests
     }
 
     [Fact]
+    public async Task Discarding_keeps_what_is_staged_and_drops_the_rest()
+    {
+        using var repo = new TempRepo();
+        repo.Write("a.txt", "one\n");
+        repo.Commit("first");
+        repo.Write("a.txt", "two\n");
+        var staging = Stage();
+        await staging.StageAsync(repo.Path, ["a.txt"], Ct);
+        repo.Write("a.txt", "three\n");
+
+        var result = await staging.DiscardAsync(repo.Path, ["a.txt"], Ct);
+
+        Assert.True(result.Ok, result.Message);
+        Assert.Equal("two\n", File.ReadAllText(Path.Combine(repo.Path, "a.txt")));
+        Assert.True((await staging.ReadAsync(repo.Path, Ct))["a.txt"].IsFullyStaged);
+    }
+
+    [Fact]
+    public async Task Discarding_a_new_file_deletes_it_and_leaves_the_others()
+    {
+        using var repo = new TempRepo();
+        repo.Write("a.txt", "one\n");
+        repo.Commit("first");
+        repo.Write("new/made.cs", "hello\n");
+        repo.Write("new/kept.cs", "hello\n");
+        repo.Write("a.txt", "two\n");
+
+        var result = await Stage().DiscardAsync(repo.Path, ["new/made.cs"], Ct);
+
+        Assert.True(result.Ok, result.Message);
+        Assert.False(File.Exists(Path.Combine(repo.Path, "new", "made.cs")));
+        Assert.True(File.Exists(Path.Combine(repo.Path, "new", "kept.cs")));
+        Assert.Equal("two\n", File.ReadAllText(Path.Combine(repo.Path, "a.txt")));
+    }
+
+    [Fact]
+    public async Task Discarding_a_deletion_brings_the_file_back()
+    {
+        using var repo = new TempRepo();
+        repo.Write("a.txt", "one\n");
+        repo.Commit("first");
+        File.Delete(Path.Combine(repo.Path, "a.txt"));
+
+        var result = await Stage().DiscardAsync(repo.Path, ["a.txt"], Ct);
+
+        Assert.True(result.Ok, result.Message);
+        Assert.Equal("one\n", File.ReadAllText(Path.Combine(repo.Path, "a.txt")));
+    }
+
+    [Fact]
+    public async Task Discarding_in_a_repository_with_no_commits_restores_from_the_index()
+    {
+        using var repo = new TempRepo();
+        repo.Write("first.cs", "hello\n");
+        repo.Git("add", "-A");
+        repo.Write("first.cs", "changed\n");
+
+        var result = await Stage().DiscardAsync(repo.Path, ["first.cs"], Ct);
+
+        Assert.True(result.Ok, result.Message);
+        Assert.Equal("hello\n", File.ReadAllText(Path.Combine(repo.Path, "first.cs")));
+    }
+
+    [Fact]
     public async Task Staging_nothing_does_nothing()
     {
         using var repo = new TempRepo();

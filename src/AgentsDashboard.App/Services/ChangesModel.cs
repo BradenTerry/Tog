@@ -152,6 +152,16 @@ public sealed class ChangesModel(
 
     public Task StageAll() => Restage(() => staging.StageAllAsync(WorktreePath));
 
+    /// <summary>
+    /// Throws away the working tree's changes to these files, deleting new ones.
+    /// Unlike a stage this changes lines, so the diff is read again after.
+    /// </summary>
+    public async Task DiscardChanges(IReadOnlyList<string> paths)
+    {
+        await Restage(() => staging.DiscardAsync(WorktreePath, paths));
+        await Load();
+    }
+
     public Task UnstageAll() => Restage(() => staging.UnstageAllAsync(WorktreePath));
 
     /// <summary>
