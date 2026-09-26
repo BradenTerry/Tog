@@ -171,13 +171,19 @@ public sealed class MonitorService : IAsyncDisposable
             ? new TranscriptFacts(null, [], null, null)
             : _transcripts.Read(session.SessionId, transcript);
 
+        // Background work started before the current agent process began was
+        // killed with the one before it, and nothing records that: no notice for
+        // a command, a leftover file for a subagent. Left in, it would read as
+        // running forever.
+        var since = session.ProcessStartedAt ?? DateTimeOffset.MinValue;
         return session with
         {
             Summary = facts.Summary,
             LastPrompt = facts.LastPrompt,
             LastReply = facts.LastReply,
             Skills = facts.Skills,
-            Subagents = _subagents.Read(session.SessionId, session.Cwd),
+            Subagents = _subagents.Read(session.SessionId, session.Cwd).Where(s => s.StartedAt >= since).ToList(),
+            BackgroundCommands = (facts.BackgroundCommands ?? []).Where(c => c.StartedAt >= since).ToList(),
         };
     }
 

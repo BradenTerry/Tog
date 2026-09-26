@@ -1188,6 +1188,26 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent-dim); }
 }
 
 .composer-row button { height: 40px; padding: 0 18px; }
+/* Subagents and background commands still running, just above the message box. */
+.background-strip {
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+    padding: 8px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+    max-height: 140px;
+    overflow-y: auto;
+}
+
+.background-head { color: var(--text-dim); display: flex; align-items: center; gap: 6px; }
+.background-item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: baseline; padding-left: 18px; }
+.background-kind { color: var(--accent); }
+.background-what { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.chat-item-bg { font-size: 11.5px; color: var(--active); }
+
 .composer-foot { display: flex; align-items: baseline; gap: 12px; }
 .composer-hint { font-size: 11.5px; color: var(--text-faint); min-width: 0; }
 

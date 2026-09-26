@@ -58,6 +58,7 @@ builder.Services.AddSingleton<ConversationReader>();
 builder.Services.AddSingleton<TranscriptReader>();
 builder.Services.AddSingleton<SubagentReader>();
 builder.Services.AddSingleton<AgentDirectory>();
+builder.Services.AddSingleton<ChatDrafts>();
 builder.Services.AddSingleton<WorktreeViews>();
 
 // Agents

@@ -50,6 +50,25 @@ Claude writes one small file per subagent beside the transcript and removes it
 when the subagent finishes, which makes the directory listing an answer to "what
 is running right now" rather than a tally of everything that ever ran.
 
+## Background work
+
+A subagent, or a shell command started with `run_in_background`, keeps going
+after the turn that started it ends, so an idle agent is not necessarily done.
+The agent view lists that work in a strip above the message box, and the sidebar
+says "2 running in background" under the agent.
+
+Subagents come from the files above. Background commands come from the
+transcript (`TranscriptReader`): the Bash call carries `run_in_background: true`,
+its result carries a `backgroundTaskId`, and when the command ends a
+`<task-notification>` record names the call (`<tool-use-id>`) or the task
+(`<task-id>`). The notice arrives as a user message when the agent is idle and
+as a queued attachment mid-turn, so it is read from the raw line.
+
+Background work dies with the agent process and nothing records that: no notice
+for a command, a leftover file for a subagent. So the monitor ignores anything
+that started before the current agent process did (`ProcessStartedAt`), and
+nothing is listed for a stopped agent.
+
 ## Notifications
 
 Every other signal the dashboard has terminates inside its own window: the

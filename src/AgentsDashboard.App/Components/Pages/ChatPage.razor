@@ -9,6 +9,7 @@
 @inject TranscriptLocator Locator
 @inject ConversationReader Conversations
 @inject IJSRuntime Js
+@inject ChatDrafts Drafts
 @inject ExtensionHost Extensions
 
 @* One agent: where it works, and three views of it. The conversation reads like
@@ -326,13 +327,41 @@
                         }
                     </div>
 
+                    @* Work that goes on outside the turn: a subagent or a background
+                       command keeps running after the agent says it is done, and an
+                       idle agent with work in flight is not finished. *@
+                    @if (agent.BackgroundCount > 0 && agent.State is not (ChatState.Parked or ChatState.Failed))
+                    {
+                        <div class="background-strip" aria-label="Running in the background">
+                            <span class="background-head">
+                                <WorkingDots /> Running in the background <span class="count">@agent.BackgroundCount</span>
+                            </span>
+                            @foreach (var sub in agent.Subagents ?? [])
+                            {
+                                <span class="background-item" title="@sub.Description">
+                                    <span class="background-kind">@(sub.AgentType ?? "Subagent")</span>
+                                    <span class="background-what">@(sub.Description ?? "Subagent")</span>
+                                    <span class="faint nums">@Fmt.Duration(Snapshot.Value.TakenAt - sub.StartedAt)</span>
+                                </span>
+                            }
+                            @foreach (var command in agent.BackgroundCommands ?? [])
+                            {
+                                <span class="background-item" title="@command.Description">
+                                    <span class="background-kind">Command</span>
+                                    <span class="background-what">@command.Description</span>
+                                    <span class="faint nums">@Fmt.Duration(Snapshot.Value.TakenAt - command.StartedAt)</span>
+                                </span>
+                            }
+                        </div>
+                    }
+
                     <form class="chat-composer" @onsubmit="Send">
                         <div class="composer-row">
                             <textarea @ref="_box" rows="1"
                                       placeholder="@Placeholder(agent)"
                                       aria-label="Message for @agent.Label"
                                       disabled="@(!CanSend(agent))"
-                                      @oninput="e => _draft = e.Value?.ToString() ?? string.Empty"></textarea>
+                                      @oninput="e => { _draft = e.Value?.ToString() ?? string.Empty; Drafts.Set(agent.SessionId, _draft); }"></textarea>
                             <button type="submit" class="primary"
                                     disabled="@(_sending || string.IsNullOrWhiteSpace(_draft) || !CanSend(agent))">
                                 Send
@@ -582,8 +611,9 @@
             _lastLive = null;
             _liveShown = null;
             _notice = null;
-            _draft = "";
-            _putInBox = "";
+            // Each agent keeps what you had typed to it.
+            _draft = SessionId is null ? "" : Drafts.Get(SessionId);
+            _putInBox = _draft;
             _forceScroll = true;
             _visited.Clear();
         }
@@ -705,6 +735,7 @@
         var pending = new Pending(text);
         _pending.Add(pending);
         _draft = "";
+        Drafts.Set(target.SessionId, "");
         _sending = true;
         _forceScroll = true;
         StateHasChanged();
@@ -731,6 +762,10 @@
         _pending.Remove(pending);
         _draft = pending.Text;
         _putInBox = pending.Text;
+        if (Current is { } target)
+        {
+            Drafts.Set(target.SessionId, _draft);
+        }
     }
 
     private async Task ResetBox()

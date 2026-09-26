@@ -30,6 +30,12 @@ public sealed record Subagent(
     int SpawnDepth,
     DateTimeOffset StartedAt);
 
+/// <summary>A shell command an agent started in the background and has not heard back from.</summary>
+/// <param name="ToolUseId">The Bash call that started it, which its completion notice names.</param>
+/// <param name="Description">What the agent said the command does, else the command itself.</param>
+/// <param name="StartedAt">When the agent started it.</param>
+public sealed record BackgroundCommand(string ToolUseId, string Description, DateTimeOffset StartedAt);
+
 /// <summary>
 /// One live Claude session, as the registry and its transcript describe it.
 /// </summary>
@@ -93,6 +99,19 @@ public sealed record AgentSession
 
     /// <summary>Subagents in flight under this session, oldest first.</summary>
     public IReadOnlyList<Subagent> Subagents { get; init; } = [];
+
+    /// <summary>Shell commands the session started in the background that have not finished, oldest first.</summary>
+    public IReadOnlyList<BackgroundCommand> BackgroundCommands { get; init; } = [];
+
+    /// <summary>
+    /// When the process running this session started, when the dashboard knows.
+    /// Background work begun before then died with the process before it, even
+    /// though nothing recorded it finishing.
+    /// </summary>
+    public DateTimeOffset? ProcessStartedAt { get; init; }
+
+    /// <summary>How many subagents and background commands are running.</summary>
+    public int BackgroundCount => Subagents.Count + BackgroundCommands.Count;
 
     /// <summary>
     /// What the row is called.

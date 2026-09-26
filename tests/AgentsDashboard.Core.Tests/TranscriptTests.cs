@@ -46,6 +46,36 @@ public class TranscriptReaderTests
         Assert.Equal(["task-spec", "tdd-workflow"], facts.Skills);
     }
 
+    private static string Background(string id, string description) =>
+        "{\"type\":\"assistant\",\"timestamp\":\"2026-09-26T08:00:00Z\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"" + id
+        + "\",\"name\":\"Bash\",\"input\":{\"command\":\"podman machine start\",\"description\":\"" + description
+        + "\",\"run_in_background\":true}}]}}";
+
+    private static string Started(string id, string task) =>
+        "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"" + id
+        + "\",\"content\":\"Command running in background\"}]},\"toolUseResult\":{\"backgroundTaskId\":\"" + task + "\"}}";
+
+    private static string Finished(string? id, string task) =>
+        "{\"type\":\"user\",\"origin\":{\"kind\":\"task-notification\"},\"message\":{\"content\":\"<task-notification>\\n<task-id>" + task + "</task-id>\\n"
+        + (id is null ? "" : "<tool-use-id>" + id + "</tool-use-id>\\n")
+        + "<status>completed</status>\\n<summary>done</summary>\\n</task-notification>\"}}";
+
+    [Fact]
+    public void Tracks_background_commands_until_their_notice_arrives()
+    {
+        using var dir = new TempDir();
+        var file = dir.File("t.jsonl", string.Join('\n',
+            [Background("b1", "Start Podman"), Started("b1", "t1"), Background("b2", "Run the server"), Started("b2", "t2"), ""]));
+        var reader = new TranscriptReader();
+
+        Assert.Equal(["Start Podman", "Run the server"], reader.Read("s", file).BackgroundCommands!.Select(b => b.Description));
+
+        // One notice names the call, an older form names only the task.
+        File.AppendAllText(file, Finished("b1", "t1") + "\n" + Finished(null, "t2") + "\n");
+
+        Assert.Empty(reader.Read("s", file).BackgroundCommands!);
+    }
+
     [Fact]
     public void Only_reads_what_was_appended_since_last_time()
     {

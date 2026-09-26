@@ -117,6 +117,9 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
 
     private IAgentProcess? _process;
     private AcpClient? _client;
+
+    /// <summary>When the running agent process started. Background work begun before it died with the last one.</summary>
+    private DateTimeOffset? _processStartedAt;
     private bool _dirty;
     private bool _recordChanged;
     private IReadOnlyList<AcpConfigOption> _knownOptions = [];
@@ -406,10 +409,12 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
     public IReadOnlyList<AgentSession> Read()
     {
         int pid;
+        DateTimeOffset? since;
         List<HostedAgent> running;
         lock (_gate)
         {
             pid = _process?.ProcessId ?? 0;
+            since = _processStartedAt;
             running = _entries.Values.Where(e => e.Attached).Select(e => e.Snapshot()).ToList();
         }
 
@@ -431,6 +436,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
             StatusSince = a.StateSince,
             IsBackground = true,
             JobId = a.SessionId,
+            ProcessStartedAt = since,
         }).ToList();
     }
 
@@ -598,6 +604,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
                 }
             }
 
+            var launchedAt = _clock.Now;
             var process = _launcher.Launch(_backend);
             var rpc = new JsonRpcConnection(process.Input, process.Output);
             var client = new AcpClient(rpc);
@@ -622,6 +629,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
             {
                 _process = process;
                 _client = client;
+                _processStartedAt = launchedAt;
             }
 
             return client;
