@@ -69,6 +69,7 @@ builder.Services.AddScoped<Workbench>();
 builder.Services.AddSingleton(_ => AgentBackends.Claude(builder.Environment.ContentRootPath));
 builder.Services.AddSingleton<IAgentLauncher, ProcessAgentLauncher>();
 builder.Services.AddSingleton<HostedAgentStore>();
+builder.Services.AddSingleton<PlanUsageStore>();
 builder.Services.AddSingleton<AgentHost>();
 builder.Services.AddSingleton<IAgentSessionSource>(sp => sp.GetRequiredService<AgentHost>());
 
