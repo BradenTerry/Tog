@@ -87,6 +87,16 @@ sequenceDiagram
     end
 ```
 
+## Undo survives a save
+
+A save comes back with a new stamp, and a new stamp sends the text back into
+the editor. Monaco's `setValue` resets the undo stack, so doing that after every
+save meant Ctrl+Z stopped working the moment you saved. `setText` in `monaco.js`
+only swaps the model when the file itself changes. For the same file it leaves a
+buffer that already holds the saved text alone, and puts different text (a
+reload after a conflict) in as one undoable edit. Undoing past the save point
+makes the file dirty again, and it saves like any other change.
+
 ## The size limit that bites
 
 The saved text travels from the browser to the server over the Blazor circuit,

@@ -11,9 +11,34 @@ them; the toolbar stages or unstages everything.
 | **unstaged** | Changed, and not staged |
 | **new** | Not tracked yet |
 
-A staged file is marked with a dot in the file tree, filled when it is fully
-staged and hollow when only part of it is, so the list can be scanned without
-opening each file.
+In the Uncommitted view the file list is split the way VS Code's Source Control
+view splits it: **Staged Changes** on top, **Changes** under it. Each header
+stages or unstages its whole section, and each row has a button, shown on hover,
+that moves that one file across. A partly staged file is listed in both
+sections, because it is in both places.
+
+```mermaid
+flowchart TD
+    S["git status --porcelain=v2"] --> X{"XY field"}
+    X -->|"X set"| A["Staged Changes"]
+    X -->|"Y set or untracked"| B["Changes"]
+    A -. "row minus: git restore --staged" .-> B
+    B -. "row plus: git add" .-> A
+```
+
+Each section is its own tree with its own folds, since the same folder can be in
+both. Folders start shut, as in VS Code, and each header has a button that opens
+or folds them all. `PathTreeView` does this with `FoldedByDefault`, where the set
+it is given holds the opened folders instead, so a folder that only appears
+after a stage starts shut too. Every row, folder or file, carries a stage or unstage button, which is why
+`PathTreeView` takes an `Actions` fragment: with it a row becomes a container
+around its hit area, because a button cannot sit inside another. A folder's
+button passes the section's files under it, not the folder path, so staging a
+folder cannot sweep in files that are not in that section. The rows carry no
+line counts. The diff is against HEAD, so a partly staged file would
+show its whole-file numbers in both sections, which reads as if each held all of
+it. The other diff bases keep the tree and the toolbar's Stage all and Unstage
+all, since what is committed on a branch is not a staging question.
 
 ## Where the two states come from
 

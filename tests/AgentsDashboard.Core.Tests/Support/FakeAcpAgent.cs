@@ -102,6 +102,12 @@ public sealed class FakeAcpAgent : IAgentLauncher
             update = new { sessionUpdate = "session_info_update", title },
         });
 
+        public Task Usage(long used, long size) => rpc.NotifyAsync("session/update", new
+        {
+            sessionId,
+            update = new { sessionUpdate = "usage_update", used, size, cost = new { amount = 0.12, currency = "USD" } },
+        });
+
         public Task Tool(string title) => rpc.NotifyAsync("session/update", new
         {
             sessionId,

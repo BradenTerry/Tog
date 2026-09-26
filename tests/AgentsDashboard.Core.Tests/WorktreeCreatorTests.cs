@@ -38,6 +38,18 @@ public class WorktreeCreatorTests
     }
 
     [Fact]
+    public void Lists_each_group_by_name_whatever_the_case()
+    {
+        var branches = WorktreeCreator.ParseBranches(
+            "refs/heads/Zeta\0\nrefs/heads/alpha\0\nrefs/heads/Beta\0\nrefs/remotes/origin/Remote\0\nrefs/remotes/origin/omega\0\n",
+            "origin\n");
+
+        Assert.Equal(
+            ["alpha", "Beta", "Zeta", "origin/omega", "origin/Remote"],
+            branches.Select(b => b.Ref));
+    }
+
+    [Fact]
     public void Splits_a_remote_ref_at_the_longest_remote_name()
     {
         var branches = WorktreeCreator.ParseBranches(

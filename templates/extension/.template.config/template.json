@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json.schemastore.org/template",
+  "author": "Agents Dashboard",
+  "classifications": [ "Agents Dashboard", "Extension" ],
+  "identity": "AgentsDashboard.Extension",
+  "name": "Agents Dashboard extension",
+  "shortName": "agents-dashboard-extension",
+  "sourceName": "MyExtension",
+  "preferNameDirectory": true,
+  "tags": { "language": "C#", "type": "project" },
+  "symbols": {
+    "extensionId": {
+      "type": "generated",
+      "generator": "casing",
+      "parameters": { "source": "name", "toLower": true },
+      "replaces": "my-extension-id"
+    }
+  }
+}

@@ -3,7 +3,6 @@ using AgentsDashboard.Core.Git;
 using AgentsDashboard.Core.Model;
 using AgentsDashboard.Core.Platform;
 using AgentsDashboard.Core.Repos;
-using AgentsDashboard.Core.Testing;
 
 namespace AgentsDashboard.Core.Monitoring;
 
@@ -39,8 +38,6 @@ public sealed class MonitorService : IAsyncDisposable
     private readonly RepoDiscovery _discovery;
     private readonly WorktreeLister _worktrees;
     private readonly StatusReader _status;
-    private readonly TestRunTracker _tests;
-    private readonly ITestProcessScanner _scanner;
     private readonly INotifier _notifier;
     private readonly IClock _clock;
     private readonly WaitingWatch _waitingWatch = new();
@@ -64,8 +61,6 @@ public sealed class MonitorService : IAsyncDisposable
         RepoDiscovery discovery,
         WorktreeLister worktrees,
         StatusReader status,
-        TestRunTracker tests,
-        ITestProcessScanner scanner,
         INotifier notifier,
         IClock? clock = null)
     {
@@ -78,8 +73,6 @@ public sealed class MonitorService : IAsyncDisposable
         _discovery = discovery;
         _worktrees = worktrees;
         _status = status;
-        _tests = tests;
-        _scanner = scanner;
         _notifier = notifier;
         _clock = clock ?? new SystemClock();
     }
@@ -150,10 +143,6 @@ public sealed class MonitorService : IAsyncDisposable
         var enriched = sessions.Select(Enrich).ToList();
 
         await RefreshWorktreesAsync(enriched, settings, ct).ConfigureAwait(false);
-
-        var worktreePaths = _worktreeCache.Values.SelectMany(w => w).Select(w => w.Path).ToList();
-        _tests.SetWorktrees(worktreePaths);
-        _tests.Poll(_scanner);
 
         await RefreshStatusAsync(enriched, settings, ct).ConfigureAwait(false);
 
@@ -297,7 +286,6 @@ public sealed class MonitorService : IAsyncDisposable
                     RepoRoot = root,
                     Status = _statusCache.GetValueOrDefault(info.Path).Status,
                     Agents = agents,
-                    TestRuns = _tests.RunsFor(info.Path),
                 });
 
                 waiting.AddRange(agents
@@ -361,6 +349,5 @@ public sealed class MonitorService : IAsyncDisposable
         }
 
         _cts?.Dispose();
-        _tests.Dispose();
     }
 }

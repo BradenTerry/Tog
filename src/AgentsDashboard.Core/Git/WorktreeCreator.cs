@@ -67,7 +67,8 @@ public sealed class WorktreeCreator(IGitCli git)
 
     /// <summary>
     /// The branches a new worktree could be put on: local ones no worktree has
-    /// checked out, then remote ones with no local branch of the same name.
+    /// checked out, then remote ones with no local branch of the same name, each
+    /// group by name.
     /// </summary>
     /// <remarks>
     /// Remote branches are as fresh as the last fetch; <see cref="FetchAsync"/>
@@ -134,10 +135,14 @@ public sealed class WorktreeCreator(IGitCli git)
             }
         }
 
+        // git lists refs in byte order, which puts every capitalised name before
+        // any lower-case one; a person reading the list expects case not to matter.
         return
         [
-            .. free.Select(n => new BranchChoice(n, null)),
-            .. remote.Where(r => !local.Contains(r.Name, StringComparer.Ordinal)),
+            .. free.Order(StringComparer.OrdinalIgnoreCase).Select(n => new BranchChoice(n, null)),
+            .. remote
+                .Where(r => !local.Contains(r.Name, StringComparer.Ordinal))
+                .OrderBy(r => r.Ref, StringComparer.OrdinalIgnoreCase),
         ];
     }
 

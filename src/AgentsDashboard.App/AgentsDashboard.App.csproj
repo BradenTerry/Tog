@@ -12,6 +12,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\AgentsDashboard.Core\AgentsDashboard.Core.csproj" />
+    <ProjectReference Include="..\AgentsDashboard.Extensions\AgentsDashboard.Extensions.csproj" />
   </ItemGroup>
 
   <!--

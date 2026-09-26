@@ -11,6 +11,8 @@ public enum ChatState { Waiting, Active, Idle, Parked, Failed }
 /// <param name="CurrentTool">The tool call it is making, by title.</param>
 /// <param name="Permission">A permission it is waiting on you for.</param>
 /// <param name="LabelIsPrompt">The label is its first prompt, standing in until the agent names the conversation.</param>
+/// <param name="Context">How full its context window was when its last turn ended.</param>
+/// <param name="Detached">Its worktree has no branch checked out, only a commit.</param>
 public sealed record ChatTarget(
     string SessionId,
     string Label,
@@ -29,7 +31,9 @@ public sealed record ChatTarget(
     string LiveText,
     string? CurrentTool,
     PermissionAsk? Permission,
-    IReadOnlyList<AcpConfigOption> Options);
+    IReadOnlyList<AcpConfigOption> Options,
+    ContextUsage? Context,
+    bool Detached = false);
 
 /// <summary>
 /// The agents the sidebar lists and the agent view opens: the ones the
@@ -92,7 +96,9 @@ public sealed class AgentDirectory(AgentHost host)
                     agent.LiveText,
                     agent.CurrentTool,
                     agent.Permission,
-                    agent.Options);
+                    agent.Options,
+                    agent.Context,
+                    home?.Worktree.Worktree.Detached == true);
             })
             .OrderBy(t => t.State)
             // Waiting: blocked longest first, since that one costs the most.

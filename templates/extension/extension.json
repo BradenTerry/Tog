@@ -1,0 +1,9 @@
+{
+  "id": "my-extension-id",
+  "name": "MyExtension",
+  "version": "0.1.0",
+  "apiVersion": "1.0",
+  "entry": "MyExtension.dll",
+  "output": "bin/dashboard",
+  "description": "What this extension shows for each agent."
+}

@@ -136,13 +136,16 @@ p { margin: 0 0 8px; }
 
 /* ---------- shell ---------- */
 
+/* --sidebar-width is set by app.js when you drag the list's edge, and is
+   absent until you do. */
 .shell {
     display: grid;
-    grid-template-columns: 300px minmax(0, 1fr);
+    grid-template-columns: var(--sidebar-width, 300px) minmax(0, 1fr);
     height: 100vh;
 }
 
 .sidebar {
+    position: relative;
     background: var(--surface);
     border-right: 1px solid var(--border);
     display: flex;
@@ -315,6 +318,25 @@ p { margin: 0 0 8px; }
     50% { opacity: 0.45; transform: scale(0.82); }
 }
 
+/* A pair of buttons that choose one of two views, the chosen one pressed. */
+.segmented {
+    display: inline-flex;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+}
+
+.segmented button {
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    color: var(--text-faint);
+}
+
+.segmented button + button { border-left: 1px solid var(--border); }
+.segmented button:hover { background: var(--surface-2); color: var(--text); }
+.segmented button.on { background: var(--accent-bg); color: var(--accent); }
+
 button, .btn {
     font: inherit;
     font-weight: 500;
@@ -379,6 +401,10 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent-dim); }
 .tab:hover { color: var(--text); text-decoration: none; }
 .tab.active { color: var(--text); border-bottom-color: var(--accent); }
 .tab .count { color: var(--text-faint); margin-left: 5px; font-variant-numeric: tabular-nums; }
+.tab .count.danger { color: var(--danger); }
+.tab .count.warning { color: var(--waiting); }
+.tab .count.success { color: var(--active); }
+.tab .count.info { color: var(--accent); }
 
 .empty {
     text-align: center;
@@ -399,49 +425,6 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent-dim); }
 
 .banner.info { border-left-color: var(--accent); }
 .banner.danger { border-left-color: var(--danger); }
-
-/* ---------- tests ---------- */
-
-.progress {
-    height: 5px;
-    border-radius: 99px;
-    background: var(--surface-3);
-    overflow: hidden;
-    display: flex;
-}
-
-.progress span { display: block; height: 100%; }
-.progress .pass { background: var(--active); }
-.progress .fail { background: var(--danger); }
-.progress .skip { background: var(--idle); }
-
-.counters { display: flex; gap: 14px; font-variant-numeric: tabular-nums; }
-.counters b { font-weight: 600; }
-.counters .pass b { color: var(--active); }
-.counters .fail b { color: var(--danger); }
-.counters .skip b { color: var(--text-dim); }
-
-.failure {
-    border-top: 1px solid var(--border-soft);
-    padding: 10px 14px;
-}
-
-.failure-name { font-family: var(--mono); font-size: 12px; color: var(--danger); word-break: break-word; }
-
-.failure pre {
-    margin: 6px 0 0;
-    padding: 8px 10px;
-    background: var(--bg);
-    border: 1px solid var(--border-soft);
-    border-radius: var(--radius-sm);
-    font-family: var(--mono);
-    font-size: 11.5px;
-    color: var(--text-dim);
-    overflow-x: auto;
-    white-space: pre-wrap;
-    word-break: break-word;
-    max-height: 220px;
-}
 
 /* ---------- diff ---------- */
 
@@ -509,27 +492,143 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent-dim); }
 .tree-row .kind.added { color: var(--active); }
 .tree-row .kind.deleted { color: var(--danger); }
 
-/* A staged file is marked in the tree so the list can be scanned without
-   opening each one. Hollow when only part of it is staged. */
-.staged-dot {
-    width: 6px;
-    height: 6px;
-    flex: 0 0 6px;
-    border-radius: 99px;
-    border: 1px solid var(--active);
+/* A tree row's leading column: a chevron on a folder, and the same width left
+   empty on a file so its icon sits under its folder's icon. */
+.twistie {
+    flex: 0 0 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-faint);
 }
 
-.staged-dot.full { background: var(--active); }
+.chevron { transition: transform 0.12s ease; flex: none; }
+.chevron.open { transform: rotate(90deg); }
 
-.caret {
-    flex: 0 0 13px;
-    display: inline-block;
-    text-align: center;
-    transition: transform 0.12s ease;
+/* File and folder icons. Glyphs in a language's colour, in the manner of VS
+   Code's Seti theme. The colours are mid-tone so they hold on both themes. */
+.file-icon {
+    flex: 0 0 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    line-height: 1;
+    color: var(--text-faint);
 }
 
-.caret::before { content: "\25b8"; }
-.caret.open { transform: rotate(90deg); }
+.fi-folder { color: #c09553; }
+.fi-csharp { color: #a179dc; }
+.fi-razor { color: #8a74d4; }
+.fi-fsharp { color: #378bba; }
+.fi-project { color: #8a74d4; }
+.fi-js { color: #cbcb41; }
+.fi-ts { color: #519aba; }
+.fi-react { color: #3fb9d6; }
+.fi-json { color: #cbcb41; }
+.fi-css { color: #519aba; }
+.fi-sass { color: #f55385; }
+.fi-html { color: #e37933; }
+.fi-xml { color: #e37933; }
+.fi-markdown { color: #519aba; }
+.fi-python { color: #3c78aa; }
+.fi-go { color: #519aba; }
+.fi-rust { color: #de7b57; }
+.fi-java { color: #cc3e44; }
+.fi-kotlin { color: #a074c4; }
+.fi-ruby { color: #cc3e44; }
+.fi-php { color: #a074c4; }
+.fi-swift { color: #e37933; }
+.fi-c { color: #519aba; }
+.fi-shell { color: #4d9a4d; }
+.fi-config { color: #8a8f98; }
+.fi-sql { color: #c09553; }
+.fi-image { color: #a074c4; }
+.fi-docker { color: #519aba; }
+.fi-git { color: #e05d44; }
+.fi-doc { color: #cbcb41; }
+
+.tree-row .kind.end { margin-left: auto; }
+
+/* The Uncommitted view's two staging sections, as VS Code's Source Control
+   view has them: a header per section, then its files as a flat list. */
+.scm-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 8px 5px 4px;
+    border-bottom: 1px solid var(--border-soft);
+    background: var(--surface-2);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+}
+
+.scm-head + .scm-head, .filelist > div + .scm-head, .scm-empty + .scm-head { border-top: 1px solid var(--border-soft); }
+
+.scm-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex: 1;
+    min-width: 0;
+    padding: 0;
+    border: none;
+    background: none;
+    color: inherit;
+    font: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    text-align: left;
+}
+
+/* A tree row with buttons of its own: the row is a container, the hit area
+   is a button that fills it, and the actions sit at the end. */
+.tree-row.has-actions { padding-top: 0; padding-bottom: 0; padding-right: 6px; }
+
+.tree-hit {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    padding: 0;
+    border: none;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+}
+
+.tree-actions { display: inline-flex; flex: none; }
+
+/* The per-row stage button shows on hover and keyboard focus, as in VS Code,
+   so a long list is not a column of plus signs. */
+.scm-action {
+    flex: 0 0 20px;
+    height: 20px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: none;
+    color: var(--text-dim);
+    font-size: 15px;
+    line-height: 1;
+}
+
+.scm-action:hover:not(:disabled) { background: var(--surface-3, var(--border-soft)); color: var(--text); }
+.has-actions .scm-action { visibility: hidden; }
+.has-actions:hover .scm-action, .has-actions:focus-within .scm-action { visibility: visible; }
+.tree-row .chip { flex: none; }
+
+.scm-empty { padding: 6px 12px; font-size: 12px; }
+
 .n.add { color: var(--active); }
 .n.del { color: var(--danger); }
 
@@ -725,6 +824,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent-dim); }
 @media (max-width: 760px) {
     .shell { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
     .sidebar { border-right: none; border-bottom: 1px solid var(--border); max-height: 200px; }
+    .sidebar-resize { display: none; }
     .tree { max-height: 110px; }
     .diff-line { grid-template-columns: 76px 18px minmax(0, 1fr); }
     .ln-pick { grid-template-columns: 38px 38px; }
@@ -999,6 +1099,36 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent-dim); }
 .activity-tool { color: var(--accent); flex: 0 0 auto; }
 .activity-what { color: var(--text-dim); overflow-wrap: anywhere; }
 
+/* The files a run changed: one fold with a count, each file in it a fold of its
+   own holding the diff. */
+.files-changed summary .count { margin-left: 2px; }
+.edit-add { color: var(--active); font-variant-numeric: tabular-nums; }
+.edit-del { color: var(--danger); font-variant-numeric: tabular-nums; }
+.files-changed-list { margin: 4px 0 0 14px; padding-left: 10px; border-left: 1px solid var(--border); display: flex; flex-direction: column; gap: 2px; }
+.changed-file summary { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
+.changed-path { color: var(--text-dim); overflow-wrap: anywhere; }
+
+.edit-diff {
+    margin: 4px 0 4px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    font-size: 12px;
+    max-height: 420px;
+    overflow: auto;
+}
+
+.edit-hunk + .edit-hunk, .edit-line + .edit-hunk { border-top: 1px dashed var(--border); }
+.edit-line { display: grid; grid-template-columns: 44px minmax(0, 1fr); color: var(--text-dim); }
+.edit-line.add { background: var(--add-bg); color: var(--text); }
+.edit-line.del { background: var(--del-bg); color: var(--text); }
+.edit-ln { text-align: right; padding-right: 8px; color: var(--text-faint); user-select: none; }
+.edit-text { white-space: pre-wrap; overflow-wrap: anywhere; padding-right: 8px; }
+.edit-line.add .edit-text::before { content: "+"; color: var(--active); margin-left: -1ch; }
+.edit-line.del .edit-text::before { content: "-"; color: var(--danger); margin-left: -1ch; }
+.edit-more { padding: 4px 8px; }
+.changed-open { margin-left: 14px; font-size: 12px; }
+
 .chat-notice-line { align-self: center; font-size: 12px; color: var(--text-faint); padding: 2px 10px; border: 1px dashed var(--border); border-radius: 99px; }
 
 .chat-waiting {
@@ -1058,7 +1188,19 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent-dim); }
 }
 
 .composer-row button { height: 40px; padding: 0 18px; }
-.composer-hint { font-size: 11.5px; color: var(--text-faint); }
+.composer-foot { display: flex; align-items: baseline; gap: 12px; }
+.composer-hint { font-size: 11.5px; color: var(--text-faint); min-width: 0; }
+
+.context-meter {
+    margin-left: auto;
+    font-size: 11.5px;
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.context-meter.warn { color: var(--waiting); }
+.context-meter.high { color: var(--danger); }
 
 /* ---------- agent sidebar and agent view ---------- */
 
@@ -1180,6 +1322,43 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent-dim); }
 
 /* A diff file scrolled far away, drawn as a block the height of its lines. */
 .diff-placeholder { background: var(--surface); }
+
+/* ---------- resizing the agent list ---------- */
+
+/* A strip over the list's right border, wider than the line it shows so it is
+   easy to catch. */
+.sidebar-resize {
+    position: absolute;
+    top: 0;
+    right: -4px;
+    width: 8px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 5;
+    touch-action: none;
+}
+
+.sidebar-resize::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 3px;
+    width: 2px;
+    background: transparent;
+    transition: background 0.12s;
+}
+
+.sidebar-resize:hover::after,
+.sidebar-resize:focus-visible::after,
+.resizing-sidebar .sidebar-resize::after { background: var(--accent); }
+
+.sidebar-resize:focus-visible { outline: none; }
+
+/* Held while dragging, so the cursor stays put and no text gets selected on the
+   way across. */
+.resizing-sidebar { cursor: col-resize; user-select: none; }
+.sidebar.collapsed .sidebar-resize { display: none; }
 
 /* ---------- folding the agent list ---------- */
 

@@ -41,6 +41,7 @@ public sealed record PermissionAsk(string Key, string Title, string? Detail, IRe
 /// <param name="CurrentTool">The tool call in progress, by its title.</param>
 /// <param name="Title">The name the agent gave the conversation, or one you picked it up under. Never the prompt.</param>
 /// <param name="Prompt">The first thing it was asked, to stand in for a title until it has one.</param>
+/// <param name="Context">How full its context window was when its last turn ended, if it has said.</param>
 public sealed record HostedAgent(
     string SessionId,
     string Cwd,
@@ -53,7 +54,17 @@ public sealed record HostedAgent(
     PermissionAsk? Permission,
     string? Error,
     IReadOnlyList<AcpConfigOption> Options,
-    string? Prompt = null);
+    string? Prompt = null,
+    ContextUsage? Context = null);
+
+/// <summary>How much of an agent's context window its conversation takes up.</summary>
+/// <param name="Used">Tokens in context: the last request's input, cached or not.</param>
+/// <param name="Size">The model's context window, as the agent reports it.</param>
+public sealed record ContextUsage(long Used, long Size)
+{
+    /// <summary>Used as a whole percentage of the window, capped at 100.</summary>
+    public int Percent => Size <= 0 ? 0 : (int)Math.Min(100, Math.Round(Used * 100.0 / Size));
+}
 
 /// <summary>What to start an agent with. Blank settings leave the agent's own default.</summary>
 public sealed record AgentStart(
@@ -107,7 +118,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
     private IAgentProcess? _process;
     private AcpClient? _client;
     private bool _dirty;
-    private bool _titlesChanged;
+    private bool _recordChanged;
     private IReadOnlyList<AcpConfigOption> _knownOptions = [];
 
     public AgentHost(AgentBackend backend, IAgentLauncher launcher, HostedAgentStore store, IClock? clock = null)
@@ -123,6 +134,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
             {
                 Title = saved.Title,
                 Prompt = saved.Prompt,
+                Context = saved.Context,
             };
         }
 
@@ -720,6 +732,18 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
 
                     break;
 
+                case "usage_update":
+                    // Sent when a turn ends and after a compaction, not while the
+                    // turn runs, so the figure is as of the last turn.
+                    if (AcpClient.Number(update, "used") is { } used
+                        && AcpClient.Number(update, "size") is { } size and > 0)
+                    {
+                        entry.Context = new ContextUsage(used, size);
+                        _recordChanged = true;
+                    }
+
+                    break;
+
                 case "session_info_update":
                     if (AcpClient.Text(update, "title") is { Length: > 0 } named
                         && named != entry.Title
@@ -729,7 +753,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
                         // about, which is a better label than the first prompt, so
                         // it is kept for the next start as well.
                         entry.Title = named;
-                        _titlesChanged = true;
+                        _recordChanged = true;
                     }
 
                     break;
@@ -856,7 +880,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
         {
             records = _entries.Values
                 .OrderBy(e => e.AddedAt)
-                .Select(e => new HostedAgentRecord(e.SessionId, e.Cwd, e.Title, e.AddedAt, e.Prompt))
+                .Select(e => new HostedAgentRecord(e.SessionId, e.Cwd, e.Title, e.AddedAt, e.Prompt, e.Context))
                 .ToList();
         }
 
@@ -892,8 +916,8 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
             }
 
             _dirty = false;
-            save = _titlesChanged;
-            _titlesChanged = false;
+            save = _recordChanged;
+            _recordChanged = false;
         }
 
         if (save)
@@ -998,6 +1022,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
         public DateTimeOffset AddedAt { get; } = addedAt;
         public string? Title { get; set; }
         public string? Prompt { get; set; }
+        public ContextUsage? Context { get; set; }
         public bool Attached { get; set; }
         public int Turns { get; set; }
         public HostedState State { get; private set; } = HostedState.Stopped;
@@ -1019,6 +1044,6 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
 
         public HostedAgent Snapshot() => new(
             SessionId, Cwd, Title, State, StateSince, AddedAt,
-            Live.ToString(), CurrentTool, Permission?.Ask, Error, Options, Prompt);
+            Live.ToString(), CurrentTool, Permission?.Ask, Error, Options, Prompt, Context);
     }
 }

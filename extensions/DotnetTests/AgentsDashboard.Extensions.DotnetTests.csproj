@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <!--
+    The Tests tab, as an extension. It is not shipped with the app: link this
+    folder in Settings, Extensions, or pass it with extension. It is also the
+    worked example of an extension, so it is built the way anyone else's is.
+  -->
+  <PropertyGroup>
+    <RootNamespace>AgentsDashboard.Extensions.DotnetTests</RootNamespace>
+    <!-- Writes a .deps.json the app's loader resolves this extension's own
+         dependencies from, and keeps shared framework assemblies out. -->
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <!-- One fixed folder, which extension.json points at, so the app finds the
+         build whatever the configuration. -->
+    <OutputPath>bin/dashboard/</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Compile against the API, never ship it: the app's own copy is the one
+         that runs, so the two sides agree on every type. Outside this repo an
+         extension references ~/.agents-dashboard/sdk/1.0/ the same way. -->
+    <ProjectReference Include="..\..\src\AgentsDashboard.Extensions\AgentsDashboard.Extensions.csproj"
+                      Private="false" ExcludeAssets="runtime" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Served by the app at /_ext/dotnet-tests/ while this is loaded. -->
+    <None Include="assets\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="AgentsDashboard.Extensions.DotnetTests.Tests" />
+  </ItemGroup>
+
+</Project>

@@ -151,8 +151,14 @@ function requestSave(state) {
     state.dotnet.invokeMethodAsync('SaveFromEditor', state.editor.getValue());
 }
 
+// The model keeps the line endings it was created with, and the text the server
+// sends may not, so two texts are compared with the endings taken out.
+function sameText(a, b) {
+    return a.replace(/\r\n/g, '\n') === b.replace(/\r\n/g, '\n');
+}
+
 function reportDirty(state) {
-    const dirty = state.editor.getValue() !== state.baseline;
+    const dirty = !sameText(state.editor.getValue(), state.baseline);
     if (dirty === state.dirty) {
         return;
     }
@@ -418,10 +424,23 @@ window.agentsEditor = {
             if (!hasLine) {
                 restore(state.editor);
             }
-        } else {
-            state.editor.setValue(value);
+        } else if (current) {
+            // The same file, which is every save: a save comes back with a new
+            // stamp and lands here. setValue would throw away the undo stack, so
+            // Ctrl+Z after a save would do nothing. When the buffer already
+            // holds what was saved there is nothing to replace; when it differs
+            // (a reload after a conflict) the text goes in as one edit, which
+            // Ctrl+Z can take back like any other.
+            if (!sameText(current.getValue(), value)) {
+                current.pushStackElement();
+                current.pushEditOperations(
+                    [],
+                    [{ range: current.getFullModelRange(), text: value }],
+                    () => null);
+                current.pushStackElement();
+            }
 
-            if (path && current) {
+            if (path) {
                 monaco.editor.setModelLanguage(current, languageFor(monaco, path));
             }
         }

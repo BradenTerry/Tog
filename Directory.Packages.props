@@ -24,9 +24,10 @@
   </ItemGroup>
 
   <ItemGroup Label="Testing">
-    <!-- xunit.v3 runs on Microsoft.Testing.Platform natively, and MTP >= 2.3.0
-         streams its TRX report to disk as the run progresses. That is what the
-         dashboard's own test monitor reads, so this suite is also its fixture. -->
+    <!-- The repository's own test suites; nothing here ships in the app.
+         xunit.v3 runs on Microsoft.Testing.Platform natively, and MTP >= 2.3.0
+         streams its TRX report to disk as the run progresses, which is what the
+         Tests extension reads, so these suites are also its fixture. -->
     <PackageVersion Include="xunit.v3" Version="4.0.0" />
     <PackageVersion Include="Microsoft.Testing.Extensions.TrxReport" Version="2.4.0" />
     <PackageVersion Include="Microsoft.Testing.Platform" Version="2.4.0" />

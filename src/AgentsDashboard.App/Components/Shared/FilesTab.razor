@@ -55,11 +55,11 @@ else
                               OnToggle="ToggleDirectory"
                               OnSelect="Select">
                     <FileRow Context="node">
-                        <span class="kind @(node.Value!.Tracked ? "" : "added")"
-                              title="@(node.Value.Tracked ? "Tracked" : "Untracked")">
-                            @(node.Value.Tracked ? "" : "N")
-                        </span>
                         <span class="label">@node.Name</span>
+                        @if (!node.Value!.Tracked)
+                        {
+                            <span class="kind added end" title="Untracked">N</span>
+                        }
                     </FileRow>
                 </PathTreeView>
             }
@@ -136,10 +136,14 @@ else
                         }
                         @if (CanPreview)
                         {
-                            <button class="small @(_preview ? "primary" : "")" @onclick="TogglePreview"
-                                    title="@(_preview ? "Back to the editor" : "Show this file as it reads, not as it is written")">
-                                @(_preview ? "Edit" : "Preview")
-                            </button>
+                            @* Two fixed labels with the current one pressed, rather than one
+                               button whose label names the view you are not in. *@
+                            <div class="segmented" role="group" aria-label="View">
+                                <button class="small @(_preview ? "" : "on")" aria-pressed="@((!_preview).ToString().ToLowerInvariant())"
+                                        @onclick="() => SetPreview(false)" title="Edit the file as it is written">Code</button>
+                                <button class="small @(_preview ? "on" : "")" aria-pressed="@(_preview.ToString().ToLowerInvariant())"
+                                        @onclick="() => SetPreview(true)" title="Show the file as it reads, unsaved changes included">Preview</button>
+                            </div>
                         }
                         <a class="btn small" href="@VsCodeLink" title="Open this file in VS Code">Open in VS Code</a>
                         <span class="faint nums">@Status</span>
@@ -264,10 +268,15 @@ else
     /// the editor holds, saved or not, so a change reads as it will look before
     /// it is written.
     /// </summary>
-    private async Task TogglePreview()
+    private async Task SetPreview(bool preview)
     {
+        if (preview == _preview)
+        {
+            return;
+        }
+
         Touch();
-        _preview = !_preview;
+        _preview = preview;
         _view.MarkdownPreview = _preview;
         if (_preview && _file is { } file)
         {

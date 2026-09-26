@@ -1,5 +1,9 @@
 # Following a .NET test run
 
+This is the Tests extension, `extensions/DotnetTests`. It is not part of the app
+and not shipped with it: link the folder in Settings, Extensions. See
+[extensions.md](extensions.md).
+
 The problem this solves: an agent runs `dotnet test`, and for the next minute you
 have no idea whether it is building, running, passing, or already finished and
 scrolled away. The dashboard answers that continuously, for runs you start and

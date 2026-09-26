@@ -11,7 +11,7 @@ using AgentsDashboard.Core.Monitoring;
 using AgentsDashboard.Core.Platform;
 using AgentsDashboard.Core.Repos;
 using AgentsDashboard.Core.Review;
-using AgentsDashboard.Core.Testing;
+using AgentsDashboard.App.Extensions;
 
 // The dashboard is a local web app in a native window. Blazor Server rather than
 // a hybrid webview because its circuit is exactly the push channel this needs:
@@ -87,11 +87,14 @@ builder.Services.AddSingleton<WorktreeCreator>();
 builder.Services.AddSingleton<SolutionLoader>();
 builder.Services.AddSingleton<CodeIntelligence>();
 
-// Tests
-builder.Services.AddSingleton<ITestProcessScanner, TestProcessScanner>();
-builder.Services.AddSingleton<TestRunTracker>();
-builder.Services.AddSingleton<TestRunner>();
-builder.Services.AddSingleton<TelemetryCache>();
+// Extensions
+// The API services are in the app's container as well as each extension's, so
+// an extension's component can @inject them like any other.
+builder.Services.AddSingleton(new ExtensionOptions(options.Extensions ?? [], options.NoExtensions));
+builder.Services.AddSingleton<AgentsDashboard.Extensions.IDashboardView, DashboardViewAdapter>();
+builder.Services.AddSingleton<AgentsDashboard.Extensions.INavigation, Navigation>();
+builder.Services.AddSingleton<AgentsDashboard.Extensions.ITextLinker, TextLinker>();
+builder.Services.AddSingleton<ExtensionHost>();
 
 // Review
 builder.Services.AddSingleton<FeedbackDispatcher>();
@@ -111,6 +114,10 @@ var app = builder.Build();
 app.MapStaticAssets();
 app.UseAntiforgery();
 app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
+app.MapExtensionAssets();
+
+// Before the first page, so an extension's tabs are there when it draws.
+app.Services.GetRequiredService<ExtensionHost>().Start();
 
 await app.StartAsync();
 

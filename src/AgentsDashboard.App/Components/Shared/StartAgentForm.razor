@@ -31,7 +31,7 @@
                             @onchange="e => { _repo = e.Value?.ToString() ?? string.Empty; _worktree = string.Empty; _branch = string.Empty; Touch(); }">
                         @foreach (var root in Repos)
                         {
-                            <option value="@root">@(State.Repo(root)?.Name ?? Fmt.Leaf(root))</option>
+                            <option value="@root">@RepoName(root)</option>
                         }
                     </select>
                 </div>
@@ -307,9 +307,15 @@
         _permissionMode = _settings.DefaultPermissionMode ?? "";
     }
 
-    /// <summary>The repositories configured in Settings, minus any since hidden.</summary>
+    /// <summary>The repositories configured in Settings, minus any since hidden, by name.</summary>
     private IReadOnlyList<string> Repos =>
-        _settings.RepoRoots.Where(r => !_settings.HiddenRoots.Contains(r, StringComparer.Ordinal)).ToList();
+        _settings.RepoRoots
+            .Where(r => !_settings.HiddenRoots.Contains(r, StringComparer.Ordinal))
+            .OrderBy(RepoName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(r => r, StringComparer.Ordinal)
+            .ToList();
+
+    private string RepoName(string root) => State.Repo(root)?.Name ?? Fmt.Leaf(root);
 
     /// <summary>
     /// The selected repository, falling back to the first one.
@@ -322,7 +328,12 @@
     private string Repo =>
         Repos.Contains(_repo, StringComparer.Ordinal) ? _repo : Repos.FirstOrDefault() ?? "";
 
-    private IReadOnlyList<WorktreeView> Worktrees => State.Repo(Repo)?.Worktrees ?? [];
+    /// <summary>The picked repository's worktrees: the primary checkout first, then by name.</summary>
+    private IReadOnlyList<WorktreeView> Worktrees =>
+        (State.Repo(Repo)?.Worktrees ?? [])
+            .OrderBy(w => w.Worktree.IsPrimary ? 0 : 1)
+            .ThenBy(w => w.Worktree.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
     /// <summary>The existing worktree picked, or empty for a new one.</summary>
     private string Worktree =>

@@ -157,6 +157,14 @@ public sealed class AcpClient(JsonRpcConnection rpc)
             .ToList();
     }
 
+    internal static long? Number(JsonElement element, string name) =>
+        element.ValueKind == JsonValueKind.Object
+        && element.TryGetProperty(name, out var value)
+        && value.ValueKind == JsonValueKind.Number
+        && value.TryGetInt64(out var number)
+            ? number
+            : null;
+
     internal static string? Text(JsonElement element, string name) =>
         element.ValueKind == JsonValueKind.Object
         && element.TryGetProperty(name, out var value)

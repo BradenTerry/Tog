@@ -30,6 +30,19 @@ convention, so it is used as a fast path only; a miss falls back to scanning the
 projects directory. A transcript we cannot find costs a work summary, never an
 agent.
 
+## The conversation
+
+`ConversationReader` reads the same transcript as a chat. Tool calls between two
+things said fold into one "Ran 2 commands, read a file" line. File changes made
+with Edit, MultiEdit and Write are pulled out of that fold into a "Files changed"
+fold of their own, with a count, and each file in it opens to its diff. The first
+diff is made from the call's input, which has no line numbers. The tool's result,
+a record or two later, carries a `toolUseResult.structuredPatch` with line
+numbers and context, and replaces it. A failed edit is marked failed.
+
+This only sees changes made with the edit tools. A file changed by a shell
+command (`sed`, a script) shows as the command, the same as in the terminal.
+
 ## Subagents
 
 Subagents run inside the parent agent's process and have no session of their own.
