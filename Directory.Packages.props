@@ -8,6 +8,7 @@
     <!-- Desktop shell: a native OS window over the local Blazor Server host.
          Ships native binaries for win/linux/osx on both x64 and arm64. -->
     <PackageVersion Include="Photino.NET" Version="4.0.16" />
+    <PackageVersion Include="Markdig" Version="1.4.0" />
   </ItemGroup>
 
   <ItemGroup Label="Code intelligence">

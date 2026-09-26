@@ -1,6 +1,9 @@
 @using AgentsDashboard.Core.Code
 @inject WorktreeFiles Files
 @inject CodeIntelligence Code
+@inject DiffReader Diffs
+@inject WorktreeViews Views
+@inject IJSRuntime Js
 @implements IDisposable
 
 <div class="inline" style="margin-bottom: 12px;">
@@ -31,7 +34,7 @@ else if (_files.Count == 0)
 else
 {
     <div class="diff-layout">
-        <aside class="card filelist" aria-label="Files in this worktree">
+        <aside class="card filelist" aria-label="Files in this worktree" @ref="_list">
             <div class="filelist-head">
                 <span class="faint">@Fmt.Count(Shown.Count, "file")</span>
                 <button class="ghost small spacer" @onclick="ToggleAll">
@@ -47,7 +50,7 @@ else
             {
                 <PathTreeView TValue="WorktreeFile"
                               Node="Tree"
-                              Collapsed="_collapsed"
+                              Collapsed="@(_filter.Length == 0 ? _collapsed : NoneCollapsed)"
                               Selected="@_selected"
                               OnToggle="ToggleDirectory"
                               OnSelect="Select">
@@ -131,6 +134,13 @@ else
                                 @(_saving ? "Saving..." : "Save")
                             </button>
                         }
+                        @if (CanPreview)
+                        {
+                            <button class="small @(_preview ? "primary" : "")" @onclick="TogglePreview"
+                                    title="@(_preview ? "Back to the editor" : "Show this file as it reads, not as it is written")">
+                                @(_preview ? "Edit" : "Preview")
+                            </button>
+                        }
                         <a class="btn small" href="@VsCodeLink" title="Open this file in VS Code">Open in VS Code</a>
                         <span class="faint nums">@Status</span>
                     </div>
@@ -160,6 +170,14 @@ else
                     }
                     else
                     {
+                        @if (_preview && CanPreview)
+                        {
+                            <div class="md-preview" @ref="_previewElement">@((MarkupString)_previewHtml)</div>
+                        }
+
+                        @* Hidden rather than removed while previewing, so the editor keeps its
+                           undo history, scroll and anything not yet saved. *@
+                        <div style="@(_preview && CanPreview ? "display: none;" : "")">
                         <CodeEditor @ref="_editor"
                                     Path="@_file.Path"
                                     AbsolutePath="@(WorktreeFiles.Resolve(WorktreePath, _file.Path) ?? "")"
@@ -167,6 +185,7 @@ else
                                     Text="@_file.Text"
                                     Stamp="@_stamp"
                                     Line="@_line"
+                                    Marks="@_marks"
                                     OnSave="Save"
                                     OnDirtyChanged="SetUnsaved"
                                     OnNavigate="Navigate"
@@ -176,6 +195,7 @@ else
 
                         <div class="row faint editor-hint">
                             Ctrl+S or Cmd+S saves.@(IsCSharp ? " F12 goes to a definition, Shift+F12 finds references, Shift+Alt+H shows callers." : "")
+                        </div>
                         </div>
                     }
                 </article>
@@ -206,7 +226,90 @@ else
     public int? InitialLine { get; set; }
 
     private IReadOnlyList<WorktreeFile> _files = [];
-    private readonly HashSet<string> _collapsed = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Folded directories. The set is the remembered one for this worktree, so
+    /// folding and unfolding here is what the next visit to the tab finds.
+    /// </summary>
+    private HashSet<string> _collapsed = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// A filtered tree is small enough to read whole, and folds left in place
+    /// would hide the very matches searched for. It is shown unfolded without
+    /// touching the remembered folds, so clearing the filter puts them back.
+    /// </summary>
+    private static readonly HashSet<string> NoneCollapsed = [];
+
+    private RememberedView _view = new();
+    private ElementReference _list;
+
+    /// <summary>Lines changed against the Changes tab's base, for the editor's gutter.</summary>
+    private IReadOnlyList<ChangeMark> _marks = [];
+
+    /// <summary>Whether Markdown files show rendered. Remembered per worktree, so it holds from file to file.</summary>
+    private bool _preview;
+
+    private string _previewHtml = "";
+    private ElementReference _previewElement;
+    private bool _enhance;
+    private DotNetObjectReference<FilesTab>? _self;
+
+    private bool CanPreview =>
+        _file is { IsBinary: false, Truncated: false, Error: null } file
+        && (file.Path.EndsWith(".md", StringComparison.OrdinalIgnoreCase)
+            || file.Path.EndsWith(".markdown", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Switches between the editor and the rendered file. The preview is of what
+    /// the editor holds, saved or not, so a change reads as it will look before
+    /// it is written.
+    /// </summary>
+    private async Task TogglePreview()
+    {
+        Touch();
+        _preview = !_preview;
+        _view.MarkdownPreview = _preview;
+        if (_preview && _file is { } file)
+        {
+            var text = await Current() ?? file.Text;
+            Render(text);
+
+            // The tab only redraws when told to, and the render that followed the
+            // await above used that up before the preview existed.
+            Touch();
+        }
+    }
+
+    private void Render(string text)
+    {
+        _previewHtml = MarkdownRenderer.Render(text, _file?.Path);
+        _enhance = true;
+    }
+
+    /// <summary>A link in the preview to another file in the repository.</summary>
+    [JSInvokable]
+    public Task OpenLinked(string path) => InvokeAsync(() =>
+    {
+        Touch();
+        Reveal(path);
+        if (_unsaved && !string.Equals(path, _file?.Path, StringComparison.Ordinal))
+        {
+            _pending = path;
+        }
+        else
+        {
+            Open(path, null);
+        }
+
+        StateHasChanged();
+    });
+
+    /// <summary>
+    /// Set when a link opened the file with no line in it. The first change is
+    /// the likeliest thing it meant, so the editor lands there once the marks
+    /// are known.
+    /// </summary>
+    private bool _landOnChange;
     private string _filter = "";
     private string? _selected;
 
@@ -238,8 +341,11 @@ else
 
     private CodeEditor? _editor;
 
-    /// <summary>The last <see cref="InitialFile"/> acted on, so a re-render does not reopen it.</summary>
-    private string? _applied;
+    /// <summary>
+    /// The last link acted on, so a re-render does not reopen it. The line is
+    /// part of it: a second link into the same file at another line still moves.
+    /// </summary>
+    private (string File, int? Line)? _applied;
 
     private bool _loading;
     private CancellationTokenSource? _load;
@@ -335,15 +441,39 @@ else
         if (RendererInfo.IsInteractive)
         {
             Code.StatusChanged += OnCodeStatusChanged;
+            Views.BaseChanged += OnBaseChanged;
+
+            _view = Views.For(WorktreePath);
+            _preview = _view.MarkdownPreview;
+            if (_view.Collapsed is { } remembered)
+            {
+                _collapsed = remembered;
+            }
+
             await Load();
+
+            // Coming back to the tab reopens what was open, unless a link is
+            // about to open something else.
+            if (_file is null && InitialFile is null && _view.OpenFile is { } open)
+            {
+                Open(open, null);
+            }
         }
     }
 
     protected override void OnParametersSet()
     {
+        // The tab stays built while you are on another one, and the link that
+        // opened a file is gone from the URL by the time you come back. Forgetting
+        // it then means following the same link again still moves the editor.
+        if (InitialFile is null)
+        {
+            _applied = null;
+        }
+
         if (!RendererInfo.IsInteractive
             || InitialFile is not { Length: > 0 } file
-            || string.Equals(file, _applied, StringComparison.Ordinal))
+            || _applied == (file, InitialLine))
         {
             return;
         }
@@ -351,8 +481,10 @@ else
         // A deep link is an instruction, not a selection, so it opens the file
         // whether or not the listing has it: ReadText reports a missing file
         // better than an empty pane would.
-        _applied = file;
+        _applied = (file, InitialLine);
         Open(file, InitialLine);
+        _landOnChange = InitialLine is null;
+        Reveal(file);
     }
 
     private async Task Load()
@@ -377,6 +509,18 @@ else
             {
                 _files = files;
                 _treeCacheFor = null;
+
+                // The first time the tree is drawn for this worktree, everything
+                // starts folded: a repository opened all the way down is a wall.
+                if (_view.Collapsed is null)
+                {
+                    _collapsed.UnionWith(AllDirectories(Tree));
+                    _view.Collapsed = _collapsed;
+                    if (_file is not null)
+                    {
+                        Reveal(_file.Path);
+                    }
+                }
             }
         }
         catch (OperationCanceledException)
@@ -397,10 +541,17 @@ else
     {
         Touch();
         _filter = value;
+    }
 
-        // A filtered tree is small enough to read whole, and folds the user left
-        // in place would hide the very matches they searched for.
-        _collapsed.Clear();
+    /// <summary>Unfolds the directories a file sits in, so the tree shows what is open.</summary>
+    private void Reveal(string path)
+    {
+        var at = path.LastIndexOf('/');
+        while (at > 0)
+        {
+            _collapsed.Remove(path[..at]);
+            at = path.LastIndexOf('/', at - 1);
+        }
     }
 
     /// <summary>
@@ -441,8 +592,92 @@ else
 
         _file = Files.ReadText(WorktreePath, path);
         _stamp = _file.Stamp;
+        _view.OpenFile = path;
+        _marks = [];
+        _landOnChange = false;
+        if (_preview && CanPreview)
+        {
+            Render(_file.Text);
+        }
 
         StartLoadingCode();
+        _ = ReadMarks();
+    }
+
+    /// <summary>
+    /// Reads which lines of the open file differ from the Changes tab's base.
+    /// </summary>
+    /// <remarks>
+    /// Against the file on disk, so it runs whenever the disk and the editor come
+    /// back into step: on opening, saving and reloading. An answer for a file that
+    /// has since been swapped out is dropped.
+    /// </remarks>
+    private async Task ReadMarks()
+    {
+        if (_file is not { } file || file.IsBinary || file.Error is not null)
+        {
+            return;
+        }
+
+        var marks = ChangeMarks.From(
+            await Diffs.ReadFileAsync(WorktreePath, file.Path, _view.Base, _view.CustomRef));
+
+        if (_file?.Path != file.Path)
+        {
+            return;
+        }
+
+        _marks = marks;
+        if (_landOnChange)
+        {
+            _landOnChange = false;
+            if (ChangeMarks.First(marks) is { } first)
+            {
+                _line = first;
+            }
+        }
+
+        Touch();
+        StateHasChanged();
+    }
+
+    private void OnBaseChanged(string worktreePath)
+    {
+        if (string.Equals(worktreePath, WorktreePath, StringComparison.Ordinal))
+        {
+            _ = InvokeAsync(ReadMarks);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_enhance && _preview && _previewElement.Id is not null)
+        {
+            _enhance = false;
+            _self ??= DotNetObjectReference.Create(this);
+            try
+            {
+                await Js.InvokeVoidAsync("agentsDashboard.enhanceMarkdown", _previewElement, _self);
+            }
+            catch (Exception e) when (e is JSException or InvalidOperationException or TaskCanceledException)
+            {
+            }
+        }
+
+        // The tree scrolls on its own, and where it was scrolled to is part of
+        // where you were. The element only exists once the listing has arrived.
+        if (_list.Id is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await Js.InvokeVoidAsync("agentsDashboard.keepScroll", _list, "files:" + WorktreePath);
+        }
+        catch (Exception e) when (e is JSException or InvalidOperationException or TaskCanceledException)
+        {
+        }
     }
 
     private void SetUnsaved(bool unsaved)
@@ -517,6 +752,7 @@ else
             // solution's view of this file is rebuilt from.
             Code.RefreshDocumentFromDisk(WorktreePath, _file.Path);
             MarkSaved();
+            _ = ReadMarks();
             return;
         }
 
@@ -759,6 +995,8 @@ else
     public void Dispose()
     {
         Code.StatusChanged -= OnCodeStatusChanged;
+        Views.BaseChanged -= OnBaseChanged;
+        _self?.Dispose();
         _codeLoad?.Cancel();
         _codeLoad?.Dispose();
         _load?.Cancel();

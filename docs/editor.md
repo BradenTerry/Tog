@@ -103,18 +103,52 @@ flips, so a keystroke costs nothing on the circuit.
 
 ## Deep links
 
-`WorktreeRoute.ForFile(worktree, file, line)` builds
-`worktree/<path>/files?file=<rel>&line=N`. The file is in the query string
-because the worktree path is already one escaped segment, and nesting a second
-escaped path inside it makes a URL nobody can read.
+`Urls.AgentFile(session, file, line)` builds
+`chat/<session>/files?file=<rel>&line=N`: a path an agent mentions opens in that
+agent's own Files tab, so following it never leaves the agent. The file is in the
+query string rather than the route so the tab stays one route per agent.
 
-The worktree page keys the Files tab on the worktree alone, deliberately. Keying
+The agent view keys the Files tab on the worktree alone, deliberately. Keying
 it on the file as well would tear the editor down and build a new one for every
 link followed, losing the loaded Monaco instance and the scroll position with
 it; instead the tab pushes the new text and line into the editor that is already
 there.
 
 `CodeEditor` renders its host `div` once and returns `false` from `ShouldRender`
-forever after, for the same reason `ChangesTab` does: the worktree page
+forever after, for the same reason `ChangesTab` does: the agent view
 re-renders every second because the monitor publishes a snapshot that often, and
 the host is full of children Blazor did not create.
+
+## Change marks
+
+The editor marks lines that differ from the diff base the way VS Code does: a
+green bar for added lines, blue for modified, a red wedge at the foot of the line
+above a deletion, and matching ticks in the scrollbar and the minimap. The base is
+the one the Changes tab last compared against, kept per worktree in
+`WorktreeViews`, so the two tabs never disagree about what changed; switching the
+base in Changes re-marks an open file.
+
+`DiffReader.ReadFileAsync` diffs the one file with `-U0`, so every hunk is exactly
+one change, and `ChangeMarks.From` turns hunks into marks: only additions is
+added, only removals is a deletion, a mix marks every added line modified. An
+untracked file has no diff and comes back as one hunk adding every line. Marks
+are read against the disk, so they are refreshed on open, save and reload;
+between those, Monaco's decorations move with edits and stay on their lines.
+
+A link into a file with no line in it lands on the first change, since that is
+almost always what the agent was pointing at.
+
+## Coming back to the tab
+
+Every tab opened for an agent stays built while that agent is on screen; the
+ones not in front are hidden with `visibility`, not `display`. Rebuilding the
+Files tab meant listing the worktree, reading the file and starting a fresh
+Monaco, which flickered on every switch, and a `display: none` box loses both its
+scroll position and Monaco's size. Switching agents does rebuild them.
+
+What should survive that lives outside the tab. `WorktreeViews` keeps the folded
+directories and the open file per worktree; the tree starts fully folded the
+first time, apart from the path to the open file. `monaco.js` keeps each file's
+view state (scroll and caret) by model URI for the life of the page, and
+`keepScroll` in `app.js` keeps the tree's scroll position, retrying the restore
+as content arrives until it lands or you scroll yourself.

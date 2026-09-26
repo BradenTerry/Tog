@@ -27,4 +27,11 @@ public sealed record Settings
 
     /// <summary>Permission mode to preselect when starting an agent. Null leaves it to the CLI.</summary>
     public string? DefaultPermissionMode { get; init; }
+
+    /// <summary>
+    /// Repositories you have confirmed agents may read and change. Asked once per
+    /// repository, the first time an agent is started in it, and kept here rather
+    /// than in Claude's own config, which the dashboard never writes.
+    /// </summary>
+    public IReadOnlyList<string> TrustedRoots { get; init; } = [];
 }

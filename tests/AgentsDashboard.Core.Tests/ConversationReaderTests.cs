@@ -81,6 +81,23 @@ public class ConversationReaderTests
     }
 
     [Fact]
+    public void Shows_a_message_sent_mid_turn_where_the_agent_read_it()
+    {
+        var queued = """{"type":"attachment","isSidechain":false,"timestamp":"2026-09-25T10:00:03Z","attachment":{"type":"queued_command","prompt":[{"type":"text","text":"also fix the title"}],"commandMode":"prompt","origin":{"kind":"human"}}}""";
+        var harness = """{"type":"attachment","isSidechain":false,"attachment":{"type":"queued_command","prompt":"ran by a hook","commandMode":"prompt","origin":{"kind":"hook"}}}""";
+
+        var entries = Parse(
+            Assistant(Tool("Bash", """{"command":"ls"}""")),
+            queued,
+            harness,
+            Assistant(Tool("Read", """{"file_path":"/repo/a.cs"}""")),
+            Assistant(Text("Done, and the title too.")));
+
+        Assert.Equal([ChatKind.Activity, ChatKind.You, ChatKind.Activity, ChatKind.Agent], entries.Select(e => e.Kind));
+        Assert.Equal("also fix the title", entries[1].Text);
+    }
+
+    [Fact]
     public void Shows_a_slash_command_as_it_was_typed()
     {
         var entries = Parse(User("<command-name>/review</command-name>\n<command-args>PR 12</command-args>"));

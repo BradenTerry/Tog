@@ -94,11 +94,11 @@ else if (!mtp)
                 <div class="failure-name">@failure.Name</div>
                 @if (failure.Message is { Length: > 0 } message)
                 {
-                    <pre><FileLinks Text="@message" WorktreePath="@View.Worktree.Path" /></pre>
+                    <pre><FileLinks Text="@message" WorktreePath="@View.Worktree.Path" SessionId="@SessionId" /></pre>
                 }
                 @if (failure.StackTrace is { Length: > 0 } stack)
                 {
-                    <pre class="faint"><FileLinks Text="@stack" WorktreePath="@View.Worktree.Path" /></pre>
+                    <pre class="faint"><FileLinks Text="@stack" WorktreePath="@View.Worktree.Path" SessionId="@SessionId" /></pre>
                 }
             </div>
         }
@@ -119,6 +119,10 @@ else if (!mtp)
 
     [Parameter, EditorRequired]
     public DateTimeOffset Now { get; set; }
+
+    /// <summary>The agent the tab is shown for, so file links stay in its view.</summary>
+    [Parameter, EditorRequired]
+    public string SessionId { get; set; } = "";
 
     private bool _starting;
     private bool _installing;

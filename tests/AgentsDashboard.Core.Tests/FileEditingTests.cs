@@ -330,30 +330,6 @@ public class FileReferenceTests
     }
 }
 
-public class WorktreeRouteFileTests
-{
-    [Fact]
-    public void Builds_a_link_to_a_file()
-    {
-        var url = WorktreeRoute.ForFile("/repo/wt", "src/a b.cs");
-
-        Assert.Equal("worktree/%2Frepo%2Fwt/files?file=src%2Fa%20b.cs", url);
-    }
-
-    [Fact]
-    public void Adds_the_line_when_there_is_one() =>
-        Assert.EndsWith("&line=42", WorktreeRoute.ForFile("/repo/wt", "a.cs", 42), StringComparison.Ordinal);
-
-    [Fact]
-    public void The_query_string_does_not_change_which_worktree_a_url_shows()
-    {
-        var url = WorktreeRoute.ForFile("/repo/wt", "src/a.cs", 42);
-
-        Assert.Equal("/repo/wt", WorktreeRoute.PathOf(url));
-        Assert.True(WorktreeRoute.Shows(url, "/repo/wt"));
-    }
-}
-
 public class EditorLinkTests
 {
     [Fact]

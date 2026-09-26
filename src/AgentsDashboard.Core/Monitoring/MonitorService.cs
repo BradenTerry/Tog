@@ -32,7 +32,7 @@ public sealed class MonitorService : IAsyncDisposable
 
     private readonly DashboardState _state;
     private readonly SettingsStore _settings;
-    private readonly SessionRegistryReader _registry;
+    private readonly IAgentSessionSource _registry;
     private readonly TranscriptLocator _locator;
     private readonly TranscriptReader _transcripts;
     private readonly SubagentReader _subagents;
@@ -57,7 +57,7 @@ public sealed class MonitorService : IAsyncDisposable
     public MonitorService(
         DashboardState state,
         SettingsStore settings,
-        SessionRegistryReader registry,
+        IAgentSessionSource registry,
         TranscriptLocator locator,
         TranscriptReader transcripts,
         SubagentReader subagents,

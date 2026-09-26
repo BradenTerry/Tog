@@ -1,7 +1,8 @@
 @*
     Text an agent or a test runner wrote, with the files it mentions turned into
     links: one into the Files tab at the line, and a small one that hands the
-    absolute path to VS Code.
+    absolute path to VS Code. The Files tab is the agent's own, so following a
+    path never leaves the agent it was mentioned by.
 
     Whether a candidate is a real file is answered from disk, so the scan is done
     once per piece of text rather than on every render. The pages that show this
@@ -13,7 +14,7 @@
     {
         if (segment.Reference is { } reference)
         {
-            <a class="file-link" href="@Urls.File(WorktreePath, reference.Path, reference.Line)"
+            <a class="file-link" href="@Href(reference)"
                title="Open in the Files tab">@segment.Text</a>
 
             if (WorktreeFiles.Resolve(WorktreePath, reference.Path) is { } absolute)
@@ -38,7 +39,15 @@
     [EditorRequired]
     public string WorktreePath { get; set; } = "";
 
+    /// <summary>The agent whose Files tab the links open.</summary>
+    [Parameter]
+    [EditorRequired]
+    public string SessionId { get; set; } = "";
+
     private IReadOnlyList<TextSegment> _segments = [];
+
+    private string Href(FileReference reference) =>
+        Urls.AgentFile(SessionId, reference.Path, reference.Line);
 
     /// <summary>The text and worktree the segments were built from.</summary>
     private (string Text, string WorktreePath)? _scanned;

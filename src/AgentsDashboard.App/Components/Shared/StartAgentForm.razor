@@ -1,12 +1,13 @@
 @inherits StateComponent
-@inject ClaudeCli Cli
+@inject AgentHost Host
 @inject MonitorService Monitor
 @inject SettingsStore Settings
-@inject AgentsDashboard.Core.Platform.IClipboard Clipboard
+@inject PastSessionReader PastSessions
+@inject WorktreeCreator Creator
 
-@* The form is a front end for `claude --bg`, so it shows the line it is about to
-   run. Every field left blank is omitted from that line, which leaves the CLI's
-   own default standing rather than pinning one here. *@
+@* Starts an agent over ACP, or resumes one. Every setting left on the agent's
+   default is not sent, so the agent's own default stands rather than one pinned
+   here; the choices listed are the ones the agent reported, once it has. *@
 
 <div class="stack" style="gap: 10px;">
     @if (WorktreePath is null)
@@ -27,7 +28,7 @@
                        rest of the app: binding will not push a value the component itself
                        changed back into the DOM. *@
                     <select id="start-repo" value="@Repo"
-                            @onchange="e => { _repo = e.Value?.ToString() ?? string.Empty; _worktree = string.Empty; Touch(); }">
+                            @onchange="e => { _repo = e.Value?.ToString() ?? string.Empty; _worktree = string.Empty; _branch = string.Empty; Touch(); }">
                         @foreach (var root in Repos)
                         {
                             <option value="@root">@(State.Repo(root)?.Name ?? Fmt.Leaf(root))</option>
@@ -53,78 +54,167 @@
 
             @if (NewWorktree)
             {
-                <div class="stack" style="gap: 4px;">
-                    <label class="faint" for="start-worktree-name">Worktree name (optional)</label>
-                    <input id="start-worktree-name" type="text" placeholder="Claude picks one when blank"
-                           value="@_worktreeName"
-                           @oninput="e => { _worktreeName = e.Value?.ToString() ?? string.Empty; Touch(); }" />
+                <div class="inline">
+                    <div class="stack" style="gap: 4px; flex: 1;">
+                        <label class="faint" for="start-branch">Branch</label>
+                        @* Only branches no worktree has checked out: git will not put
+                           one branch in two worktrees. A remote branch gets a local
+                           branch of the same name that tracks it. *@
+                        <select id="start-branch" value="@Branch?.Ref"
+                                @onchange="e => { _branch = e.Value?.ToString() ?? string.Empty; Touch(); }">
+                            <option value="">New branch</option>
+                            @if (Branches.Any(b => b.Remote is null))
+                            {
+                                <optgroup label="Local">
+                                    @foreach (var branch in Branches.Where(b => b.Remote is null))
+                                    {
+                                        <option value="@branch.Ref">@branch.Name</option>
+                                    }
+                                </optgroup>
+                            }
+                            @if (Branches.Any(b => b.Remote is not null))
+                            {
+                                <optgroup label="Remote">
+                                    @foreach (var branch in Branches.Where(b => b.Remote is not null))
+                                    {
+                                        <option value="@branch.Ref">@branch.Ref</option>
+                                    }
+                                </optgroup>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="stack" style="gap: 4px; flex: 1;">
+                        <label class="faint" for="start-worktree-name">Worktree name (optional)</label>
+                        <input id="start-worktree-name" type="text"
+                               placeholder="@(Branch is null ? "Claude picks one when blank" : "Named after the branch when blank")"
+                               value="@_worktreeName"
+                               @oninput="e => { _worktreeName = e.Value?.ToString() ?? string.Empty; Touch(); }" />
+                    </div>
                 </div>
+
+                <div class="inline">
+                    <button class="small ghost" @onclick="Fetch" disabled="@_fetching"
+                            title="Runs git fetch --all --prune so the remote branches are current">
+                        @(_fetching ? "Fetching..." : "Fetch remote branches")
+                    </button>
+                    <span class="faint">
+                        @if (_fetchError is { } fetchError)
+                        {
+                            @($"Fetch failed: {fetchError}")
+                        }
+                        else if (Branch is null)
+                        {
+                            @($"A new branch worktree-<name> from the current HEAD.")
+                        }
+                        else if (Branch.Remote is not null)
+                        {
+                            @($"A new local branch {Branch.Name} tracking {Branch.Ref}.")
+                        }
+                        else
+                        {
+                            @($"Checks out {Branch.Name} in the new worktree.")
+                        }
+                    </span>
+                </div>
+            }
+            else
+            {
+                @* An existing worktree has history: the conversations that ran there
+                   before can be picked up where they stopped. *@
+                <div class="inline" role="radiogroup" aria-label="New conversation or resume one">
+                    <button class="@(_resuming ? "" : "primary")" @onclick="() => { _resuming = false; Touch(); }">New conversation</button>
+                    <button class="@(_resuming ? "primary" : "")" @onclick="() => { _resuming = true; Touch(); }">
+                        Resume<span class="count">@Past.Count</span>
+                    </button>
+                </div>
+
+                @if (_resuming)
+                {
+                    @if (Past.Count == 0)
+                    {
+                        <div class="row faint">No earlier conversations in this worktree.</div>
+                    }
+                    else
+                    {
+                        <div class="past-list" role="listbox" aria-label="Conversations to resume">
+                            @foreach (var past in Past)
+                            {
+                                var running = IsRunning(past.SessionId);
+                                var picked = past.SessionId == ResumeId;
+                                <button class="past-item @(picked ? "picked" : "")" role="option" aria-selected="@picked"
+                                        disabled="@running"
+                                        title="@(running ? "Already running: open it from the sidebar." : past.SessionId)"
+                                        @onclick="() => { _resumeId = past.SessionId; Touch(); }">
+                                    <span class="past-top">
+                                        <span class="past-title">@(past.Title ?? "Untitled")</span>
+                                        <span class="faint past-when">@(running ? "running" : Fmt.When(past.UpdatedAt, DateTimeOffset.Now))</span>
+                                    </span>
+                                    @if (past.LastPrompt is { Length: > 0 } last)
+                                    {
+                                        <span class="faint past-prompt">@AgentSession.Shorten(last, 140)</span>
+                                    }
+                                </button>
+                            }
+                        </div>
+                    }
+                }
             }
         }
     }
 
     <div class="stack" style="gap: 4px;">
-        <label class="faint" for="start-prompt">Prompt</label>
+        <label class="faint" for="start-prompt">@(Resuming ? "Message (optional)" : "Prompt")</label>
         <textarea id="start-prompt" rows="3"
-                  placeholder="What should it work on? Leave empty to start it idle."
+                  placeholder="@(Resuming ? "What should it do next? Leave empty to resume it idle." : "What should it work on? Leave empty to start it idle.")"
                   value="@_prompt"
                   @oninput="e => { _prompt = e.Value?.ToString() ?? string.Empty; Touch(); }"
                   @onkeydown="OnPromptKey"></textarea>
     </div>
 
     <div class="inline">
-        <div class="stack" style="gap: 4px;">
-            <label class="faint" for="start-model">Model</label>
-            <select id="start-model" value="@_model"
-                    @onchange="e => { _model = e.Value?.ToString() ?? string.Empty; Touch(); }">
-                <option value="">CLI default</option>
-                @foreach (var model in StartChoices.Models)
-                {
-                    <option value="@model">@model</option>
-                }
-            </select>
-        </div>
-
-        <div class="stack" style="gap: 4px;">
-            <label class="faint" for="start-effort">Effort</label>
-            <select id="start-effort" value="@_effort"
-                    @onchange="e => { _effort = e.Value?.ToString() ?? string.Empty; Touch(); }">
-                <option value="">CLI default</option>
-                @foreach (var effort in StartChoices.Efforts)
-                {
-                    <option value="@effort">@effort</option>
-                }
-            </select>
-        </div>
-
-        <div class="stack" style="gap: 4px;">
-            <label class="faint" for="start-permission">Permission mode</label>
-            <select id="start-permission" value="@_permissionMode"
-                    @onchange="e => { _permissionMode = e.Value?.ToString() ?? string.Empty; Touch(); }">
-                <option value="">CLI default</option>
-                @foreach (var mode in StartChoices.PermissionModes)
-                {
-                    <option value="@mode">@mode</option>
-                }
-            </select>
-        </div>
+        @foreach (var (id, label, choice) in Settings3)
+        {
+            var settingId = id;
+            <div class="stack" style="gap: 4px;">
+                <label class="faint" for="@("start-" + settingId)">@label</label>
+                <select id="@("start-" + settingId)" value="@choice"
+                        @onchange="e => { Set(settingId, e.Value?.ToString() ?? string.Empty); Touch(); }">
+                    <option value="">Agent default</option>
+                    @foreach (var option in StartChoices.For(settingId, Host.KnownOptions))
+                    {
+                        <option value="@option.Value">@option.Name</option>
+                    }
+                </select>
+            </div>
+        }
     </div>
 
-    <div class="stack" style="gap: 4px;">
-        <span class="faint">Will run:</span>
-        <div class="inline">
-            <code class="will-run" style="flex: 1;">@CommandLine</code>
-            <button class="ghost small" @onclick="Copy">@(_copied ? "Copied" : "Copy")</button>
+    @if (_confirmTrust is { } trustRoot)
+    {
+        @* Starting an agent hands it the whole repository. Asked once per
+           repository, inline rather than with a browser confirm(), which would
+           hold the circuit for as long as the dialog is open. *@
+        <div class="trust-card" role="alertdialog" aria-labelledby="trust-title">
+            <strong id="trust-title">Let Claude work in @(State.Repo(trustRoot)?.Name ?? Fmt.Leaf(trustRoot))?</strong>
+            <span>
+                Claude will be able to read and change every file in
+                <span class="mono">@trustRoot</span>, and run commands there, within the permission mode you choose.
+                The dashboard remembers your answer for this repository.
+            </span>
+            <div class="inline">
+                <button class="primary" @onclick="Trust">Allow</button>
+                <button class="ghost" @onclick="() => { _confirmTrust = null; Touch(); }">Cancel</button>
+            </div>
         </div>
-    </div>
+    }
 
     <div class="inline">
-        <button class="primary" @onclick="Start" disabled="@(_busy || Where is null)">
-            @(_busy ? "Working..." : "Start agent")
+        <button class="primary" @onclick="Start" disabled="@(_busy || Where is null || _confirmTrust is not null)">
+            @(_busy ? "Working..." : Resuming ? "Resume agent" : "Start agent")
         </button>
         <span class="faint">
-            Starts a background agent with <span class="mono">claude --bg</span>. With no prompt it
-            starts idle and does nothing until you send it one.
+            Runs Claude in the dashboard. With no prompt it starts idle and does nothing until you send it one.
         </span>
     </div>
 </div>
@@ -134,11 +224,11 @@
     [Parameter]
     public string? WorktreePath { get; set; }
 
-    /// <summary>Handed the CLI's result, whether it worked or not, so the host can show it.</summary>
+    /// <summary>Handed the result, whether it worked or not, so the page can show it.</summary>
     [Parameter]
-    public EventCallback<CliResult> OnStarted { get; set; }
+    public EventCallback<HostResult> OnStarted { get; set; }
 
-    /// <summary>Handed the new agent's id when the CLI printed one.</summary>
+    /// <summary>Handed the session id of the agent started or resumed.</summary>
     [Parameter]
     public EventCallback<string> OnStartedAgent { get; set; }
 
@@ -147,17 +237,64 @@
     private string _repo = "";
     private string _worktree = "";
     private string _worktreeName = "";
+    private string _branch = "";
+    private bool _fetching;
+    private string? _fetchError;
     private string _model = "";
     private string _effort = "";
     private string _permissionMode = "";
     private bool _busy;
-    private bool _copied;
+
+    /// <summary>The repository waiting on your confirmation before an agent may work in it.</summary>
+    private string? _confirmTrust;
 
     /// <summary>Redraws after work that finished off an event handler.</summary>
-    private void Touch()
+    private void Touch() => StateHasChanged();
+
+    /// <summary>The three settings, with what is chosen for each.</summary>
+    private IEnumerable<(string Id, string Label, string Chosen)> Settings3 =>
+    [
+        ("model", "Model", _model),
+        ("effort", "Effort", _effort),
+        ("mode", "Permission mode", _permissionMode),
+    ];
+
+    private void Set(string id, string value)
     {
-        _copied = false;
-        StateHasChanged();
+        switch (id)
+        {
+            case "model":
+                _model = value;
+                break;
+            case "effort":
+                _effort = value;
+                break;
+            default:
+                _permissionMode = value;
+                break;
+        }
+    }
+
+    /// <summary>The repository a start would work in: the one picked, or the one the given worktree belongs to.</summary>
+    private string? TrustRoot =>
+        WorktreePath is { } given
+            ? Snapshot.Repos.FirstOrDefault(r => r.Worktrees.Any(w => w.Worktree.Path == given))?.Root ?? given
+            : Repo.Length > 0 ? Repo : null;
+
+    private bool IsTrusted(string root) => _settings.TrustedRoots.Contains(root, StringComparer.Ordinal);
+
+    private async Task Trust()
+    {
+        if (_confirmTrust is not { } root)
+        {
+            return;
+        }
+
+        var latest = Settings.Load();
+        _settings = latest with { TrustedRoots = [.. latest.TrustedRoots.Where(r => r != root), root] };
+        Settings.Save(_settings);
+        _confirmTrust = null;
+        await Start();
     }
 
     protected override void OnInitialized()
@@ -193,21 +330,111 @@
 
     private bool NewWorktree => WorktreePath is null && Worktree.Length == 0;
 
+    /// <summary>The branches listed for <see cref="_branchesFor"/>.</summary>
+    private IReadOnlyList<BranchChoice> _branches = [];
+    private string? _branchesFor;
+
+    /// <summary>
+    /// The branches a new worktree in the picked repository could go on. Read
+    /// once per repository, in the background, rather than on every render: the
+    /// monitor redraws this form every second and this is a git call.
+    /// </summary>
+    private IReadOnlyList<BranchChoice> Branches
+    {
+        get
+        {
+            var repo = NewWorktree && Repo.Length > 0 ? Repo : null;
+            if (repo != _branchesFor)
+            {
+                _branchesFor = repo;
+                _branches = [];
+                if (repo is not null)
+                {
+                    _ = LoadBranchesAsync(repo);
+                }
+            }
+
+            return _branches;
+        }
+    }
+
+    private async Task LoadBranchesAsync(string repo)
+    {
+        var branches = await Creator.ListBranchesAsync(repo);
+        if (_branchesFor == repo)
+        {
+            _branches = branches;
+            await InvokeAsync(Touch);
+        }
+    }
+
+    /// <summary>The existing branch picked, or null for a new one.</summary>
+    private BranchChoice? Branch => Branches.FirstOrDefault(b => b.Ref == _branch);
+
+    private async Task Fetch()
+    {
+        if (Repo.Length == 0)
+        {
+            return;
+        }
+
+        _fetching = true;
+        _fetchError = null;
+        Touch();
+
+        _fetchError = await Creator.FetchAsync(Repo);
+        _fetching = false;
+        _branchesFor = null;
+        Touch();
+    }
+
     /// <summary>The directory the CLI is started in, or null when there is nothing to start in.</summary>
     private string? Where =>
         WorktreePath
         ?? (Worktree.Length > 0 ? Worktree : null)
         ?? (Repo.Length > 0 ? Repo : null);
 
-    private StartOptions Options => new(
-        Blank(_prompt),
-        Blank(_model),
-        Blank(_effort),
-        Blank(_permissionMode),
-        NewWorktree,
-        NewWorktree ? Blank(_worktreeName) : null);
 
-    private string CommandLine => ClaudeCommands.Render(ClaudeCommands.Start(Options));
+    private bool _resuming;
+    private string? _resumeId;
+
+    /// <summary>The past conversations read for <see cref="_pastFor"/>, newest first.</summary>
+    private IReadOnlyList<PastSession> _past = [];
+    private string? _pastFor;
+
+    /// <summary>
+    /// The conversations that ran in the chosen worktree. Read from disk once per
+    /// worktree picked, not on every render: the monitor redraws this form every
+    /// second, and the list only changes when a conversation does.
+    /// </summary>
+    private IReadOnlyList<PastSession> Past
+    {
+        get
+        {
+            var where = NewWorktree ? null : Where;
+            if (where != _pastFor)
+            {
+                _pastFor = where;
+                _past = where is null ? [] : PastSessions.For(where);
+            }
+
+            return _past;
+        }
+    }
+
+    /// <summary>
+    /// A conversation the dashboard is already running is open in the sidebar,
+    /// and resuming it a second time would run it twice, so it cannot be picked.
+    /// </summary>
+    private bool IsRunning(string sessionId) =>
+        Host.Find(sessionId) is { State: not HostedState.Stopped };
+
+    /// <summary>The picked conversation, falling back to the newest one that is not running.</summary>
+    private string? ResumeId =>
+        Past.FirstOrDefault(p => p.SessionId == _resumeId && !IsRunning(p.SessionId))?.SessionId
+        ?? Past.FirstOrDefault(p => !IsRunning(p.SessionId))?.SessionId;
+
+    private bool Resuming => _resuming && !NewWorktree && ResumeId is not null;
 
     private static string? Blank(string value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
@@ -220,12 +447,6 @@
         }
     }
 
-    private void Copy()
-    {
-        _copied = Clipboard.TryCopy(CommandLine);
-        StateHasChanged();
-    }
-
     private async Task Start()
     {
         if (_busy || Where is not { Length: > 0 } directory)
@@ -233,36 +454,63 @@
             return;
         }
 
+        if (TrustRoot is { } root && !IsTrusted(root))
+        {
+            _confirmTrust = root;
+            return;
+        }
+
         _busy = true;
-        _copied = false;
         StateHasChanged();
 
-        CliResult result;
-        string? id = null;
-        try
+        var resumed = Resuming ? ResumeId : null;
+        HostResult result;
+
+        if (NewWorktree)
         {
-            (result, id) = await Cli.StartAsync(directory, Options);
+            var (created, error) = await Creator.CreateAsync(directory, Blank(_worktreeName), Branch);
+            if (created is null)
+            {
+                result = HostResult.Failed($"Could not create the worktree: {error}");
+                _busy = false;
+                StateHasChanged();
+                await OnStarted.InvokeAsync(result);
+                return;
+            }
+
+            directory = created;
+            Monitor.InvalidateWorktrees();
         }
-        catch (Exception e) when (e is IOException or InvalidOperationException)
-        {
-            result = CliResult.Failed(e.Message);
-        }
+
+        var start = new AgentStart(
+            directory,
+            Blank(_prompt),
+            Blank(_model),
+            Blank(_effort),
+            Blank(_permissionMode),
+            resumed is null ? null : Past.FirstOrDefault(p => p.SessionId == resumed)?.Title);
+
+        result = resumed is null
+            ? await Host.StartAsync(start)
+            : await Host.ResumeAsync(resumed, start);
 
         _busy = false;
-
         if (result.Ok)
         {
+            _pastFor = null;
             _prompt = "";
             _worktreeName = "";
-            result = new CliResult(true, id is null ? "Started." : $"Started {id}.");
+            _branch = "";
+            _branchesFor = null;
             Monitor.InvalidateWorktrees();
         }
 
         StateHasChanged();
         await OnStarted.InvokeAsync(result);
-        if (result.Ok && id is not null)
+
+        if (result.Ok && result.SessionId is { } opened)
         {
-            await OnStartedAgent.InvokeAsync(id);
+            await OnStartedAgent.InvokeAsync(opened);
         }
     }
 }

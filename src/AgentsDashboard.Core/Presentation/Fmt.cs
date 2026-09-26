@@ -41,6 +41,51 @@ public static class Fmt
     public static string Ago(DateTimeOffset at, DateTimeOffset now) =>
         now - at < TimeSpan.FromSeconds(5) ? "just now" : Duration(now - at) + " ago";
 
+    /// <summary>
+    /// When something last happened, for things measured in days rather than
+    /// seconds: a timer within the day, then days, then the date. "385h ago" is
+    /// accurate and useless.
+    /// </summary>
+    public static string When(DateTimeOffset at, DateTimeOffset now)
+    {
+        var age = now - at;
+        if (age < TimeSpan.FromDays(1))
+        {
+            return Ago(at, now);
+        }
+
+        if (age < TimeSpan.FromDays(7))
+        {
+            var days = (int)age.TotalDays;
+            return $"{days} {Plural(days, "day", "days")} ago";
+        }
+
+        var local = at.ToLocalTime();
+        return local.Year == now.ToLocalTime().Year
+            ? local.ToString("MMM d", System.Globalization.CultureInfo.InvariantCulture)
+            : local.ToString("MMM d, yyyy", System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>
+    /// A fixed point in time: the time of day when it was today, the date when it
+    /// was not. For things that are over, where "12m ago" would keep counting.
+    /// </summary>
+    public static string At(DateTimeOffset at, DateTimeOffset now)
+    {
+        var local = at.ToLocalTime();
+        var today = now.ToLocalTime();
+        var invariant = System.Globalization.CultureInfo.InvariantCulture;
+
+        if (local.Date == today.Date)
+        {
+            return local.ToString("h:mm tt", invariant);
+        }
+
+        return local.Year == today.Year
+            ? local.ToString("MMM d", invariant)
+            : local.ToString("MMM d, yyyy", invariant);
+    }
+
     public static string StatusName(AgentStatus status) => status switch
     {
         AgentStatus.Waiting => "waiting",

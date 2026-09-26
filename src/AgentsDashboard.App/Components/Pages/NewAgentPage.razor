@@ -1,6 +1,5 @@
 @page "/new"
 @inherits StateComponent
-@inject AgentDirectory Directory
 @inject NavigationManager Nav
 
 <PageTitle>New agent - Agents Dashboard</PageTitle>
@@ -25,20 +24,8 @@
 </div>
 
 @code {
-    private CliResult? _result;
+    private HostResult? _result;
 
-    /// <summary>
-    /// Opens the agent just started.
-    /// </summary>
-    /// <remarks>
-    /// The CLI answers with its job id, but the agent view is addressed by
-    /// session id, which only the CLI's list knows. With no match yet the list
-    /// is the next best place to land: the agent turns up there on its own.
-    /// </remarks>
-    private async Task Open(string id)
-    {
-        await Directory.RefreshAsync();
-        var started = Directory.Targets(Snapshot.Value).FirstOrDefault(t => t.JobId == id);
-        Nav.NavigateTo(started is null ? "" : Urls.Chat(started.SessionId));
-    }
+    /// <summary>Opens the agent just started, or resumed, in the agent view.</summary>
+    private void Open(string sessionId) => Nav.NavigateTo(Urls.Chat(sessionId));
 }

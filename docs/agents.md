@@ -4,43 +4,14 @@ Nothing is installed, no hooks are added, and no settings file of yours is
 edited. Claude Code already writes everything the dashboard shows, and the
 dashboard only reads it.
 
-## The session registry
+## Which agents there are
 
-Claude writes one file per live session at `<config>/sessions/<pid>.json` and
-rewrites it on every status transition:
-
-```json
-{
-  "pid": 5795,
-  "sessionId": "044e6e8e-...",
-  "cwd": "/Users/you/Projects/thing",
-  "status": "waiting",
-  "waitingFor": "Approve running the migration?",
-  "startedAt": 1788582486151,
-  "kind": "interactive",
-  "messagingSocketPath": "/tmp/cc-socks/5795.sock"
-}
-```
-
-`CLAUDE_CONFIG_DIR` relocates the whole tree, so nothing hardcodes `~/.claude`.
-
-Claude's statuses map onto the three the dashboard shows:
-
-| Claude says | Shown as | Why |
-| --- | --- | --- |
-| `busy`, `shell` | active | A shell command is not an LLM turn, but it is work in progress as far as you are concerned. |
-| `waiting` | waiting | Blocked on you. |
-| `idle` | idle | Started, or finished responding. |
-| anything else, or nothing | idle | A status we do not recognize is shown as idle rather than asserted to be something it is not. |
-
-Two things the registry cannot tell us on its own:
-
-- **Whether the process is still there.** A session killed with its terminal
-  never gets to remove its own file, so every pid is probed before its agent is
-  shown.
-- **When the status last changed.** The file is rewritten for other reasons too,
-  so transitions are tracked in memory. That is what makes a waiting agent's
-  "blocked for 4m 12s" honest instead of resetting on every write.
+The agents are the ones the dashboard runs itself over ACP (see
+`agent-control.md`). `AgentHost` knows their state as it changes, and hands the
+monitor the running ones through `IAgentSessionSource`, which is how they land
+in worktrees in the snapshot, count towards "waiting on you", and raise
+notifications. Sessions started in a terminal are not listed; they can be picked
+up under New agent, Resume.
 
 ## The work summary
 
@@ -61,7 +32,7 @@ agent.
 
 ## Subagents
 
-Subagents run inside the parent Claude process, so they have no registry entry.
+Subagents run inside the parent agent's process and have no session of their own.
 Claude writes one small file per subagent beside the transcript and removes it
 when the subagent finishes, which makes the directory listing an answer to "what
 is running right now" rather than a tally of everything that ever ran.
