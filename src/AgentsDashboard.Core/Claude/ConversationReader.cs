@@ -128,7 +128,8 @@ public sealed class ConversationReader
     {
         if (!line.Contains("\"user\"", StringComparison.Ordinal)
             && !line.Contains("\"assistant\"", StringComparison.Ordinal)
-            && !line.Contains("queued_command", StringComparison.Ordinal))
+            && !line.Contains("queued_command", StringComparison.Ordinal)
+            && !line.Contains("local_command", StringComparison.Ordinal))
         {
             return;
         }
@@ -149,6 +150,16 @@ public sealed class ConversationReader
                      && DateTimeOffset.TryParse(ts.GetString(), out var parsed)
                 ? parsed
                 : DateTimeOffset.MinValue;
+
+            if (Str(root, "type") == "system")
+            {
+                if (Str(root, "subtype") == "local_command" && CommandOutput(Str(root, "content")) is { } output)
+                {
+                    entries.Add(ChatEntry.Said(ChatKind.Agent, at, output));
+                }
+
+                return;
+            }
 
             if (Str(root, "type") == "attachment")
             {
@@ -206,9 +217,21 @@ public sealed class ConversationReader
         var trimmed = text.Trim();
 
         // A slash command is recorded as markup around the command. Show what was
-        // typed, and leave out the command's own output.
-        if (trimmed.StartsWith("<local-command", StringComparison.Ordinal)
-            || trimmed.StartsWith("<system-reminder>", StringComparison.Ordinal))
+        // typed. A command the CLI runs itself (/context, /list-agents) never
+        // reaches the model, so its output is the only answer there is, and it is
+        // shown as the agent's reply. The CLI writes that output as a system
+        // line; older versions wrote it as a user message.
+        if (trimmed.StartsWith("<local-command", StringComparison.Ordinal))
+        {
+            if (CommandOutput(trimmed) is { } output)
+            {
+                entries.Add(ChatEntry.Said(ChatKind.Agent, at, output));
+            }
+
+            return;
+        }
+
+        if (trimmed.StartsWith("<system-reminder>", StringComparison.Ordinal))
         {
             return;
         }
@@ -511,6 +534,22 @@ public sealed class ConversationReader
     {
         var flat = string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
         return flat.Length <= 140 ? flat : flat[..137] + "...";
+    }
+
+    /// <summary>
+    /// What a command the CLI ran itself printed, without the terminal's colour
+    /// codes. The streamed copy of it vanishes when the turn ends, which for these
+    /// is at once, so without this the command looks as if it did nothing.
+    /// </summary>
+    private static string? CommandOutput(string? text)
+    {
+        if (text is null)
+        {
+            return null;
+        }
+
+        var output = Tag(text, "local-command-stdout") ?? Tag(text, "local-command-stderr");
+        return output is null ? null : Regex.Replace(output, @"\x1b\[[0-9;?]*[A-Za-z]", "").Trim() is { Length: > 0 } plain ? plain : null;
     }
 
     private static string? Tag(string text, string name)

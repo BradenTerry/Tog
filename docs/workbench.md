@@ -2,24 +2,20 @@
 
 The window is laid out like VS Code. The agent's files are on the left, source
 control is on the right, and the editor sits in the middle over a bottom panel.
-The bottom panel holds the conversation, with the list of agents down its right
-side. Each panel has tabs of its own. Extensions add tabs to whichever panel they
+The bottom panel holds the conversation, across its full width. The agents are
+listed from the picker in the title bar, beside the counts. Each panel has tabs of its own. Extensions add tabs to whichever panel they
 ask for, and to the right panel when they do not ask.
 
 ```mermaid
 flowchart TB
-    T["Title bar: repository and branch, agents counted by state (a click lists them), panel toggles, Settings"]
+    T["Title bar: repository and branch, the agent picker (every agent, and New agent), agents counted by state, panel toggles, Settings"]
     subgraph W[" "]
         direction LR
         L["Left panel<br/>Files + extensions"]
         subgraph C["Centre"]
             direction TB
             E["Editor<br/>files, diffs, Settings"]
-            subgraph B["Bottom panel"]
-                direction LR
-                CH["Chat + extensions"]
-                AG["Agents"]
-            end
+            B["Bottom panel<br/>Chat + extensions"]
         end
         R["Right panel<br/>Source control + extensions"]
     end
@@ -38,8 +34,12 @@ to open:
 - **Settings** is a tab, opened from the gear, closed like any other, and the
   agent stays selected under it. With no agent picked its tab is kept under the
   empty worktree.
-- **New agent** is a modal dialog over the window, opened from the + in the
-  agent list. Escape, its close button or a click outside close it, and so does
+- **The agent picker** in the title bar shows the agent in view. A click lists
+  every agent, waiting ones first, with New agent at the top and the offer to
+  remove a merged, stopped agent's worktree under it. It was once a column down
+  the right of the bottom panel; that cost the conversation a third of its width
+  for a list you only look at when switching.
+- **New agent** is a modal dialog over the window, opened from the agent picker. Escape, its close button or a click outside close it, and so does
   going to a page that is not an agent's.
 - `/settings` and `/new` still work as addresses: each opens its tab or dialog
   over the agent that was on screen and goes back to `/chat/<session>`.
@@ -55,7 +55,7 @@ a scoped service (one per window) that holds:
   menu lets go of it, and so does a link into an agent's files or changes.
   While another worktree is picked, the chat's header offers "Change to worktree",
   which picks the agent's worktree in its place. When the agent's worktree is
-  the one open, the header says so instead, and the agent list marks every
+  the one open, the header says so instead, and the agent picker marks every
   agent working there.
   With nothing picked and the agent closed or removed, the last worktree an
   agent was in stays. A worktree removed since is stood in for by its
@@ -173,7 +173,7 @@ started in and walks only that document's rows. See
 ## Rendering
 
 The monitor publishes a snapshot every second, and every `StateComponent`
-re-renders on it. That is right for the chat, the agent list and the title bar.
+re-renders on it. That is right for the chat and the title bar.
 It is wrong for anything heavy. `FileTreePanel`, `FileDocument`,
 `SourceControlPanel` and `DiffDocument` override `ShouldRender` and redraw only
 when they call `Touch()` or their model moves.

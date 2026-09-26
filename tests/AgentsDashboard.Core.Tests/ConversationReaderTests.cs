@@ -62,10 +62,25 @@ public class ConversationReaderTests
         var thinking = Assistant("""{"type":"thinking","thinking":"hmm"}""");
         var subagent = Assistant(Text("inside a subagent"), sidechain: true);
         var meta = User("Base directory for this skill: /x", meta: true);
-        var reminder = User("<local-command-stdout>ok</local-command-stdout>");
+        var reminder = User("<system-reminder>be brief</system-reminder>");
         var attachment = """{"type":"attachment","attachment":{"type":"file"}}""";
 
         Assert.Empty(Parse(toolResult, thinking, subagent, meta, reminder, attachment));
+    }
+
+    [Fact]
+    public void Shows_what_a_command_the_cli_runs_itself_printed_as_the_reply()
+    {
+        var command = User("<command-name>/list-agents</command-name>\n<command-message>list-agents</command-message>\n<command-args></command-args>");
+        var output = """{"type":"system","subtype":"local_command","content":"<local-command-stdout>This session: \u001b[1mdash\u001b[22m\n\nNo other sessions.</local-command-stdout>","isSidechain":false,"isMeta":false,"timestamp":"2026-09-25T10:00:01Z"}""";
+        var older = User("<local-command-stdout>Set model to opus</local-command-stdout>");
+        var empty = """{"type":"system","subtype":"local_command","content":"<local-command-stdout></local-command-stdout>","timestamp":"2026-09-25T10:00:02Z"}""";
+
+        var entries = Parse(command, output, older, empty);
+
+        Assert.Equal(
+            [(ChatKind.You, "/list-agents"), (ChatKind.Agent, "This session: dash\n\nNo other sessions."), (ChatKind.Agent, "Set model to opus")],
+            entries.Select(e => (e.Kind, e.Text)));
     }
 
     [Fact]

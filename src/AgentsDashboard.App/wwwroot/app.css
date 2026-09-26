@@ -874,21 +874,6 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent-dim); }
 
 /* ---------- chat ---------- */
 
-.chat-list-items { flex: 1; overflow-y: auto; padding: 6px; }
-.chat-list-empty { padding: 12px 8px; }
-
-.chat-item {
-    display: flex;
-    gap: 10px;
-    padding: 9px 10px;
-    border-radius: var(--radius-sm);
-    color: inherit;
-    min-width: 0;
-}
-
-.chat-item:hover { background: var(--surface-2); text-decoration: none; }
-.chat-item.active { background: var(--accent-bg); }
-.chat-item .dot { margin-top: 6px; }
 .chat-item-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
 .chat-item-top { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
 .chat-item-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
@@ -1276,7 +1261,7 @@ button.icon-btn:hover:where(:not(:disabled)) { background: var(--surface-2); }
 
 /* The window as VS Code lays it out: a title bar, then files on the left, source
    control on the right, and between them the editor over a bottom panel that
-   holds the conversation and the list of agents. Every size is a variable that
+   holds the conversation. Every size is a variable that
    app.js sets on the root when a border is dragged, so a Blazor render never
    puts one back. Every column and row is minmax(0, ...) for the reason the diff
    is: an auto minimum lets one long line push the whole window sideways. */
@@ -1376,7 +1361,7 @@ button.icon-btn:hover:where(:not(:disabled)) { background: var(--surface-2); }
 
 .wb-bottom {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 5px minmax(0, var(--wb-agents, 280px));
+    grid-template-columns: minmax(0, 1fr);
     min-height: 0;
     min-width: 0;
     background: var(--surface);
@@ -1575,20 +1560,33 @@ button.icon-btn:hover:where(:not(:disabled)) { background: var(--surface-2); }
 }
 .panel-review select { max-width: none; width: 100%; }
 
-/* ---------- agent list ---------- */
+/* ---------- agent picker ---------- */
 
-.agent-list { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-.agent-list-head {
+/* The agent in view, in the title bar; a click lists them all. */
+.agent-pick {
     display: flex;
     align-items: center;
-    gap: 8px;
-    height: 34px;
-    flex: none;
-    padding: 0 6px 0 12px;
-    border-bottom: 1px solid var(--border-soft);
+    gap: 7px;
+    min-width: 0;
+    max-width: 260px;
+    padding: 3px 8px;
+    border: 1px solid var(--border-soft);
+    border-radius: 6px;
+    background: none;
+    color: var(--text);
+    font-size: 12px;
 }
-.agent-list-head .icon-btn { width: 26px; height: 26px; }
-.agent-list .chat-item { padding: 7px 8px; }
+.agent-pick:hover, .agent-pick.open { background: var(--surface-2); border-color: var(--border); }
+.agent-pick .dot { flex: none; }
+.agent-pick-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.agent-pick-name.untitled { font-style: italic; font-weight: 400; }
+
+.agent-menu { width: 360px; max-width: calc(100vw - 32px); }
+.agent-menu-new { gap: 8px; color: var(--accent); }
+.agent-menu-item { align-items: flex-start; gap: 10px; padding: 7px 10px; }
+.agent-menu-item.current { background: var(--accent-bg); }
+.agent-menu-item .dot { margin-top: 6px; flex: none; }
+.agent-menu .cleanup-offer { margin: 0 4px 6px 26px; }
 
 /* ---------- editor ---------- */
 
@@ -1710,7 +1708,6 @@ button.icon-btn:hover:where(:not(:disabled)) { background: var(--surface-2); }
 
 @media (max-width: 900px) {
     .workbench { --left: min(var(--wb-left, 260px), 30vw); --right: min(var(--wb-right, 340px), 34vw); }
-    .wb-bottom { grid-template-columns: minmax(0, 1fr) 5px minmax(0, min(var(--wb-agents, 280px), 38vw)); }
     .where { display: none; }
     .diff-line { grid-template-columns: 76px 18px minmax(0, 1fr); }
     .ln-pick { grid-template-columns: 38px 38px; }
