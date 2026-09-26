@@ -16,6 +16,16 @@ public sealed record WorktreeInfo
     public bool Detached { get; init; }
 
     public bool Locked { get; init; }
+
+    /// <summary>Why it was locked, when whoever locked it said.</summary>
+    public string? LockReason { get; init; }
+
+    /// <summary>
+    /// Git still lists it but its directory is gone, so <c>git worktree prune</c>
+    /// would drop it. It still holds its branch, which no other worktree can then
+    /// check out.
+    /// </summary>
+    public bool Prunable { get; init; }
 }
 
 /// <summary>The parts of <c>git status</c> a card shows.</summary>

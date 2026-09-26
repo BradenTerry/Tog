@@ -66,7 +66,29 @@ public class WorktreeListerTests
 
             """;
 
-        Assert.True(WorktreeLister.Parse(stdout)[0].Locked);
+        var worktree = WorktreeLister.Parse(stdout)[0];
+        Assert.True(worktree.Locked);
+        Assert.Equal("claude session in progress", worktree.LockReason);
+    }
+
+    [Fact]
+    public void Reads_a_worktree_whose_directory_is_gone_as_prunable()
+    {
+        const string stdout = """
+            worktree /repo
+            HEAD abc
+            branch refs/heads/main
+
+            worktree /repo/gone
+            HEAD def
+            branch refs/heads/old
+            prunable gitdir file points to non-existent location
+
+            """;
+
+        var list = WorktreeLister.Parse(stdout);
+        Assert.False(list[0].Prunable);
+        Assert.True(list[1].Prunable);
     }
 
     [Fact]

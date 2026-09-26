@@ -111,7 +111,8 @@ public static class Fmt
     {
         < 1024 => $"{bytes} B",
         < 1024 * 1024 => $"{bytes / 1024.0:0.#} KB",
-        _ => $"{bytes / (1024.0 * 1024):0.#} MB",
+        < 1024L * 1024 * 1024 => $"{bytes / (1024.0 * 1024):0.#} MB",
+        _ => $"{bytes / (1024.0 * 1024 * 1024):0.#} GB",
     };
 
     /// <summary>A token count the way context windows are spoken of: 950, 142k, 1M.</summary>

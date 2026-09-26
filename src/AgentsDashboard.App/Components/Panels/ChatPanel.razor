@@ -406,7 +406,7 @@ else
         const string Keys = "Enter to send, Shift+Enter for a new line.";
         return target.State switch
         {
-            ChatState.Active or ChatState.Waiting => Keys + " It is working: it reads your message between steps.",
+            ChatState.Active or ChatState.Waiting => Keys,
             ChatState.Parked => Keys + " Its session has ended: sending resumes it with its conversation kept.",
             ChatState.Failed => Keys + " Sending starts it again with its conversation kept.",
             _ => Keys + " It picks up from where the conversation left off.",

@@ -81,6 +81,8 @@ builder.Services.AddSingleton<Staging>();
 builder.Services.AddSingleton<WorktreeFiles>();
 builder.Services.AddSingleton<RepoDiscovery>();
 builder.Services.AddSingleton<WorktreeCreator>();
+builder.Services.AddSingleton<WorktreeCleanup>();
+builder.Services.AddSingleton<WorktreeInventory>();
 
 // Extensions
 // The API services are in the app's container as well as each extension's, so

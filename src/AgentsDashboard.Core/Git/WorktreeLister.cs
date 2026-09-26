@@ -73,6 +73,8 @@ public sealed class WorktreeLister(IGitCli git)
         string? branch = null;
         var detached = false;
         var locked = false;
+        string? lockReason = null;
+        var prunable = false;
         var first = true;
 
         void Flush()
@@ -92,6 +94,8 @@ public sealed class WorktreeLister(IGitCli git)
                 IsPrimary = first,
                 Detached = detached,
                 Locked = locked,
+                LockReason = lockReason,
+                Prunable = prunable,
             });
 
             first = false;
@@ -99,6 +103,8 @@ public sealed class WorktreeLister(IGitCli git)
             branch = null;
             detached = false;
             locked = false;
+            lockReason = null;
+            prunable = false;
         }
 
         foreach (var raw in stdout.Split('\n'))
@@ -130,6 +136,11 @@ public sealed class WorktreeLister(IGitCli git)
             else if (line == "locked" || line.StartsWith("locked ", StringComparison.Ordinal))
             {
                 locked = true;
+                lockReason = line.Length > "locked ".Length ? line["locked ".Length..] : null;
+            }
+            else if (line == "prunable" || line.StartsWith("prunable ", StringComparison.Ordinal))
+            {
+                prunable = true;
             }
         }
 
