@@ -163,3 +163,12 @@ folded the first time, apart from the path to the open file. `monaco.js` keeps
 each file's view state (scroll and caret) by model URI for the life of the page.
 `keepScroll` in `app.js` keeps the tree's scroll position, retrying the restore
 as content arrives until it lands or you scroll yourself.
+
+## Text size
+
+Ctrl+= and Ctrl+- (Cmd on macOS) grow and shrink the text in every open editor,
+Ctrl+0 puts it back to 13px. The size is kept in `localStorage`, so it is per
+machine and survives a restart. The keys are caught by a capture listener on the
+editor's host rather than bound as a Monaco command, because with focus in the
+find widget or the minimap a command never sees them and the webview zooms the
+whole page instead.
