@@ -4,7 +4,8 @@
 @inject NavigationManager Nav
 
 @* Across the top: the repository and branch of the agent in view, who is
-   waiting on you, and the three buttons that fold the panels away. The full
+   waiting on you, a newer build when one is waiting, and the three buttons
+   that fold the panels away. The full
    directory and the worktree are in the status bar along the bottom. Each
    button is a picture of the window with its panel filled in while that
    panel shows. *@
@@ -42,6 +43,8 @@
     {
         <span class="chip waiting" title="@Fmt.Count(Snapshot.Waiting.Count, "agent") waiting on you">@Snapshot.Waiting.Count waiting</span>
     }
+
+    <UpdateButton />
 
     <div class="layout-toggles" role="group" aria-label="Panels">
         @LayoutButton((PanelSide.Left, "Left panel", "M2.5 3.5h4v9h-4z", "M6.5 2.5v11"))
