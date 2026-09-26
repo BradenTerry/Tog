@@ -57,7 +57,9 @@ Services available to `@inject` and to your own services' constructors:
 a background thread: use `InvokeAsync`), `INavigation` (a link that opens a file in the
 agent's editor), `ITextLinker` and the `<LinkedText Text="..." Agent="Agent" />`
 component (paths in text become links), `IExtensionStorage` (a data folder of
-your own), and `ILogger<T>`.
+your own), and `ILogger<T>`. In a view only, `IEditorTabs` (API 1.2) opens a
+file as a tab in that window's editor, such as a long report you wrote to your
+data folder.
 
 ## Rules
 

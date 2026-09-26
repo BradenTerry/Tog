@@ -16,6 +16,21 @@ public interface IDashboardView
     event Action? Changed;
 }
 
+/// <summary>
+/// The editor of the window a view is drawn in. Since API 1.2. Scoped to the
+/// window, so it is only there for a component's <c>@inject</c>, not for the
+/// extension's own services, which are shared by every window.
+/// </summary>
+public interface IEditorTabs
+{
+    /// <summary>
+    /// Opens a file as a tab beside the agent's files. Inside the worktree in view
+    /// it opens as that file, editable; anywhere else, such as a report the
+    /// extension wrote to its data folder, read-only.
+    /// </summary>
+    void OpenFile(string absolutePath, int? line = null);
+}
+
 /// <summary>Links into the app's own views.</summary>
 public interface INavigation
 {

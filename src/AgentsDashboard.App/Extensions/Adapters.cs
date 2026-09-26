@@ -82,6 +82,13 @@ public sealed class DashboardViewAdapter : IDashboardView, IDisposable
     public void Dispose() => _state.Changed -= Raise;
 }
 
+/// <summary>One window's editor, for an extension's view.</summary>
+public sealed class EditorTabs(Workbench bench, DashboardState state) : IEditorTabs
+{
+    public void OpenFile(string absolutePath, int? line = null) =>
+        bench.OpenExternal(bench.WorktreeInView(state.Snapshot) ?? "", absolutePath, line);
+}
+
 public sealed class Navigation : INavigation
 {
     public string FileHref(string agentId, string relativePath, int? line = null) =>
