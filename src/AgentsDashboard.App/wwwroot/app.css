@@ -246,7 +246,7 @@ p { margin: 0 0 8px; }
 }
 
 .segmented button + button { border-left: 1px solid var(--border); }
-.segmented button:hover { background: var(--surface-2); color: var(--text); }
+.segmented button:hover:where(:not(:disabled)) { background: var(--surface-2); color: var(--text); }
 .segmented button.on { background: var(--accent-bg); color: var(--accent); }
 
 button, .btn {
@@ -264,9 +264,11 @@ button, .btn {
     white-space: nowrap;
 }
 
-button:hover, .btn:hover { background: var(--border); text-decoration: none; }
+/* Every hover below is for enabled buttons only, through :where so it adds no
+   specificity and the variants still win. A disabled button that lights up
+   under the pointer reads as clickable. */
+button:hover:where(:not(:disabled)), .btn:hover { background: var(--border); text-decoration: none; }
 button:disabled { opacity: 0.45; cursor: default; }
-button:disabled:hover { background: var(--surface-3); }
 
 button.primary, .btn.primary {
     background: var(--accent);
@@ -274,11 +276,11 @@ button.primary, .btn.primary {
     color: #0b0e14;
 }
 
-button.primary:hover, .btn.primary:hover { filter: brightness(1.08); }
+button.primary:hover:where(:not(:disabled)), .btn.primary:hover { filter: brightness(1.08); }
 button.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
 button.danger:hover:not(:disabled) { filter: brightness(1.08); }
 button.ghost { background: transparent; border-color: transparent; color: var(--text-dim); }
-button.ghost:hover { background: var(--surface-2); color: var(--text); }
+button.ghost:hover:where(:not(:disabled)) { background: var(--surface-2); color: var(--text); }
 button.small { padding: 2px 8px; font-size: 12px; }
 
 select { width: auto; max-width: 260px; }
@@ -1093,7 +1095,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent-dim); }
     color: var(--text-dim);
 }
 
-.icon-btn:hover { background: var(--surface-2); color: var(--text); text-decoration: none; }
+.icon-btn:hover:where(:not(:disabled)) { background: var(--surface-2); color: var(--text); text-decoration: none; }
 .icon-btn.active { background: var(--accent-bg); color: var(--text); }
 
 /* ---------- change marks in the editor ---------- */
@@ -1154,7 +1156,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent-dim); }
 .diff-placeholder { background: var(--surface); }
 
 button.icon-btn { border: none; background: none; padding: 0; cursor: pointer; }
-button.icon-btn:hover { background: var(--surface-2); }
+button.icon-btn:hover:where(:not(:disabled)) { background: var(--surface-2); }
 
 /* ---------- agents over ACP ---------- */
 
@@ -1548,6 +1550,10 @@ button.icon-btn:hover { background: var(--surface-2); }
     font-size: 12px;
     min-width: 0;
 }
+/* Accent while there is something to save, so the enabled state reads at a
+   glance; disabled it falls back to the dim grey every disabled button has. */
+.doc-bar .doc-save { width: 24px; height: 24px; flex: none; color: var(--accent); }
+.doc-bar .doc-save:disabled { color: var(--text-dim); }
 .doc-editor { flex: 1; min-height: 0; }
 .doc-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 
@@ -1914,6 +1920,7 @@ button.wt-danger {
     color: var(--bg);
     font-weight: 600;
 }
+button.wt-danger:hover:where(:not(:disabled)) { filter: brightness(1.08); }
 
 /* Under a stopped agent whose worktree has merged: the mockup's "remove?" offer. */
 .cleanup-offer {
@@ -1954,5 +1961,5 @@ button.wt-agent {
 }
 
 button.wt-agent:first-child { border-top: none; }
-button.wt-agent:hover { background: var(--surface-2); }
+button.wt-agent:hover:where(:not(:disabled)) { background: var(--surface-2); }
 button.wt-agent .dot { margin-top: 6px; }

@@ -167,6 +167,8 @@
     private Dialog? _dialog;
     private ElementReference _dialogRef;
     private bool _focusDialog;
+    private ElementReference _confirmRef;
+    private bool _focusConfirm;
 
     private sealed record Notice(bool Ok, string Message);
 
@@ -646,6 +648,12 @@
             _focusDialog = false;
             await _dialogRef.FocusAsync();
         }
+
+        if (_focusConfirm && _dialog is not null)
+        {
+            _focusConfirm = false;
+            await _confirmRef.FocusAsync();
+        }
     }
 
     private async Task OpenRemove(Row row)
@@ -665,6 +673,10 @@
             dialog.LostFiles = files;
             dialog.LostCommits = commits;
         }
+
+        // The name box only appears once the read is back, after the dialog took
+        // focus, so it is focused then: typing the name is the one thing to do.
+        _focusConfirm = _dialog == dialog && Loses(dialog);
     }
 
     private void OpenBulk(List<Row> rows) => Show(new Dialog(DialogKind.Bulk)
@@ -885,7 +897,10 @@
                     }
                 </div>
                 <p>Type <strong class="mono">@wt.Name</strong> to remove it anyway.</p>
-                <input type="text" aria-label="Worktree name" placeholder="@wt.Name" value="@dialog.Typed"
+                @* No placeholder: the name drawn in grey in an empty box reads as
+                   already typed, and the button then looks broken. *@
+                <input type="text" aria-label="Worktree name" value="@dialog.Typed" @ref="_confirmRef"
+                       autocomplete="off" spellcheck="false"
                        @oninput="e => dialog.Typed = e.Value?.ToString() ?? string.Empty" />
             }
             else
