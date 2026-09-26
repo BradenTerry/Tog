@@ -294,6 +294,35 @@ public class AgentHostTests
         Assert.Equal(echo, AgentHost.IsPromptEcho(title, prompt));
 
     [Fact]
+    public async Task Lists_the_slash_commands_the_agent_takes_and_offers_them_to_agents_that_have_not_said()
+    {
+        var agent = new FakeAcpAgent
+        {
+            OnPrompt = async script =>
+            {
+                await script.Commands(
+                    new { name = "review", description = "Review the diff", input = new { hint = "[level]" } },
+                    new { name = "init", description = "Write a CLAUDE.md", input = (object?)null });
+                return "end_turn";
+            },
+        };
+        var (host, _, dir) = Build(agent);
+        await using var _h = host;
+        using var _d = dir;
+
+        var first = (await host.StartAsync(new AgentStart(dir.Path, Prompt: "go"), Ct)).SessionId!;
+        var idle = await Until(host, first, a => a.Commands is { Count: 2 } && a.State == HostedState.Idle);
+
+        Assert.Equal(
+            [new AcpCommand("init", "Write a CLAUDE.md", null), new AcpCommand("review", "Review the diff", "[level]")],
+            idle.Commands);
+
+        agent.OnPrompt = _ => Task.FromResult("end_turn");
+        var second = (await host.StartAsync(new AgentStart(dir.Path), Ct)).SessionId!;
+        Assert.Equal(2, host.Agents.Single(a => a.SessionId == second).Commands!.Count);
+    }
+
+    [Fact]
     public async Task Keeps_how_full_the_context_window_is_across_a_restart()
     {
         var dir = new TempDir();

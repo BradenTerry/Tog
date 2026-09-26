@@ -470,6 +470,176 @@ function growComposer(box) {
     }
 }
 
+// Slash commands in the composer: typing a slash at the start of the box lists
+// the commands the agent takes (its skills, your custom commands, its own) and
+// narrows them as you type. It all happens here rather than on the circuit, so
+// the list keeps up with typing. The server only hands over the commands, and
+// the menu element it renders is left empty for this to fill; Blazor never
+// touches an element's children it did not render.
+//
+// Tab completes the name and leaves the caret after it for an argument. Enter
+// does the same for a command that takes an argument, and sends one that does
+// not, the way the terminal runs it.
+const commandMenus = new WeakMap();
+let commandMenuCount = 0;
+
+function commandState(box) {
+    let state = commandMenus.get(box);
+    if (!state) {
+        state = { commands: [], menu: null, shown: [], index: 0, id: 'cmd' + (++commandMenuCount) };
+        commandMenus.set(box, state);
+    }
+
+    return state;
+}
+
+// The name being typed, when the caret is still inside the first word and that
+// word is a slash command.
+function commandQuery(box) {
+    const before = box.value.slice(0, box.selectionStart ?? box.value.length);
+    const match = /^\/(\S*)$/.exec(before);
+    return match ? match[1].toLowerCase() : null;
+}
+
+function closeCommands(box) {
+    const state = commandState(box);
+    state.shown = [];
+    if (state.menu) {
+        state.menu.replaceChildren();
+    }
+
+    box.removeAttribute('aria-activedescendant');
+    box.setAttribute('aria-expanded', 'false');
+}
+
+function updateCommands(box) {
+    const state = commandState(box);
+    const query = commandQuery(box);
+    if (query === null || !state.menu || state.commands.length === 0) {
+        closeCommands(box);
+        return;
+    }
+
+    const name = (c) => c.name.toLowerCase();
+    const starts = state.commands.filter((c) => name(c).startsWith(query));
+    const contains = state.commands.filter((c) => !name(c).startsWith(query) && name(c).includes(query));
+    const shown = starts.concat(contains);
+    if (shown.length === 0) {
+        closeCommands(box);
+        return;
+    }
+
+    const same = shown.length === state.shown.length && shown.every((c, i) => c === state.shown[i]);
+    state.index = same ? Math.min(state.index, shown.length - 1) : 0;
+    state.shown = shown;
+    drawCommands(box);
+}
+
+function drawCommands(box) {
+    const state = commandState(box);
+    const items = state.shown.map((command, i) => {
+        const item = document.createElement('div');
+        item.className = 'command-item' + (i === state.index ? ' selected' : '');
+        item.id = state.id + '-' + i;
+        item.setAttribute('role', 'option');
+        item.setAttribute('aria-selected', i === state.index ? 'true' : 'false');
+
+        const name = document.createElement('span');
+        name.className = 'command-name mono';
+        name.textContent = '/' + command.name;
+        item.append(name);
+
+        if (command.hint) {
+            const hint = document.createElement('span');
+            hint.className = 'command-hint mono';
+            hint.textContent = command.hint;
+            item.append(hint);
+        }
+
+        const description = document.createElement('span');
+        description.className = 'command-desc';
+        description.textContent = command.description;
+        description.title = command.description;
+        item.append(description);
+
+        // Mousedown, not click, and cancelled: a click would take focus from the
+        // box first, and losing focus closes the menu.
+        item.addEventListener('mousedown', (event) => {
+            event.preventDefault();
+            state.index = i;
+            acceptCommand(box, false);
+        });
+        return item;
+    });
+
+    const foot = document.createElement('div');
+    foot.className = 'command-foot';
+    foot.textContent = 'Tab to complete, Enter to run, Esc to close';
+
+    state.menu.replaceChildren(...items, foot);
+    box.setAttribute('aria-expanded', 'true');
+    box.setAttribute('aria-activedescendant', state.id + '-' + state.index);
+    items[state.index]?.scrollIntoView({ block: 'nearest' });
+}
+
+function acceptCommand(box, run) {
+    const state = commandState(box);
+    const command = state.shown[state.index];
+    if (!command) {
+        return;
+    }
+
+    // Replaces the first word, keeping anything already typed after it.
+    const rest = box.value.replace(/^\/\S*/, '').replace(/^\s+/, '');
+    const send = run && !command.hint && rest.length === 0;
+    const head = '/' + command.name + (send ? '' : ' ');
+    box.value = head + rest;
+    box.setSelectionRange(head.length, head.length);
+    closeCommands(box);
+
+    // The server learns what is in the box from input events, so it has to see
+    // one before the submit that follows, which it then handles in order.
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    if (send) {
+        box.form?.requestSubmit();
+    }
+}
+
+// Handles a key while the menu is open. Returns whether it did.
+function commandKey(box, event) {
+    const state = commandState(box);
+    if (state.shown.length === 0 || event.isComposing) {
+        return false;
+    }
+
+    switch (event.key) {
+        case 'ArrowDown':
+        case 'ArrowUp':
+            state.index = (state.index + (event.key === 'ArrowDown' ? 1 : -1) + state.shown.length) % state.shown.length;
+            drawCommands(box);
+            return true;
+        case 'Tab':
+            if (event.shiftKey) {
+                return false;
+            }
+
+            acceptCommand(box, false);
+            return true;
+        case 'Enter':
+            if (event.shiftKey) {
+                return false;
+            }
+
+            acceptCommand(box, true);
+            return true;
+        case 'Escape':
+            closeCommands(box);
+            return true;
+        default:
+            return false;
+    }
+}
+
 window.agentsDashboard = {
     bindComposer: (box) => {
         if (!box || box.dataset.bound) {
@@ -477,14 +647,41 @@ window.agentsDashboard = {
         }
 
         box.dataset.bound = '1';
-        box.addEventListener('input', () => growComposer(box));
+        box.addEventListener('input', () => {
+            growComposer(box);
+            updateCommands(box);
+        });
+        box.addEventListener('click', () => updateCommands(box));
+        box.addEventListener('blur', () => closeCommands(box));
         box.addEventListener('keydown', (event) => {
+            if (commandKey(box, event)) {
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+            }
+
             if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
                 event.preventDefault();
                 box.form?.requestSubmit();
             }
         });
         growComposer(box);
+    },
+    // The commands the agent takes, and the element to list them in. Sent again
+    // whenever the agent lists them afresh.
+    setComposerCommands: (box, menu, commands) => {
+        if (!box) {
+            return;
+        }
+
+        const state = commandState(box);
+        state.menu = menu;
+        state.commands = commands || [];
+        menu?.setAttribute('id', state.id);
+        box.setAttribute('aria-controls', state.id);
+        if (document.activeElement === box) {
+            updateCommands(box);
+        }
     },
     setComposer: (box, text) => {
         if (box) {
@@ -495,6 +692,7 @@ window.agentsDashboard = {
     resetComposer: (box) => {
         if (box) {
             box.value = '';
+            closeCommands(box);
             growComposer(box);
             box.focus();
         }
