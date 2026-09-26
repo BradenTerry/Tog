@@ -33,6 +33,9 @@ if [[ ! -f "$acp/VERSION" ]]; then
     echo "The ACP bridge is not installed in $acp. Build once (it runs tools/vendor-acp.sh), then publish again." >&2
     exit 1
 fi
+# The publish output already has acp/ with the package json files in it, and
+# cp -R into an existing directory nests the copy as acp/acp, so replace it.
+rm -rf "$staging/app/acp"
 cp -R "$acp" "$staging/app/acp"
 
 # A new bundle gets the launcher and Info.plist; an existing one keeps its own.
