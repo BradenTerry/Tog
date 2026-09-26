@@ -175,6 +175,12 @@ and change every file in it. The answer is kept in the dashboard's own settings
   user message, so `ConversationReader` reads those too. Without them the chat's
   "Sent." bubble never finds its message and sits below the agent's reply as if
   it were ignored.
+- **Slash commands** go to the agent as plain prompt text (`/review high`); the
+  bridge runs skills, custom commands and its own. What it takes arrives as an
+  `available_commands_update` once a session runs, and the composer lists those
+  as you type a slash. A stopped agent has not listed any, and it is the message
+  being typed that resumes it, so it is offered the last list any session gave.
+  The menu lives in `app.js`, not on the circuit, so it keeps up with typing.
 
 ## When the agent process dies
 

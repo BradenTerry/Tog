@@ -121,6 +121,13 @@ public sealed class FakeAcpAgent : IAgentLauncher
             },
         });
 
+        /// <summary>The slash commands the session takes, the way the Claude bridge lists them.</summary>
+        public Task Commands(params object[] availableCommands) => rpc.NotifyAsync("session/update", new
+        {
+            sessionId,
+            update = new { sessionUpdate = "available_commands_update", availableCommands },
+        });
+
         public Task Tool(string title) => rpc.NotifyAsync("session/update", new
         {
             sessionId,

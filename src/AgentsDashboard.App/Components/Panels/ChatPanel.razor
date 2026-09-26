@@ -311,9 +311,12 @@ else
 
         <form class="chat-composer" @onsubmit="Send">
             <div class="composer-row">
+                @* Filled and emptied by app.js as a slash command is typed. *@
+                <div class="command-menu" @ref="_menu" role="listbox" aria-label="Slash commands"></div>
                 <textarea @ref="_box" rows="1"
                           placeholder="@Placeholder(agent)"
                           aria-label="Message for @agent.Label"
+                          aria-autocomplete="list"
                           disabled="@(!CanSend(agent))"
                           @oninput="e => { _draft = e.Value?.ToString() ?? string.Empty; Drafts.Set(agent.SessionId, _draft); }"></textarea>
                 <button type="submit" class="primary"
@@ -402,6 +405,10 @@ else
 
     private ElementReference _thread;
     private ElementReference _box;
+    private ElementReference _menu;
+
+    /// <summary>The command list last handed to the box, to hand it over again only when the agent lists a new one.</summary>
+    private IReadOnlyList<AcpCommand>? _commandsSent;
     private int _shownCount = -1;
     private bool _forceScroll = true;
     private bool _wasVisible;
@@ -431,7 +438,7 @@ else
 
     private static string Hint(ChatTarget target)
     {
-        const string Keys = "Enter to send, Shift+Enter for a new line.";
+        var Keys = "Enter to send, Shift+Enter for a new line." + (target.Commands is { Count: > 0 } ? " / for commands." : "");
         if (!CanSend(target))
         {
             return "Its folder is gone, so it cannot be resumed.";
@@ -672,7 +679,7 @@ else
     {
         // The composer and the thread are always built, but only followed while
         // the panel is showing them.
-        if (Current is null || !IsVisible)
+        if (Current is not { } agent || !IsVisible)
         {
             return;
         }
@@ -680,6 +687,12 @@ else
         try
         {
             await Js.InvokeVoidAsync("agentsDashboard.bindComposer", _box);
+
+            if (!ReferenceEquals(agent.Commands, _commandsSent))
+            {
+                _commandsSent = agent.Commands;
+                await Js.InvokeVoidAsync("agentsDashboard.setComposerCommands", _box, _menu, agent.Commands ?? []);
+            }
 
             if (_putInBox is { } text)
             {

@@ -1035,7 +1035,57 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent-dim); }
 
 
 
-.composer-row { display: flex; gap: 10px; align-items: flex-end; }
+.composer-row { display: flex; gap: 10px; align-items: flex-end; position: relative; }
+
+/* Slash commands, above the box while one is typed. app.js fills it; empty, it
+   is not there. */
+.command-menu {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: calc(100% + 6px);
+    max-height: 280px;
+    overflow-y: auto;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
+    padding: 4px;
+    z-index: 20;
+}
+.command-menu:empty { display: none; }
+.command-item {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 5px 8px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    min-width: 0;
+}
+.command-item:hover { background: var(--surface-3); }
+.command-item.selected { background: var(--accent-bg); }
+.command-name { color: var(--text); flex: none; }
+.command-item.selected .command-name { color: var(--accent); }
+.command-hint { color: var(--text-faint); flex: none; font-size: 12px; }
+.command-desc {
+    color: var(--text-dim);
+    font-size: 12px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.command-foot {
+    position: sticky;
+    bottom: -4px;
+    margin: 4px -4px -4px;
+    padding: 5px 12px;
+    border-top: 1px solid var(--border-soft);
+    background: var(--surface-2);
+    font-size: 11px;
+    color: var(--text-faint);
+}
 
 .composer-row textarea {
     resize: none;
@@ -1349,8 +1399,10 @@ button.icon-btn:hover:where(:not(:disabled)) { background: var(--surface-2); }
 .brand-mark {
     width: 16px;
     height: 16px;
-    border-radius: 5px;
-    background: linear-gradient(140deg, var(--accent), var(--active));
+    /* The app icon itself. Its tile sits inside a 100-unit margin of the
+       1024 canvas (the macOS icon grid), so it is scaled by 1024/824 to make
+       the tile, not the canvas, fill the box. */
+    background: url("favicon.svg") center / 124.3% no-repeat;
 }
 .brand-name { font-weight: 600; letter-spacing: -0.01em; }
 

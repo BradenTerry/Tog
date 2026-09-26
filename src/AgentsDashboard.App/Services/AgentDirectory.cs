@@ -39,7 +39,8 @@ public sealed record ChatTarget(
     bool Detached = false,
     IReadOnlyList<Subagent>? Subagents = null,
     IReadOnlyList<BackgroundCommand>? BackgroundCommands = null,
-    bool FolderGone = false)
+    bool FolderGone = false,
+    IReadOnlyList<AcpCommand>? Commands = null)
 {
     /// <summary>Subagents and background commands still running.</summary>
     public int BackgroundCount => (Subagents?.Count ?? 0) + (BackgroundCommands?.Count ?? 0);
@@ -111,7 +112,8 @@ public sealed class AgentDirectory(AgentHost host)
                     home?.Worktree.Worktree.Detached == true,
                     seen?.Subagents ?? [],
                     seen?.BackgroundCommands ?? [],
-                    agent.FolderGone);
+                    agent.FolderGone,
+                    agent.Commands);
             })
             .OrderBy(t => t.State)
             // Waiting: blocked longest first, since that one costs the most.

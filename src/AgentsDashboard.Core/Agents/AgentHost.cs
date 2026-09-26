@@ -43,6 +43,7 @@ public sealed record PermissionAsk(string Key, string Title, string? Detail, IRe
 /// <param name="Prompt">The first thing it was asked, to stand in for a title until it has one.</param>
 /// <param name="Context">How full its context window was when its last turn ended, if it has said.</param>
 /// <param name="FolderGone">Its folder no longer exists, typically a worktree that was removed. Claude resumes a conversation only in the folder it started in, so it cannot carry on.</param>
+/// <param name="Commands">The slash commands it takes, as it last listed them, or those another session listed while it has not.</param>
 public sealed record HostedAgent(
     string SessionId,
     string Cwd,
@@ -57,7 +58,8 @@ public sealed record HostedAgent(
     IReadOnlyList<AcpConfigOption> Options,
     string? Prompt = null,
     ContextUsage? Context = null,
-    bool FolderGone = false);
+    bool FolderGone = false,
+    IReadOnlyList<AcpCommand>? Commands = null);
 
 /// <summary>How much of an agent's context window its conversation takes up.</summary>
 /// <param name="Used">Tokens in context: the last request's input, cached or not.</param>
@@ -135,6 +137,14 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
     private bool _recordChanged;
     private bool _planChanged;
     private IReadOnlyList<AcpConfigOption> _knownOptions = [];
+
+    /// <summary>
+    /// The commands the last session listed. The agent lists them only once a
+    /// session is running, and a stopped agent is resumed by the message you are
+    /// typing, so without these it would have none to offer. Skills and commands
+    /// mostly live in your own settings, so another session's list is close.
+    /// </summary>
+    private IReadOnlyList<AcpCommand> _knownCommands = [];
 
     public AgentHost(
         AgentBackend backend,
@@ -216,7 +226,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
         {
             lock (_gate)
             {
-                return _entries.Values.Select(e => e.Snapshot()).ToList();
+                return _entries.Values.Select(e => e.Snapshot(_knownCommands)).ToList();
             }
         }
     }
@@ -225,7 +235,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
     {
         lock (_gate)
         {
-            return _entries.TryGetValue(sessionId, out var entry) ? entry.Snapshot() : null;
+            return _entries.TryGetValue(sessionId, out var entry) ? entry.Snapshot(_knownCommands) : null;
         }
     }
 
@@ -472,7 +482,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
         {
             pid = _process?.ProcessId ?? 0;
             since = _processStartedAt;
-            running = _entries.Values.Where(e => e.Attached).Select(e => e.Snapshot()).ToList();
+            running = _entries.Values.Where(e => e.Attached).Select(e => e.Snapshot(_knownCommands)).ToList();
         }
 
         return running.Select(a => new AgentSession
@@ -827,6 +837,11 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
 
                     break;
 
+                case "available_commands_update":
+                    entry.Commands = AcpClient.ReadCommands(update);
+                    _knownCommands = entry.Commands;
+                    break;
+
                 case "session_info_update":
                     if (AcpClient.Text(update, "title") is { Length: > 0 } named
                         && named != entry.Title
@@ -1133,6 +1148,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
         public PendingPermission? Permission { get; set; }
         public string? Error { get; set; }
         public IReadOnlyList<AcpConfigOption> Options { get; set; } = [];
+        public IReadOnlyList<AcpCommand>? Commands { get; set; }
 
         public void SetState(HostedState state, DateTimeOffset at)
         {
@@ -1143,9 +1159,10 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
             }
         }
 
-        public HostedAgent Snapshot() => new(
+        public HostedAgent Snapshot(IReadOnlyList<AcpCommand> knownCommands) => new(
             SessionId, Cwd, Title, State, StateSince, AddedAt,
             Live.ToString(), CurrentTool, Permission?.Ask, Error, Options, Prompt, Context,
-            FolderGone: !Directory.Exists(Cwd));
+            FolderGone: !Directory.Exists(Cwd),
+            Commands: Commands ?? knownCommands);
     }
 }

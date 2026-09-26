@@ -8,6 +8,11 @@ public sealed record AcpChoice(string Value, string Name, string? Description);
 /// <summary>A session setting the agent offers, and which value it has now.</summary>
 public sealed record AcpConfigOption(string Id, string Name, string? Current, IReadOnlyList<AcpChoice> Choices);
 
+/// <summary>A slash command the agent takes in a prompt: a skill, a custom command, one of its own.</summary>
+/// <param name="Name">Without the slash.</param>
+/// <param name="Hint">What its argument is, when it takes one.</param>
+public sealed record AcpCommand(string Name, string Description, string? Hint);
+
 /// <summary>A conversation the agent knows about, from <c>session/list</c>.</summary>
 public sealed record AcpSessionInfo(string SessionId, string Cwd, string? Title, DateTimeOffset? UpdatedAt);
 
@@ -154,6 +159,27 @@ public sealed class AcpClient(JsonRpcConnection rpc)
                         .Select(c => new AcpChoice(Text(c, "value")!, Text(c, "name") ?? Text(c, "value")!, Text(c, "description")))
                         .ToList()
                     : []))
+            .ToList();
+    }
+
+    /// <summary>The commands in an <c>available_commands_update</c>.</summary>
+    public static IReadOnlyList<AcpCommand> ReadCommands(JsonElement update)
+    {
+        if (update.ValueKind != JsonValueKind.Object
+            || !update.TryGetProperty("availableCommands", out var commands)
+            || commands.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        return commands.EnumerateArray()
+            .Where(c => Text(c, "name") is { Length: > 0 })
+            .Select(c => new AcpCommand(
+                Text(c, "name")!.TrimStart('/'),
+                Text(c, "description") ?? "",
+                c.TryGetProperty("input", out var input) ? Text(input, "hint") : null))
+            .DistinctBy(c => c.Name, StringComparer.Ordinal)
+            .OrderBy(c => c.Name, StringComparer.Ordinal)
             .ToList();
     }
 
