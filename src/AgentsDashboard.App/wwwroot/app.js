@@ -661,7 +661,50 @@ function commandKey(box, event) {
     }
 }
 
+// A form of questions from the agent. Enter in a text box would submit the whole
+// form, which with three questions is rarely what was meant after answering the
+// first, so it moves on to the next question instead and only submits from the
+// last; Ctrl or Cmd+Enter submits from anywhere. The form takes the focus when it
+// appears, unless you are typing somewhere else, so it can be answered without
+// reaching for the mouse.
+function bindQuestions(form) {
+    if (!form || form.dataset.bound) {
+        return;
+    }
+
+    form.dataset.bound = '1';
+    form.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' || event.isComposing || event.shiftKey) {
+            return;
+        }
+
+        if (event.ctrlKey || event.metaKey) {
+            event.preventDefault();
+            form.requestSubmit();
+            return;
+        }
+
+        if (event.target.tagName !== 'INPUT' || !['text', 'number', 'email', 'url', 'date', 'datetime-local'].includes(event.target.type)) {
+            return;
+        }
+
+        const sets = [...form.querySelectorAll('fieldset')];
+        const here = sets.findIndex(set => set.contains(event.target));
+        const next = here >= 0 ? sets[here + 1] : null;
+        if (next) {
+            event.preventDefault();
+            next.querySelector('input, select, textarea')?.focus();
+        }
+    });
+
+    const active = document.activeElement;
+    if (!active || active === document.body || !active.matches('input, textarea, select, [contenteditable="true"]')) {
+        form.querySelector('fieldset input, fieldset select')?.focus({ preventScroll: true });
+    }
+}
+
 window.agentsDashboard = {
+    bindQuestions: (form) => bindQuestions(form),
     bindComposer: (box) => {
         if (!box || box.dataset.bound) {
             return;

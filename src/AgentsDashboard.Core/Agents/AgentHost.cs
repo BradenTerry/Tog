@@ -18,7 +18,7 @@ public enum HostedState
     /// <summary>In the middle of a turn.</summary>
     Working,
 
-    /// <summary>In the middle of a turn, blocked on a permission only you can give.</summary>
+    /// <summary>In the middle of a turn, blocked on a permission only you can give or questions only you can answer.</summary>
     Waiting,
 
     /// <summary>Its last turn ended in an error, or its process died under it.</summary>
@@ -44,6 +44,7 @@ public sealed record PermissionAsk(string Key, string Title, string? Detail, IRe
 /// <param name="Context">How full its context window was when its last turn ended, if it has said.</param>
 /// <param name="FolderGone">Its folder no longer exists, typically a worktree that was removed. Claude resumes a conversation only in the folder it started in, so it cannot carry on.</param>
 /// <param name="Commands">The slash commands it takes, as it last listed them, or those another session listed while it has not.</param>
+/// <param name="Questions">A form of questions it is waiting on you to answer, the oldest when there are several.</param>
 public sealed record HostedAgent(
     string SessionId,
     string Cwd,
@@ -59,7 +60,20 @@ public sealed record HostedAgent(
     string? Prompt = null,
     ContextUsage? Context = null,
     bool FolderGone = false,
-    IReadOnlyList<AcpCommand>? Commands = null);
+    IReadOnlyList<AcpCommand>? Commands = null,
+    QuestionForm? Questions = null)
+{
+    /// <summary>What it is waiting on you for, in a few words, when it is.</summary>
+    /// <remarks>An MCP server's form is named as one, never by its own message, which is the server's to write.</remarks>
+    public string? WaitingFor => Permission?.Title ?? Questions switch
+    {
+        null => null,
+        { Source: FormSource.McpServer } => QuestionForm.McpServerAsking,
+        { Questions.Count: > 1 } form => $"{form.Questions.Count} questions for you",
+        { Message.Length: > 0 } form => form.Message,
+        var form => form.Questions.FirstOrDefault()?.Text ?? form.Questions.FirstOrDefault()?.Header ?? "A question",
+    };
+}
 
 /// <summary>How much of an agent's context window its conversation takes up.</summary>
 /// <param name="Used">Tokens in context: the last request's input, cached or not.</param>
@@ -387,7 +401,8 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
             client = _client;
             if (_entries.TryGetValue(sessionId, out var entry))
             {
-                entry.Permission?.Answer.TrySetResult(null);
+                entry.Abandon();
+                Resume(entry);
             }
         }
 
@@ -416,7 +431,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
         {
             client = _client;
             attached = _entries.TryGetValue(sessionId, out var entry) && entry.Attached;
-            entry?.Permission?.Answer.TrySetResult(null);
+            entry?.Abandon();
         }
 
         if (attached && client is not null)
@@ -440,7 +455,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
                 entry.Turns = 0;
                 entry.Live.Clear();
                 entry.CurrentTool = null;
-                entry.Permission = null;
+                entry.Abandon();
                 entry.SetState(HostedState.Stopped, _clock.Now);
             }
         }
@@ -475,6 +490,22 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Answers the agent's open form of questions. Null content skips it: the
+    /// agent is told you chose not to answer, and carries on.
+    /// </summary>
+    public void AnswerQuestions(string sessionId, string key, IReadOnlyDictionary<string, object>? content)
+    {
+        lock (_gate)
+        {
+            if (_entries.TryGetValue(sessionId, out var entry)
+                && entry.Questions.FirstOrDefault(q => q.Form.Key == key) is { } pending)
+            {
+                pending.Answer.TrySetResult(content is null ? FormReply.Decline : FormReply.Accept(content));
+            }
+        }
+    }
+
     /// <summary>The agents running in this process, for the monitor: stopped ones are not running.</summary>
     public IReadOnlyList<AgentSession> Read()
     {
@@ -499,7 +530,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
                 HostedState.Waiting => AgentStatus.Waiting,
                 _ => AgentStatus.Idle,
             },
-            WaitingFor = a.Permission?.Title,
+            WaitingFor = a.WaitingFor,
             Name = a.Title,
             StartedAt = a.AddedAt,
             LastActivity = a.StateSince,
@@ -545,7 +576,10 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
             {
                 entry.Live.Clear();
                 entry.CurrentTool = null;
-                entry.Permission = null;
+
+                // The turn is over, so nothing still open will be read: the agent
+                // stopped waiting for it when the turn ended.
+                entry.Abandon();
                 entry.SetState(entry.Error is null ? HostedState.Idle : HostedState.Failed, _clock.Now);
             }
         }
@@ -730,8 +764,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
             foreach (var entry in _entries.Values.Where(e => e.Attached))
             {
                 entry.Attached = false;
-                entry.Permission?.Answer.TrySetResult(null);
-                entry.Permission = null;
+                entry.Abandon();
                 entry.Live.Clear();
                 entry.CurrentTool = null;
                 var wasWorking = entry.Turns > 0;
@@ -867,13 +900,15 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
         }
     }
 
-    private async Task<object?> OnRequestAsync(string method, JsonElement parameters, CancellationToken ct)
+    private Task<object?> OnRequestAsync(string method, JsonElement parameters, CancellationToken ct) => method switch
     {
-        if (method != "session/request_permission")
-        {
-            throw new JsonRpcException(JsonRpcConnection.MethodNotFound, $"{method} is not offered by the dashboard.");
-        }
+        "session/request_permission" => OnPermissionAsync(parameters, ct),
+        "elicitation/create" => OnQuestionsAsync(parameters, ct),
+        _ => throw new JsonRpcException(JsonRpcConnection.MethodNotFound, $"{method} is not offered by the dashboard."),
+    };
 
+    private async Task<object?> OnPermissionAsync(JsonElement parameters, CancellationToken ct)
+    {
         var sessionId = AcpClient.Text(parameters, "sessionId") ?? "";
         var toolCall = parameters.TryGetProperty("toolCall", out var call) ? call : default;
         var choices = parameters.TryGetProperty("options", out var options) && options.ValueKind == JsonValueKind.Array
@@ -917,10 +952,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
             if (_entries.TryGetValue(sessionId, out var entry) && entry.Permission == pending)
             {
                 entry.Permission = null;
-                if (entry.Attached && entry.Turns > 0)
-                {
-                    entry.SetState(HostedState.Working, _clock.Now);
-                }
+                Resume(entry);
             }
         }
 
@@ -931,6 +963,75 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
             : new { outcome = new { outcome = "selected", optionId = chosen } };
 
         static object Declined() => new { outcome = new { outcome = "cancelled" } };
+    }
+
+    /// <summary>
+    /// A form of questions from the agent: AskUserQuestion, an MCP server's
+    /// elicitation, or the bridge asking whether to retry a refused request on
+    /// another model. Only form mode is advertised; anything else, a form with no
+    /// session, and a form with a required field the dashboard cannot draw are
+    /// declined at once, which the bridge treats as the user saying no.
+    /// </summary>
+    private async Task<object?> OnQuestionsAsync(JsonElement parameters, CancellationToken ct)
+    {
+        var sessionId = AcpClient.Text(parameters, "sessionId");
+        var form = QuestionForm.Parse(parameters, Guid.NewGuid().ToString("n"));
+        if (sessionId is null || form is null)
+        {
+            return FormReply.Decline.ToWire();
+        }
+
+        var pending = new PendingQuestions(form);
+        lock (_gate)
+        {
+            if (!_entries.TryGetValue(sessionId, out var entry))
+            {
+                return FormReply.Decline.ToWire();
+            }
+
+            entry.Questions.Add(pending);
+            entry.SetState(HostedState.Waiting, _clock.Now);
+        }
+
+        Touch();
+
+        FormReply reply;
+        using (ct.Register(() => pending.Answer.TrySetResult(FormReply.Cancel)))
+        {
+            reply = await pending.Answer.Task.ConfigureAwait(false);
+        }
+
+        lock (_gate)
+        {
+            if (_entries.TryGetValue(sessionId, out var entry) && entry.Questions.Remove(pending))
+            {
+                Resume(entry);
+            }
+        }
+
+        Touch();
+        return reply.ToWire();
+    }
+
+    /// <summary>
+    /// Out of waiting once nothing is left waiting on you: back to working if the
+    /// turn is still going, or idle if it is not, as with a form asked outside a turn.
+    /// </summary>
+    private void Resume(Entry entry)
+    {
+        if (entry.Permission is not null || entry.Questions.Count > 0 || !entry.Attached)
+        {
+            return;
+        }
+
+        if (entry.Turns > 0)
+        {
+            entry.SetState(HostedState.Working, _clock.Now);
+        }
+        else if (entry.State == HostedState.Waiting)
+        {
+            entry.SetState(HostedState.Idle, _clock.Now);
+        }
     }
 
     /// <summary>The line under a permission's title: the agent's own description of the call, or its command.</summary>
@@ -1103,6 +1204,10 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
     {
         await _flush.DisposeAsync().ConfigureAwait(false);
 
+        // Whatever changed since the last tick, such as a title or the plan's
+        // limits arriving just before the app closed, would otherwise be lost.
+        Flush();
+
         AcpClient? client;
         IAgentProcess? process;
         lock (_gate)
@@ -1133,6 +1238,28 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
         public TaskCompletionSource<string?> Answer { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
+    private sealed class PendingQuestions(QuestionForm form)
+    {
+        public QuestionForm Form { get; } = form;
+
+        public TaskCompletionSource<FormReply> Answer { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    /// <summary>
+    /// How a form is answered: accept with the answers, decline (you skipped it,
+    /// and the agent carries on knowing that), or cancel (it was abandoned, and
+    /// the tool call that asked is aborted).
+    /// </summary>
+    private sealed record FormReply(string Action, IReadOnlyDictionary<string, object>? Content = null)
+    {
+        public static readonly FormReply Decline = new("decline");
+        public static readonly FormReply Cancel = new("cancel");
+
+        public static FormReply Accept(IReadOnlyDictionary<string, object> content) => new("accept", content);
+
+        public object ToWire() => Content is null ? new { action = Action } : new { action = Action, content = Content };
+    }
+
     /// <summary>A hosted agent's mutable state, only touched under the host's lock.</summary>
     private sealed class Entry(string sessionId, string cwd, DateTimeOffset addedAt, DateTimeOffset now)
     {
@@ -1149,6 +1276,9 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
         public StringBuilder Live { get; } = new();
         public string? CurrentTool { get; set; }
         public PendingPermission? Permission { get; set; }
+
+        /// <summary>Forms of questions open, oldest first. Parallel subagents can each ask.</summary>
+        public List<PendingQuestions> Questions { get; } = [];
         public string? Error { get; set; }
         public IReadOnlyList<AcpConfigOption> Options { get; set; } = [];
         public IReadOnlyList<AcpCommand>? Commands { get; set; }
@@ -1162,10 +1292,24 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
             }
         }
 
+        /// <summary>Settles everything open as abandoned: the permission declined, the questions cancelled.</summary>
+        public void Abandon()
+        {
+            Permission?.Answer.TrySetResult(null);
+            Permission = null;
+            foreach (var pending in Questions)
+            {
+                pending.Answer.TrySetResult(FormReply.Cancel);
+            }
+
+            Questions.Clear();
+        }
+
         public HostedAgent Snapshot(IReadOnlyList<AcpCommand> knownCommands) => new(
             SessionId, Cwd, Title, State, StateSince, AddedAt,
             Live.ToString(), CurrentTool, Permission?.Ask, Error, Options, Prompt, Context,
             FolderGone: !Directory.Exists(Cwd),
-            Commands: Commands ?? knownCommands);
+            Commands: Commands ?? knownCommands,
+            Questions: Questions.FirstOrDefault()?.Form);
     }
 }

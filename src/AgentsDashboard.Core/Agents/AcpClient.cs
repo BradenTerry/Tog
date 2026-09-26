@@ -40,8 +40,9 @@ public sealed record AcpSessionInfo(string SessionId, string Cwd, string? Title,
 /// Only what the dashboard uses. The client advertises no file system and no
 /// terminal capability, so the agent uses its own tools for both, exactly as it
 /// would in a terminal: the dashboard watches the work, it does not perform it.
-/// Session updates and permission requests arrive on the connection and are the
-/// host's to interpret; see <see cref="AgentHost"/>.
+/// The one thing it does advertise is form elicitation, so the agent can ask you
+/// questions. Session updates, permission requests and forms arrive on the
+/// connection and are the host's to interpret; see <see cref="AgentHost"/>.
 /// </remarks>
 public sealed class AcpClient(JsonRpcConnection rpc)
 {
@@ -61,6 +62,13 @@ public sealed class AcpClient(JsonRpcConnection rpc)
             {
                 fs = new { readTextFile = false, writeTextFile = false },
                 terminal = false,
+
+                // Form elicitation only. It is what lets Claude use AskUserQuestion
+                // at all (the bridge disallows the tool without it), and it also
+                // routes MCP servers' form elicitations and the refusal-fallback
+                // "retry on another model?" prompt here. URL mode is left out: it
+                // would send MCP OAuth sign-ins through the dashboard to open.
+                elicitation = new { form = new { } },
             },
             clientInfo = new { name = "agents-dashboard", title = "Agents Dashboard", version = "1" },
         }, ct).ConfigureAwait(false);

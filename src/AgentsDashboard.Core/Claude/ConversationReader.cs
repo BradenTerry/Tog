@@ -21,7 +21,9 @@ namespace AgentsDashboard.Core.Claude;
 /// Tool calls are folded into one entry per run between two things said, with a
 /// one-line summary of each step. Thinking, tool results, attachments, subagent
 /// sidechains and harness bookkeeping are left out: the chat is for reading the
-/// conversation, and <c>claude attach</c> is there for the rest.
+/// conversation, and <c>claude attach</c> is there for the rest. The exception is
+/// AskUserQuestion: its questions read as the agent speaking and its result as
+/// your answers, since that exchange is the conversation.
 /// </para>
 /// <para>
 /// One attachment is kept: a message you send while the agent is working is not
@@ -185,6 +187,7 @@ public sealed class ConversationReader
             {
                 case "user":
                     EditResults(root, content, entries);
+                    Answers(root, at, entries);
                     User(root, content, at, entries);
                     break;
                 case "assistant":
@@ -308,6 +311,12 @@ public sealed class ConversationReader
                     entries.Add(ChatEntry.Said(ChatKind.Agent, at, said.Trim()));
                     break;
 
+                case "tool_use" when Str(block, "name") == "AskUserQuestion" && Asked(block) is { } asked:
+                    // Questions for you are the agent talking to you, not working,
+                    // so they read as something it said rather than a folded step.
+                    entries.Add(ChatEntry.Said(ChatKind.Agent, at, asked));
+                    break;
+
                 case "tool_use" when EditOf(block) is { } edit:
                     // A file change belongs to the run like any call, but is kept
                     // out of its steps: the view folds the files changed on their
@@ -342,6 +351,62 @@ public sealed class ConversationReader
                     break;
             }
         }
+    }
+
+    /// <summary>An AskUserQuestion call as the questions it asks, numbered when there are several.</summary>
+    private static string? Asked(JsonElement block)
+    {
+        if (!block.TryGetProperty("input", out var input)
+            || !input.TryGetProperty("questions", out var questions)
+            || questions.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        var asked = questions.EnumerateArray().Select(q => Str(q, "question")).OfType<string>().ToList();
+        return asked.Count switch
+        {
+            0 => null,
+            1 => asked[0],
+            _ => string.Join('\n', asked.Select((q, i) => $"{i + 1}. {q}")),
+        };
+    }
+
+    /// <summary>
+    /// The answers to an AskUserQuestion, from the tool's result: one line per
+    /// question, by its short header, with a note typed beside a pick after it.
+    /// Answered in the dashboard or in a terminal, they are yours, so they read as
+    /// something you said. Skipped, they are a notice.
+    /// </summary>
+    private static void Answers(JsonElement root, DateTimeOffset at, List<ChatEntry> entries)
+    {
+        if (!root.TryGetProperty("toolUseResult", out var result)
+            || result.ValueKind != JsonValueKind.Object
+            || !result.TryGetProperty("questions", out var questions)
+            || questions.ValueKind != JsonValueKind.Array
+            || !result.TryGetProperty("answers", out var answers)
+            || answers.ValueKind != JsonValueKind.Object)
+        {
+            return;
+        }
+
+        var notes = result.TryGetProperty("annotations", out var a) && a.ValueKind == JsonValueKind.Object ? a : default;
+        var lines = new List<string>();
+        foreach (var question in questions.EnumerateArray())
+        {
+            if (Str(question, "question") is not { } asked || Str(answers, asked) is not { Length: > 0 } answer)
+            {
+                continue;
+            }
+
+            var label = Str(question, "header") is { Length: > 0 } header ? header : asked;
+            var note = notes.ValueKind == JsonValueKind.Object && notes.TryGetProperty(asked, out var n) ? Str(n, "notes") : null;
+            lines.Add(string.IsNullOrWhiteSpace(note) ? $"{label}: {answer}" : $"{label}: {answer} ({note.Trim()})");
+        }
+
+        entries.Add(lines.Count == 0
+            ? ChatEntry.Said(ChatKind.Notice, at, "You skipped the agent's questions.")
+            : ChatEntry.Said(ChatKind.You, at, string.Join('\n', lines)));
     }
 
     /// <summary>The most lines one edit shows. A Write of a generated file can be thousands.</summary>

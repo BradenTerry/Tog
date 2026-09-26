@@ -81,7 +81,7 @@ What the UI shows comes from two places:
 
 - **Live, from ACP:** the state (working, waiting on you, idle, stopped, failed),
   the text of the reply being written, the tool call in progress, and any
-  permission prompt. Streamed text arrives a few tokens at a time, so the host
+  permission prompt or open questions. Streamed text arrives a few tokens at a time, so the host
   raises its change event at most ten times a second.
 - **History, from the transcript:** `ConversationReader` reads the conversation
   from the transcript file as before. The live text since the last tool call is
@@ -148,6 +148,112 @@ command your settings already allow is not asked about.
 Starting the first agent in a repository asks you to confirm that Claude may read
 and change every file in it. The answer is kept in the dashboard's own settings
 (`TrustedRoots`), never in Claude's config.
+
+## Questions (form elicitation)
+
+Claude has a built-in tool, AskUserQuestion, for asking you several questions
+at once, each with a few options. The bridge only lets the agent use it when
+the client advertises form elicitation; otherwise it disallows the tool and the
+agent falls back to writing its questions out in prose. So `initialize` sends
+`clientCapabilities.elicitation = { form: {} }`, and nothing else new.
+
+Advertising it routes three things through `elicitation/create`, all in form
+mode, all answered by the same card:
+
+- **AskUserQuestion.** The bridge sees the call in `canUseTool` and sends a
+  form instead of a permission request. Each question is a field
+  `question_<n>`: a string with `oneOf` for pick-one, an array with
+  `items.anyOf` for pick-many, each option a `{ const, title, description }`
+  whose `const` is the label. After each is an optional `question_<n>_custom`
+  string, the "Other" box, marked `_meta._askUserQuestionCustomAnswer` with the
+  question it belongs to. With several questions each field's `title` is the
+  short header and `description` the question; with one, the question is the
+  form's `message`.
+- **MCP server elicitations**, passed through with the server's own schema:
+  flat fields of string (free, `enum` or `oneOf`), number, integer, boolean, or
+  an array of picks.
+- **The refusal fallback.** When a model declines a request and another could
+  take it, the CLI asks before switching: one `oneOf` field, retry on the other
+  model or keep the refusal.
+
+URL mode is not advertised. It would route MCP OAuth sign-ins through the
+dashboard to open in a browser, and the bridge declines those on its own
+without it. A url-mode request that arrives anyway is declined.
+
+`QuestionForm.Parse` turns the schema into questions, folding each "Other" box
+into the question it belongs to. A field of a kind it does not know is left out
+when optional; when required, the form is declined at once, since it cannot be
+answered honestly. The host puts the form on the agent (`HostedAgent.Questions`),
+which is then waiting on you exactly as with a permission: amber in the agent
+list, counted in the title bar, "N questions for you" as what it waits for.
+Answered outside a turn (an MCP server can ask after its turn has ended), the
+agent goes back to idle rather than staying on waiting.
+
+### Who is asking
+
+An MCP server is a third party, and its form would otherwise look exactly like
+Claude asking: a server could ask "Paste your GitHub token to continue" with a
+text box. So every form records its source (`QuestionForm.Source`), told apart
+by what the bridge sends:
+
+| Source | How it is recognised | Card heading |
+| --- | --- | --- |
+| Agent (AskUserQuestion) | carries `toolCallId`, which the bridge sets only for the tool | "Questions from the agent" |
+| Bridge (refusal fallback) | no `toolCallId`, one `choice` field between `retry_fallback` and `cancelled` | "Claude Code is asking" |
+| MCP server | anything else | "An MCP server the agent uses is asking" |
+
+A server's form is headed in the dashboard's words, its message is shown below
+as "The server says:", the card is edged red, and every free-text box on it has
+"Only answer if you trust this server. Do not paste passwords or tokens." beside
+it. What the agent waits for, in the agent list and the OS notification, is the
+same fixed "An MCP server the agent uses is asking", never the server's message.
+A server can copy the refusal fallback's shape, but then all it can get back is
+one of those two fixed values.
+
+### Size caps
+
+The chat redraws every second, and a form of thousands of fields would stall the
+circuit. A form with more than 20 questions (40 fields, counting "Other" boxes)
+or a question with more than 50 options is declined unseen. Titles,
+descriptions, labels and the message are cut to 2000 characters; option values
+go back to the agent as sent.
+
+```mermaid
+sequenceDiagram
+  participant U as You
+  participant H as AgentHost
+  participant B as claude-agent-acp
+  B->>H: elicitation/create (form, question_0, question_0_custom, ...)
+  H-->>U: one card, a fieldset per question
+  alt Submit
+    U->>H: picks and Other text
+    H-->>B: { action: accept, content: { question_0: "SQLite", question_1: ["macOS"], ... } }
+    B->>B: answers become the tool's input, the model reads them
+  else Skip
+    H-->>B: { action: decline }
+    B->>B: empty answers, the model is told you skipped
+  else Stop turn, End session, process died, turn ended
+    H-->>B: { action: cancel }
+    B->>B: the tool call is aborted
+  end
+```
+
+Only what was answered goes back: a pick-one as its value, a pick-many as an
+array in the listed order, an "Other" box under its own key when it has text,
+numbers as numbers, a yes/no as a boolean. For AskUserQuestion the bridge turns
+that into the tool's `answers` by question text: the Other text joins a
+pick-many's picks, answers a pick-one when nothing was picked, and rides along
+as a note when something was.
+
+The chat redraws every second, so the card keeps nothing in its markup: picks
+and typed text go into a `QuestionDraft` held in `ChatDrafts`, one per agent,
+and a text box's value is only written when the card is built. A half-answered
+form survives switching agents. Enter in a text box moves to the next question
+and Ctrl or Cmd+Enter submits.
+
+Afterwards the transcript has the call and its result. `ConversationReader`
+shows the questions as something the agent said and the answers, by header, as
+something you said, or a notice when they were skipped.
 
 ## Controls
 

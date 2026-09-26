@@ -11,6 +11,7 @@ public enum ChatState { Waiting, Active, Idle, Parked, Failed }
 /// <param name="LiveText">What it has said so far in the turn running now, before the transcript has it.</param>
 /// <param name="CurrentTool">The tool call it is making, by title.</param>
 /// <param name="Permission">A permission it is waiting on you for.</param>
+/// <param name="Questions">Questions it is waiting on you to answer.</param>
 /// <param name="LabelIsPrompt">The label is its first prompt, standing in until the agent names the conversation.</param>
 /// <param name="Context">How full its context window was when its last turn ended.</param>
 /// <param name="Detached">Its worktree has no branch checked out, only a commit.</param>
@@ -40,7 +41,8 @@ public sealed record ChatTarget(
     IReadOnlyList<Subagent>? Subagents = null,
     IReadOnlyList<BackgroundCommand>? BackgroundCommands = null,
     bool FolderGone = false,
-    IReadOnlyList<AcpCommand>? Commands = null)
+    IReadOnlyList<AcpCommand>? Commands = null,
+    QuestionForm? Questions = null)
 {
     /// <summary>Subagents and background commands still running.</summary>
     public int BackgroundCount => (Subagents?.Count ?? 0) + (BackgroundCommands?.Count ?? 0);
@@ -100,7 +102,7 @@ public sealed class AgentDirectory(AgentHost host)
                     home?.Worktree.Worktree.Name,
                     home?.Worktree.Worktree.Branch,
                     home is { } h ? Where(h.Repo, h.Worktree) : Fmt.Leaf(agent.Cwd),
-                    agent.Permission?.Title,
+                    agent.WaitingFor,
                     seen?.LastReply,
                     agent.StateSince,
                     agent.Error,
@@ -113,7 +115,8 @@ public sealed class AgentDirectory(AgentHost host)
                     seen?.Subagents ?? [],
                     seen?.BackgroundCommands ?? [],
                     agent.FolderGone,
-                    agent.Commands);
+                    agent.Commands,
+                    agent.Questions);
             })
             .OrderBy(t => t.State)
             // Waiting: blocked longest first, since that one costs the most.
