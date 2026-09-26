@@ -38,7 +38,8 @@ public sealed record ChatTarget(
     ContextUsage? Context,
     bool Detached = false,
     IReadOnlyList<Subagent>? Subagents = null,
-    IReadOnlyList<BackgroundCommand>? BackgroundCommands = null)
+    IReadOnlyList<BackgroundCommand>? BackgroundCommands = null,
+    bool FolderGone = false)
 {
     /// <summary>Subagents and background commands still running.</summary>
     public int BackgroundCount => (Subagents?.Count ?? 0) + (BackgroundCommands?.Count ?? 0);
@@ -109,7 +110,8 @@ public sealed class AgentDirectory(AgentHost host)
                     agent.Context,
                     home?.Worktree.Worktree.Detached == true,
                     seen?.Subagents ?? [],
-                    seen?.BackgroundCommands ?? []);
+                    seen?.BackgroundCommands ?? [],
+                    agent.FolderGone);
             })
             .OrderBy(t => t.State)
             // Waiting: blocked longest first, since that one costs the most.
@@ -184,6 +186,7 @@ public sealed class AgentDirectory(AgentHost host)
 
     public static string StateWord(ChatTarget target) => target.State switch
     {
+        ChatState.Parked or ChatState.Failed when target.FolderGone => "Folder removed",
         ChatState.Waiting => "Waiting on you",
         // Not the tool it is in: that changes every second or two, and a status
         // line that keeps rewriting itself to "grep -rn ..." reads as noise. The

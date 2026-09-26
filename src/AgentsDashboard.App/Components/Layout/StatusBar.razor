@@ -2,6 +2,7 @@
 @inject Workbench Bench
 @inject AgentDirectory Directory
 @inject AgentHost Host
+@inject IJSRuntime Js
 
 @* Along the bottom of the window, as VS Code's status bar: where the agent in
    view works, each part labelled, so which branch you are looking at is never
@@ -11,9 +12,15 @@
 <footer class="statusbar" aria-label="Where the agent works and plan usage">
     @if (Agent is { } agent)
     {
-        <span class="status-item" title="@(agent.WorktreePath ?? agent.Cwd)">
+        var directory = agent.WorktreePath ?? agent.Cwd;
+        @* A worktree path runs to a hundred characters and pushes everything
+           else off the bar. The folder name tells worktrees apart; the full
+           path is in the tooltip and a click away on the clipboard. *@
+        <span class="status-item" title="@directory">
             <span class="status-label">Directory</span>
-            <span class="mono truncate">@(agent.WorktreePath ?? agent.Cwd)</span>
+            <span class="mono truncate">.../@Fmt.Leaf(directory)</span>
+            <button class="ghost status-copy" @onclick="() => Copy(directory)"
+                    title="Copy the full path">@(_copied == directory ? "Copied" : "Copy")</button>
         </span>
         @if (agent.WorktreeName is { } worktreeName)
         {
@@ -96,6 +103,21 @@
     {
         var local = at.ToLocalTime();
         return local - DateTimeOffset.Now < TimeSpan.FromHours(20) ? local.ToString("h:mm tt") : local.ToString("ddd h:mm tt");
+    }
+
+    /// <summary>The path just copied, so its button says so until the next copy.</summary>
+    private string? _copied;
+
+    private async Task Copy(string path)
+    {
+        try
+        {
+            _copied = await Js.InvokeAsync<bool>("agentsDashboard.copy", path) ? path : null;
+        }
+        catch (JSException)
+        {
+            _copied = null;
+        }
     }
 
     private void OnChanged() => _ = InvokeAsync(StateHasChanged);

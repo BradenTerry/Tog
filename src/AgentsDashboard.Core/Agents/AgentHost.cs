@@ -42,6 +42,7 @@ public sealed record PermissionAsk(string Key, string Title, string? Detail, IRe
 /// <param name="Title">The name the agent gave the conversation, or one you picked it up under. Never the prompt.</param>
 /// <param name="Prompt">The first thing it was asked, to stand in for a title until it has one.</param>
 /// <param name="Context">How full its context window was when its last turn ended, if it has said.</param>
+/// <param name="FolderGone">Its folder no longer exists, typically a worktree that was removed. Claude resumes a conversation only in the folder it started in, so it cannot carry on.</param>
 public sealed record HostedAgent(
     string SessionId,
     string Cwd,
@@ -55,7 +56,8 @@ public sealed record HostedAgent(
     string? Error,
     IReadOnlyList<AcpConfigOption> Options,
     string? Prompt = null,
-    ContextUsage? Context = null);
+    ContextUsage? Context = null,
+    bool FolderGone = false);
 
 /// <summary>How much of an agent's context window its conversation takes up.</summary>
 /// <param name="Used">Tokens in context: the last request's input, cached or not.</param>
@@ -74,6 +76,13 @@ public sealed record AgentStart(
     string? Effort = null,
     string? Mode = null,
     string? Title = null);
+
+/// <summary>An agent's folder is gone, so its conversation cannot be resumed there.</summary>
+public sealed class FolderGoneException(string folder)
+    : InvalidOperationException($"{folder} no longer exists, so this agent cannot carry on. Its conversation can only be resumed in the folder it started in.")
+{
+    public string Folder { get; } = folder;
+}
 
 /// <summary>How an action went, with a sentence for the UI.</summary>
 public sealed record HostResult(bool Ok, string Message, string? SessionId = null)
@@ -293,7 +302,13 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
         }
         catch (Exception e) when (IsAgentFailure(e))
         {
-            Fail(sessionId, Explain(e));
+            // A missing folder is not the agent failing: nothing ran, and the
+            // chat already says why it cannot continue.
+            if (e is not FolderGoneException)
+            {
+                Fail(sessionId, Explain(e));
+            }
+
             return HostResult.Failed(Explain(e));
         }
     }
@@ -316,7 +331,13 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
         }
         catch (Exception e) when (IsAgentFailure(e))
         {
-            Fail(sessionId, Explain(e));
+            // A missing folder is not the agent failing: nothing ran, and the
+            // chat already says why it cannot continue.
+            if (e is not FolderGoneException)
+            {
+                Fail(sessionId, Explain(e));
+            }
+
             return HostResult.Failed(Explain(e));
         }
 
@@ -538,6 +559,11 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
             }
 
             cwd = entry.Cwd;
+        }
+
+        if (!Directory.Exists(cwd))
+        {
+            throw new FolderGoneException(cwd);
         }
 
         var options = await client.ResumeSessionAsync(sessionId, cwd, ct).ConfigureAwait(false);
@@ -1119,6 +1145,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
 
         public HostedAgent Snapshot() => new(
             SessionId, Cwd, Title, State, StateSince, AddedAt,
-            Live.ToString(), CurrentTool, Permission?.Ask, Error, Options, Prompt, Context);
+            Live.ToString(), CurrentTool, Permission?.Ask, Error, Options, Prompt, Context,
+            FolderGone: !Directory.Exists(Cwd));
     }
 }

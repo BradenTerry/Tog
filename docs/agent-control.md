@@ -47,6 +47,13 @@ the Claude CLI uses, and the agent list shows the agents again on the next start
 **Stopped**. Sending one a message resumes it with `session/resume` and then
 prompts it. A turn in progress when the app closed is the only thing that stops.
 
+A conversation can only be resumed in the folder it started in: the transcript
+lives under a directory named after that path, and the agent refuses a `cwd` that
+does not exist. When a worktree is removed with its agent still on the list, the
+agent reports `FolderGone`, `AgentHost` refuses to resume it (without marking it
+failed, since nothing ran), and the chat says so and offers Remove. Recreating the
+worktree at the same path brings it back.
+
 A background host that outlives the window could replace this later without the
 UI noticing: the UI only talks to `AgentHost`.
 

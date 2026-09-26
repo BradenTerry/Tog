@@ -166,7 +166,7 @@ public class AgentHostTests
         var (host, agent, dir) = Build();
         await using var _ = host;
         using var __ = dir;
-        var id = (await host.StartAsync(new AgentStart("/repo"), Ct)).SessionId!;
+        var id = (await host.StartAsync(new AgentStart(dir.Path), Ct)).SessionId!;
         await host.StopAsync(id, Ct);
         Assert.Equal(HostedState.Stopped, host.Find(id)!.State);
         Assert.Contains("session/close:" + id, agent.Calls);
@@ -201,6 +201,28 @@ public class AgentHostTests
     }
 
     [Fact]
+    public async Task An_agent_whose_folder_is_gone_is_not_resumed()
+    {
+        var (host, agent, dir) = Build();
+        await using var _ = host;
+        using var __ = dir;
+        var folder = Path.Combine(dir.Path, "worktree");
+        Directory.CreateDirectory(folder);
+        var id = (await host.StartAsync(new AgentStart(folder), Ct)).SessionId!;
+        await host.StopAsync(id, Ct);
+        Directory.Delete(folder);
+
+        var sent = await host.SendAsync(id, "carry on", Ct);
+
+        Assert.False(sent.Ok);
+        Assert.Contains(folder, sent.Message);
+        var stopped = host.Find(id)!;
+        Assert.True(stopped.FolderGone);
+        Assert.Equal(HostedState.Stopped, stopped.State);
+        Assert.DoesNotContain("session/resume:" + id, agent.Calls);
+    }
+
+    [Fact]
     public async Task A_crash_mid_turn_fails_the_agent_and_the_next_message_starts_the_agent_again()
     {
         var release = new TaskCompletionSource();
@@ -216,7 +238,7 @@ public class AgentHostTests
         var (host, _, dir) = Build(agent);
         await using var _h = host;
         using var _d = dir;
-        var id = (await host.StartAsync(new AgentStart("/repo", Prompt: "go"), Ct)).SessionId!;
+        var id = (await host.StartAsync(new AgentStart(dir.Path, Prompt: "go"), Ct)).SessionId!;
         await Until(host, id, a => a.LiveText == "working");
 
         await agent.CrashAsync();

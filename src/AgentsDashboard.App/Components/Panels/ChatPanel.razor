@@ -46,6 +46,14 @@ else
                     title="Take it off the list. The conversation stays saved and can be resumed from New agent.">Remove</button>
         </header>
 
+        @if (agent.FolderGone && !CanSend(agent))
+        {
+            <div class="banner danger chat-notice">
+                <span>The folder this agent worked in is gone: <code>@agent.Cwd</code>. Its conversation is saved, but Claude can only resume it there. Recreate the worktree at that path to carry on, or remove the agent.</span>
+                <button class="ghost small spacer" @onclick="() => Act(() => Host.RemoveAsync(agent.SessionId))" disabled="@_busy">Remove</button>
+            </div>
+        }
+
         @if (_notice is { Length: > 0 })
         {
             <div class="banner @(_noticeFailed ? "danger" : "info") chat-notice">
@@ -387,7 +395,9 @@ else
 
     private ChatTarget? Current => Directory.Targets(Snapshot.Value).FirstOrDefault(t => t.SessionId == SessionId);
 
-    private static bool CanSend(ChatTarget target) => true;
+    // Claude resumes a conversation only in the folder it started in, so an
+    // agent whose worktree was removed has nowhere to carry on.
+    private static bool CanSend(ChatTarget target) => !target.FolderGone || target.State is not (ChatState.Parked or ChatState.Failed);
 
     private static string Placeholder(ChatTarget target) => target.State switch
     {
@@ -407,6 +417,11 @@ else
     private static string Hint(ChatTarget target)
     {
         const string Keys = "Enter to send, Shift+Enter for a new line.";
+        if (!CanSend(target))
+        {
+            return "Its folder is gone, so it cannot be resumed.";
+        }
+
         return target.State switch
         {
             ChatState.Active or ChatState.Waiting => Keys,
