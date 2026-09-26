@@ -61,18 +61,24 @@ mkdir -p "$LOG_DIR"
 
 # A build published while the app was open waits in app.next. It is moved
 # there whole with its marker, so a folder without one is not a staged build
-# and is left alone. If a move fails the old build is put back and started.
+# and is left alone. If a move fails the old build is put back and started,
+# and why goes in the log: nothing else would ever say.
+log() { echo "$(date '+%Y-%m-%d %H:%M:%S') launcher: $*" >>"$LOG_DIR/app.log"; }
 if [[ -f "$RESOURCES/app.next/.staged" ]]; then
-    rm -rf "$RESOURCES/app.previous"
-    if mv "$RESOURCES/app" "$RESOURCES/app.previous"; then
-        if mv "$RESOURCES/app.next" "$RESOURCES/app"; then
+    staged_commit="$(grep '^commit=' "$RESOURCES/app.next/.staged" 2>/dev/null)"
+    rm -rf "$RESOURCES/app.previous" 2>>"$LOG_DIR/app.log"
+    if mv "$RESOURCES/app" "$RESOURCES/app.previous" 2>>"$LOG_DIR/app.log"; then
+        if mv "$RESOURCES/app.next" "$RESOURCES/app" 2>>"$LOG_DIR/app.log"; then
             rm -f "$RESOURCES/app/.staged"
             rm -rf "$RESOURCES/app.previous"
             codesign --force --deep -s - "$BUNDLE" 2>/dev/null
-            echo "$(date '+%Y-%m-%d %H:%M:%S') updated to the staged build" >>"$LOG_DIR/app.log"
+            log "updated to the staged build ($staged_commit)"
         else
             mv "$RESOURCES/app.previous" "$RESOURCES/app"
+            log "could not move the staged build into place; kept the current one"
         fi
+    else
+        log "could not move the current build aside; the staged one waits"
     fi
 fi
 

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using AgentsDashboard.Core.Repos;
 using Photino.NET;
 
 namespace AgentsDashboard.App.Services;
@@ -25,9 +26,6 @@ public sealed record StagedUpdate(string Commit, string Subject, DateTimeOffset?
 /// </remarks>
 public sealed class AppUpdate : IDisposable
 {
-    /// <summary>Moved into place with the staged build, so its presence means the copy is complete.</summary>
-    public const string MarkerFile = ".staged";
-
     private readonly ILogger<AppUpdate> _log;
     private readonly string? _bundle;
     private readonly string? _marker;
@@ -39,13 +37,10 @@ public sealed class AppUpdate : IDisposable
     {
         _log = log;
 
-        // .../Name.app/Contents/Resources/app/
-        var app = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar));
-        if (app is { Name: "app", Parent: { Name: "Resources", Parent: { Name: "Contents", Parent: { } bundle } resources } }
-            && bundle.Name.EndsWith(".app", StringComparison.Ordinal))
+        if (AppBundle.Locate(AppContext.BaseDirectory) is { } bundle)
         {
-            _bundle = bundle.FullName;
-            _marker = Path.Combine(resources.FullName, "app.next", MarkerFile);
+            _bundle = bundle.Bundle;
+            _marker = bundle.Marker;
 
             // A file check every few seconds; a watcher would be finer than an
             // update needs, and would have to survive the folder being replaced.
