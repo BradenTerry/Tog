@@ -33,6 +33,9 @@ public sealed class AppPaths
     /// <summary>Each extension's own data folder.</summary>
     public string ExtensionDataDir(string id) => Path.Combine(Root, "extension-data", id);
 
+    /// <summary>Where anything outside the app drops a request to open a file in it. See <c>OpenRequests</c>.</summary>
+    public string OpenRequestsDir => Path.Combine(Root, "open");
+
     /// <summary>The extension API assembly, for extensions to compile against.</summary>
     public string SdkDir => Path.Combine(Root, "sdk");
 

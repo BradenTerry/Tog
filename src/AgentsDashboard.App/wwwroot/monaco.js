@@ -243,6 +243,54 @@ function languageFor(monaco, path) {
     return extensions.get(extension) || 'plaintext';
 }
 
+// Ctrl+= and Ctrl+- size the text in every open editor at once, the way VS Code's
+// editor zoom does, and the size is kept per machine so a reopened file does not
+// snap back. The key is read in a capture listener on the host rather than bound
+// as a Monaco command: the webview would otherwise zoom the whole page on the
+// same keys whenever focus sat in the find widget or the minimap.
+const defaultFontSize = 13;
+const fontSizeKey = 'agents.editorFontSize';
+
+function savedFontSize() {
+    const value = Number(localStorage.getItem(fontSizeKey));
+    return value >= 6 && value <= 40 ? value : defaultFontSize;
+}
+
+function setFontSize(size) {
+    const value = Math.min(40, Math.max(6, size));
+    if (value === defaultFontSize) {
+        localStorage.removeItem(fontSizeKey);
+    } else {
+        localStorage.setItem(fontSizeKey, String(value));
+    }
+
+    for (const state of editors.values()) {
+        state.editor.updateOptions({ fontSize: value });
+    }
+}
+
+// event.key is '=' or '+' depending on Shift and the layout, so the physical key
+// and the numpad are both accepted.
+function zoomStep(event) {
+    if (!(event.metaKey || event.ctrlKey) || event.altKey) {
+        return 0;
+    }
+
+    if (event.key === '=' || event.key === '+' || event.code === 'Equal' || event.code === 'NumpadAdd') {
+        return 1;
+    }
+
+    if (event.key === '-' || event.key === '_' || event.code === 'Minus' || event.code === 'NumpadSubtract') {
+        return -1;
+    }
+
+    if (event.key === '0' || event.code === 'Digit0' || event.code === 'Numpad0') {
+        return null;
+    }
+
+    return 0;
+}
+
 function mono() {
     const value = getComputedStyle(document.documentElement).getPropertyValue('--mono');
     return value.trim() || 'monospace';
@@ -524,7 +572,7 @@ window.agentsEditor = {
             automaticLayout: true,
             minimap: { enabled: true },
             wordWrap: 'off',
-            fontSize: 13,
+            fontSize: savedFontSize(),
             fontFamily: mono(),
             scrollBeyondLastLine: false,
             renderWhitespace: 'selection',
@@ -560,6 +608,19 @@ window.agentsEditor = {
         };
 
         element.addEventListener('keydown', state.onKeyDown);
+
+        state.onZoomKey = (event) => {
+            const step = zoomStep(event);
+            if (step === 0) {
+                return;
+            }
+
+            event.preventDefault();
+            event.stopPropagation();
+            setFontSize(step === null ? defaultFontSize : savedFontSize() + step);
+        };
+
+        element.addEventListener('keydown', state.onZoomKey, true);
 
         editor.onDidChangeModelContent(() => {
             if (!state.suppress) {
@@ -810,6 +871,7 @@ window.agentsEditor = {
         clearTimeout(state.syncing);
         remember(state.editor);
         state.element.removeEventListener('keydown', state.onKeyDown);
+        state.element.removeEventListener('keydown', state.onZoomKey, true);
 
         const model = state.editor.getModel();
         if (model) {

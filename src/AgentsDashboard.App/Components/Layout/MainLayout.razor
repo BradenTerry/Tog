@@ -5,6 +5,7 @@
 @inject AgentDirectory Directory
 @inject MonitorService Monitor
 @inject IJSRuntime Js
+@inject AgentsDashboard.Core.Platform.OpenRequests Requests
 
 @* The window, laid out like VS Code: files on the left, source control on the
    right, the editor in the middle with the conversation under it, and the list
@@ -53,6 +54,7 @@
 @code {
     private const string LayoutPref = "layout";
 
+    private IDisposable? _openRequests;
     private IDisposable? _statusWatch;
     private WorktreeChanges? _fileWatch;
     private string? _watchedPath;
@@ -63,6 +65,10 @@
         Bench.Changed += OnBenchChanged;
         Bench.LayoutChanged += OnLayoutChanged;
         State.Changed += OnSnapshot;
+
+        // Opens among the tabs of whatever this window is looking at, which is
+        // where the person who asked is looking too.
+        _openRequests = Requests.Subscribe(r => _ = InvokeAsync(() => Bench.OpenExternal(CurrentWorktree, r.Path, r.Line)));
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -173,6 +179,7 @@
         Bench.Changed -= OnBenchChanged;
         Bench.LayoutChanged -= OnLayoutChanged;
         State.Changed -= OnSnapshot;
+        _openRequests?.Dispose();
         _statusWatch?.Dispose();
         _fileWatch?.Dispose();
         _self?.Dispose();
