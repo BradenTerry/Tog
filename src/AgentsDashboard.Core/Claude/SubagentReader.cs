@@ -9,9 +9,11 @@ namespace AgentsDashboard.Core.Claude;
 /// <remarks>
 /// Subagents run inside the parent Claude process, so they have no registry
 /// entry of their own. Claude writes one small file per subagent beside the
-/// transcript instead, and removes it when the subagent finishes, which makes
-/// the directory listing the answer to "what is running right now" rather than a
-/// tally of everything that ever ran.
+/// transcript. It used to remove it when the subagent finished; it now keeps it,
+/// since a finished subagent can be resumed, so the files are every subagent that
+/// ever ran. Which are still running is the parent transcript's to say (see
+/// <see cref="TranscriptReader"/>), set against each subagent's own transcript
+/// being written since, which is what a resumed one does.
 /// </remarks>
 public sealed class SubagentReader(TranscriptLocator locator)
 {
@@ -74,7 +76,9 @@ public sealed class SubagentReader(TranscriptLocator locator)
                 raw.AgentType,
                 raw.Description,
                 raw.SpawnDepth,
-                new DateTimeOffset(File.GetCreationTimeUtc(file)).ToLocalTime());
+                new DateTimeOffset(File.GetCreationTimeUtc(file)).ToLocalTime(),
+                raw.ToolUseId,
+                LastWrite(Path.Combine(Path.GetDirectoryName(file)!, $"agent-{id}.jsonl")));
         }
         catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException
                                       or ArgumentOutOfRangeException)
@@ -83,8 +87,12 @@ public sealed class SubagentReader(TranscriptLocator locator)
         }
     }
 
+    private static DateTimeOffset? LastWrite(string path) =>
+        File.Exists(path) ? new DateTimeOffset(File.GetLastWriteTimeUtc(path)) : null;
+
     private sealed record RawSubagent
     {
+        public string? ToolUseId { get; init; }
         public string? AgentType { get; init; }
         public string? Description { get; init; }
         public int SpawnDepth { get; init; }

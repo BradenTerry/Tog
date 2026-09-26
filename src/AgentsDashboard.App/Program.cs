@@ -69,6 +69,11 @@ builder.Services.AddSingleton(_ => AgentBackends.Claude(builder.Environment.Cont
 builder.Services.AddSingleton<IAgentLauncher, ProcessAgentLauncher>();
 builder.Services.AddSingleton<HostedAgentStore>();
 builder.Services.AddSingleton<PlanUsageStore>();
+// The extensions' agent tools, served as an MCP server on this host and handed
+// to every session the agent host starts or resumes.
+builder.Services.AddSingleton(new AgentToolServer.Endpoint(port));
+builder.Services.AddSingleton<AgentToolServer>();
+builder.Services.AddSingleton<IAgentMcpServers>(sp => sp.GetRequiredService<AgentToolServer>());
 builder.Services.AddSingleton<AgentHost>();
 builder.Services.AddSingleton<IAgentSessionSource>(sp => sp.GetRequiredService<AgentHost>());
 
@@ -119,6 +124,7 @@ app.MapStaticAssets();
 app.UseAntiforgery();
 app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
 app.MapExtensionAssets();
+AgentToolServer.Map(app);
 ImageViews.Map(app);
 
 // Before the first page, so an extension's tabs are there when it draws.

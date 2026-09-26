@@ -14,12 +14,14 @@ namespace AgentsDashboard.Core.Claude;
 /// <param name="LastPrompt">The most recent prompt sent to the session.</param>
 /// <param name="LastReply">The agent's most recent words, so you can read what it said.</param>
 /// <param name="BackgroundCommands">Shell commands started in the background with no completion notice yet.</param>
+/// <param name="FinishedSubagents">Subagents the session heard back from, by the Agent call that started them, with when.</param>
 public sealed record TranscriptFacts(
     string? Summary,
     IReadOnlyList<string> Skills,
     string? LastPrompt,
     string? LastReply = null,
-    IReadOnlyList<BackgroundCommand>? BackgroundCommands = null);
+    IReadOnlyList<BackgroundCommand>? BackgroundCommands = null,
+    IReadOnlyDictionary<string, DateTimeOffset>? FinishedSubagents = null);
 
 /// <summary>
 /// Reads the two things the registry cannot answer: what the agent says it is
@@ -58,6 +60,12 @@ public sealed class TranscriptReader
 
         /// <summary>Background task id to the Bash call that started it, for a notice that only names the task.</summary>
         public readonly Dictionary<string, string> TaskCalls = new(StringComparer.Ordinal);
+
+        /// <summary>Agent calls that run in the foreground, whose tool result is the subagent finishing.</summary>
+        public readonly HashSet<string> ForegroundAgents = new(StringComparer.Ordinal);
+
+        /// <summary>Subagents heard back from, by Agent call, with when: the latest notice wins.</summary>
+        public readonly Dictionary<string, DateTimeOffset> FinishedAgents = new(StringComparer.Ordinal);
     }
 
     /// <summary>Everything known about this session from its transcript so far.</summary>
@@ -119,7 +127,8 @@ public sealed class TranscriptReader
             cursor.Skills.ToArray(),
             cursor.LastPrompt,
             cursor.LastReply,
-            cursor.Background.ToArray());
+            cursor.Background.ToArray(),
+            new Dictionary<string, DateTimeOffset>(cursor.FinishedAgents));
     }
 
     /// <summary>Drop cursors for sessions that have ended.</summary>
@@ -155,9 +164,28 @@ public sealed class TranscriptReader
             if (call is not null)
             {
                 cursor.Background.RemoveAll(b => b.ToolUseId == call);
+
+                // The same notice names a subagent that stopped. It is recorded
+                // rather than removed from anything: the subagent's own file
+                // stays, since it can be resumed, so whether it is running is
+                // this notice against its transcript being written after it.
+                if (Tag(line, "status") is { } status && status != "running")
+                {
+                    cursor.FinishedAgents[call] = LineTime(line);
+                }
             }
 
             return;
+        }
+
+        // A foreground subagent answers with its Agent call's result.
+        if (cursor.ForegroundAgents.Count > 0 && line.Contains("\"tool_result\"", StringComparison.Ordinal))
+        {
+            foreach (var id in cursor.ForegroundAgents.Where(id => line.Contains(id, StringComparison.Ordinal)).ToList())
+            {
+                cursor.ForegroundAgents.Remove(id);
+                cursor.FinishedAgents[id] = LineTime(line);
+            }
         }
 
         if (!interesting)
@@ -334,6 +362,18 @@ public sealed class TranscriptReader
 
         foreach (var block in content.EnumerateArray())
         {
+            if (block.ValueKind == JsonValueKind.Object
+                && Text(block, "type") == "tool_use"
+                && Text(block, "name") is "Agent" or "Task"
+                && Text(block, "id") is { } agentCall
+                && !(block.TryGetProperty("input", out var agentInput)
+                     && agentInput.TryGetProperty("run_in_background", out var background)
+                     && background.ValueKind == JsonValueKind.True))
+            {
+                cursor.ForegroundAgents.Add(agentCall);
+                continue;
+            }
+
             if (block.ValueKind != JsonValueKind.Object
                 || Text(block, "type") != "tool_use"
                 || Text(block, "name") != "Bash"
@@ -390,6 +430,13 @@ public sealed class TranscriptReader
     {
         var match = Regex.Match(text, $"<{name}>(.*?)</{name}>");
         return match.Success && match.Groups[1].Value.Trim() is { Length: > 0 } value ? value : null;
+    }
+
+    /// <summary>When a record was written, from its own timestamp, or now for one that has none.</summary>
+    private static DateTimeOffset LineTime(string line)
+    {
+        var match = Regex.Match(line, "\"timestamp\":\"([^\"]+)\"");
+        return match.Success && DateTimeOffset.TryParse(match.Groups[1].Value, out var at) ? at : DateTimeOffset.Now;
     }
 
     /// <summary>Move back to the start of the line containing <paramref name="from"/>.</summary>

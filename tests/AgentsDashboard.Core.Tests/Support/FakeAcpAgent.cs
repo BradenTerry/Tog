@@ -16,6 +16,9 @@ public sealed class FakeAcpAgent : IAgentLauncher
     /// <summary>Every request and notification the agent received, as "method" or "method:detail".</summary>
     public ConcurrentQueue<string> Calls { get; } = new();
 
+    /// <summary>The mcpServers of the last session/new, as JSON.</summary>
+    public string? McpServers { get; set; }
+
     public int Launches { get; private set; }
 
     /// <summary>
@@ -174,10 +177,11 @@ public sealed class FakeAcpAgent : IAgentLauncher
             {
                 case "initialize":
                     owner.Calls.Enqueue(method);
-                    return new { protocolVersion = 1, agentCapabilities = new { loadSession = true, sessionCapabilities = new { resume = new { }, close = new { } } } };
+                    return new { protocolVersion = 1, agentCapabilities = new { loadSession = true, mcpCapabilities = new { http = true }, sessionCapabilities = new { resume = new { }, close = new { } } } };
 
                 case "session/new":
                     owner.Calls.Enqueue(method);
+                    owner.McpServers = p.GetProperty("mcpServers").GetRawText();
                     return new { sessionId = "s" + Interlocked.Increment(ref _sessions), configOptions = Options() };
 
                 case "session/resume":

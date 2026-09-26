@@ -84,6 +84,24 @@ public class ConversationReaderTests
     }
 
     [Fact]
+    public void Reads_a_subagents_own_transcript_whose_lines_are_all_side_chain()
+    {
+        var task = """{"type":"user","isSidechain":true,"timestamp":"2026-09-25T10:00:00Z","message":{"role":"user","content":"Review the diff"}}""";
+        var reply = """{"type":"assistant","isSidechain":true,"timestamp":"2026-09-25T10:00:05Z","message":{"role":"assistant","content":[{"type":"text","text":"Looks fine"}]}}""";
+
+        var asSession = new List<ChatEntry>();
+        var asSubagent = new List<ChatEntry>();
+        foreach (var line in new[] { task, reply })
+        {
+            ConversationReader.Consume(line, asSession);
+            ConversationReader.Consume(line, asSubagent, sidechain: true);
+        }
+
+        Assert.Empty(asSession);
+        Assert.Equal([(ChatKind.You, "Review the diff"), (ChatKind.Agent, "Looks fine")], asSubagent.Select(e => (e.Kind, e.Text)));
+    }
+
+    [Fact]
     public void Shows_a_background_task_finishing_as_a_notice()
     {
         var entries = Parse(User(

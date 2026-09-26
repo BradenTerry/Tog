@@ -79,6 +79,7 @@ public sealed class ExtensionHost : IDisposable
         public required IReadOnlyList<ExtensionView> Views { get; init; }
         public required IReadOnlyDictionary<string, IAgentIndicator> Indicators { get; init; }
         public required IReadOnlyList<ICodeIntelligence> CodeIntelligence { get; init; }
+        public required IReadOnlyList<IAgentTool> AgentTools { get; init; }
         public required CancellationTokenSource Stopping { get; init; }
         public required string CopyDirectory { get; init; }
 
@@ -220,6 +221,35 @@ public sealed class ExtensionHost : IDisposable
         lock (_gate)
         {
             return [.. _loaded.Values.OrderBy(l => l.Generation).SelectMany(l => l.CodeIntelligence)];
+        }
+    }
+
+    /// <summary>
+    /// Every agent tool of the extensions loaded now, by name. When two extensions
+    /// use one name the one loaded first keeps it, so a reload of the other does
+    /// not take it over mid-session.
+    /// </summary>
+    /// <summary>Clashes already logged, so the list being read on every request says so once.</summary>
+    private readonly HashSet<(string, int, string)> _toolClashes = [];
+
+    public IReadOnlyDictionary<string, (string ExtensionId, IAgentTool Tool)> AgentTools()
+    {
+        lock (_gate)
+        {
+            var tools = new Dictionary<string, (string, IAgentTool)>(StringComparer.Ordinal);
+            foreach (var loaded in _loaded.Values.OrderBy(l => l.Generation))
+            {
+                foreach (var tool in loaded.AgentTools)
+                {
+                    if (!tools.TryAdd(tool.Name, (loaded.Found.Id, tool))
+                        && _toolClashes.Add((loaded.Found.Id, loaded.Generation, tool.Name)))
+                    {
+                        _log.LogWarning("{Extension} adds the agent tool {Tool}, which another extension already has", loaded.Found.Id, tool.Name);
+                    }
+                }
+            }
+
+            return tools;
         }
     }
 
@@ -461,6 +491,7 @@ public sealed class ExtensionHost : IDisposable
                 Views = builder.Views,
                 Indicators = indicators,
                 CodeIntelligence = [.. builder.CodeIntelligence.Select(t => (ICodeIntelligence)services.GetRequiredService(t))],
+                AgentTools = [.. builder.AgentTools.Select(t => (IAgentTool)services.GetRequiredService(t))],
                 Stopping = new CancellationTokenSource(),
                 CopyDirectory = copy,
                 EntryStamp = Stamp(entry),

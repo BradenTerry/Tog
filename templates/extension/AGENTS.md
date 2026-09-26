@@ -39,6 +39,11 @@ dashboard is available, on purpose.
   `Language`. The app draws the chip, its Load button and the results. Load
   nothing until `LoadAsync`; a query must never start a load. Positions are
   one-based.
+- `b.AddAgentTool<T>()` (API 1.2) gives the agents the dashboard runs a tool:
+  `IAgentTool` has a `Name` (lower case, prefixed, e.g. `tests_run`), a
+  `Description` written for the agent, an `InputSchema` (JSON Schema text) and
+  `CallAsync(AgentToolCall, ct)`, which gets the arguments and the agent's
+  folder and returns text. Start long work and return; do not hold the call.
 - `b.Services` is the extension's own DI container. Views reach it through
   `Context.Get<T>()`, not `@inject`: `@inject` resolves from the dashboard's
   container, which only has the API services below.

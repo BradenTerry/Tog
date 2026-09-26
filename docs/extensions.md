@@ -60,6 +60,7 @@ does not load.
 | `AddIndicator<T>(viewId)` | A short count on that tab, such as failing tests |
 | `AddWorker<T>(id)` | Background work while loaded, restarted with backoff if it throws |
 | `AddCodeIntelligence<T>()` | Navigation for a language in the editor: hover, definition, references, callers, colouring. See [code-intelligence.md](code-intelligence.md) |
+| `AddAgentTool<T>()` | A tool the agents the dashboard runs can call. Since 1.2; see below |
 | `Services` | The extension's own DI container |
 
 `ViewLocation` says which panel the view is a tab in (see
@@ -76,6 +77,57 @@ An extension that names one of the panels needs `"apiVersion": "1.1"` in its
 manifest; one built against 1.0 still loads and lands on the right. Views are
 written against `AgentViewBase` and nothing about where they are drawn, so
 moving one to another panel needs no change to it.
+
+## Agent tools
+
+`AddAgentTool<T>()` (API 1.2) gives the agents a tool: an `IAgentTool` with a
+name, a description written for the agent, a JSON Schema for its arguments,
+and `CallAsync`. The app serves every loaded extension's tools as one MCP
+server, `agents-dashboard`, and hands it to each session it starts or resumes
+in `session/new` and `session/resume`, so a tool shows up in the agent as
+`mcp__agents-dashboard__<name>`.
+
+```mermaid
+sequenceDiagram
+    participant A as Agent (claude-agent-acp)
+    participant S as AgentToolServer (/_mcp/key)
+    participant H as ExtensionHost
+    participant T as Extension's IAgentTool
+    A->>S: tools/list
+    S->>H: AgentTools()
+    H-->>S: every loaded extension's tools
+    A->>S: tools/call tests_run {filter}
+    S->>T: CallAsync(arguments, cwd)
+    T-->>S: text, or an error
+    S-->>A: result
+```
+
+- **Transport.** MCP's Streamable HTTP, answered with plain JSON and no event
+  stream: `initialize`, `tools/list`, `tools/call` and `ping` are all a
+  tools-only server needs, so there is no MCP SDK. The list is read on every
+  request, so a rebuilt extension's tools are live at once, but an agent that
+  already listed them sees a new tool only after its next resume: with no
+  stream there is no way to say the list changed.
+- **Who can call.** Every request needs a bearer key made each time the app
+  starts. The server entry handed to the agent carries no key: the SDK puts
+  it on the Claude CLI's command line, which any process can list. Its
+  `Authorization` header names `${AGENTS_DASHBOARD_MCP_KEY}` instead, which
+  the CLI expands, and the value is only in the agent process's environment,
+  readable by the same user alone. Only loopback callers are answered, and a
+  request with an `Origin` header or a non-JSON body (what a web page sends,
+  and the CLI never does) is refused unread. The app binds to loopback
+  whatever its options; a tunnel to the port makes every caller loopback, and
+  then the key is the only guard.
+- **Which agent.** ACP gives an MCP server nothing to tell sessions apart, so
+  the agent's folder rides in the address and reaches the tool as
+  `AgentToolCall.Cwd`.
+- **Names** are lower case, prefixed with what the extension is about
+  (`tests_run`), and unique across extensions; a clash keeps the one loaded
+  first and logs the other.
+- **Answer quickly.** Start long work and return an id, and offer a second
+  tool to ask how it is going, rather than holding a call open.
+- Only agents the dashboard runs get the tools. The dashboard never writes an
+  agent's own MCP configuration, so an agent in a terminal does not.
 
 ## Where they come from
 

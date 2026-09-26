@@ -293,6 +293,29 @@ public class AgentHostTests
     public void Knows_the_prompt_cut_down_from_a_generated_title(string title, string prompt, bool echo) =>
         Assert.Equal(echo, AgentHost.IsPromptEcho(title, prompt));
 
+    private sealed class Servers : IAgentMcpServers
+    {
+        public IReadOnlyList<McpServer> For(string cwd) =>
+            [new McpServer("agents-dashboard", "http://127.0.0.1:1/_mcp?cwd=" + cwd, [new("Authorization", "Bearer ${KEY}")])];
+
+        public IReadOnlyDictionary<string, string> Environment { get; } = new Dictionary<string, string>();
+    }
+
+    [Fact]
+    public async Task Hands_each_session_the_dashboards_mcp_server_for_its_folder()
+    {
+        var dir = new TempDir();
+        using var _ = dir;
+        var agent = new FakeAcpAgent();
+        await using var host = new AgentHost(Backend, agent, new HostedAgentStore(new AppPaths(dir.Path)), mcpServers: new Servers());
+
+        await host.StartAsync(new AgentStart("/repo"), Ct);
+
+        Assert.Equal(
+            """[{"type":"http","name":"agents-dashboard","url":"http://127.0.0.1:1/_mcp?cwd=/repo","headers":[{"name":"Authorization","value":"Bearer ${KEY}"}]}]""",
+            agent.McpServers);
+    }
+
     [Fact]
     public async Task Lists_the_slash_commands_the_agent_takes_and_offers_them_to_agents_that_have_not_said()
     {

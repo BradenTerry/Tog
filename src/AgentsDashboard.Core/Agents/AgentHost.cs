@@ -127,6 +127,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
     private readonly PlanUsageStore? _planStore;
     private readonly Dictionary<string, PlanLimit> _plan = new(StringComparer.Ordinal);
     private readonly Timer _flush;
+    private readonly IAgentMcpServers? _mcpServers;
 
     private IAgentProcess? _process;
     private AcpClient? _client;
@@ -151,8 +152,10 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
         IAgentLauncher launcher,
         HostedAgentStore store,
         IClock? clock = null,
-        PlanUsageStore? planStore = null)
+        PlanUsageStore? planStore = null,
+        IAgentMcpServers? mcpServers = null)
     {
+        _mcpServers = mcpServers;
         _backend = backend;
         _launcher = launcher;
         _store = store;
@@ -245,7 +248,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
         try
         {
             var client = await ConnectAsync(ct).ConfigureAwait(false);
-            var (sessionId, options) = await client.NewSessionAsync(start.Cwd, ct).ConfigureAwait(false);
+            var (sessionId, options) = await client.NewSessionAsync(start.Cwd, ct, _mcpServers?.For(start.Cwd)).ConfigureAwait(false);
 
             var entry = new Entry(sessionId, start.Cwd, _clock.Now, _clock.Now)
             {
@@ -576,7 +579,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
             throw new FolderGoneException(cwd);
         }
 
-        var options = await client.ResumeSessionAsync(sessionId, cwd, ct).ConfigureAwait(false);
+        var options = await client.ResumeSessionAsync(sessionId, cwd, ct, _mcpServers?.For(cwd)).ConfigureAwait(false);
         lock (_gate)
         {
             if (_entries.TryGetValue(sessionId, out var entry))

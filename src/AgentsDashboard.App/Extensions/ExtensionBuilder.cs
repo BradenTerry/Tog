@@ -66,4 +66,12 @@ internal sealed class ExtensionBuilder(ExtensionInfo info) : IExtensionBuilder
         Services.AddSingleton<TProvider>();
         CodeIntelligence.Add(typeof(TProvider));
     }
+
+    public List<Type> AgentTools { get; } = [];
+
+    public void AddAgentTool<TTool>() where TTool : class, IAgentTool
+    {
+        Services.AddSingleton<TTool>();
+        AgentTools.Add(typeof(TTool));
+    }
 }

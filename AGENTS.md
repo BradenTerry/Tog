@@ -75,8 +75,16 @@ always be drained, or the pipe fills and it blocks. See `docs/agent-control.md`.
 
 **The dashboard does not perform file or terminal work for agents.** It
 advertises no `fs` or `terminal` capability, so the agent uses its own tools. It
-only answers `session/request_permission`. Do not add client capabilities without
-reading what the agent will then route through us.
+answers `session/request_permission` and, since it advertises form elicitation,
+`elicitation/create`: Claude's AskUserQuestion, an MCP server's form, and the
+bridge's model-retry prompt, told apart on the card. Do not add client
+capabilities without reading what the agent will then route through us.
+
+**Agents get the dashboard's own MCP server.** Every session is handed
+`agents-dashboard`, which serves the tools extensions add with `AddAgentTool`
+(API 1.2). The key is never in the server entry, which ends up on the CLI's
+command line: a header names `${AGENTS_DASHBOARD_MCP_KEY}` and the value is only
+in the agent process's environment. See `docs/extensions.md`.
 
 **Grid columns in the diff need `minmax(0, 1fr)`.** A bare `1fr` has an `auto`
 minimum, so one long line pushes the column past its share and scrolls the whole

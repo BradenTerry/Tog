@@ -76,6 +76,51 @@ public class TranscriptReaderTests
         Assert.Empty(reader.Read("s", file).BackgroundCommands!);
     }
 
+    private static string AgentCall(string id, bool background) =>
+        "{\"type\":\"assistant\",\"timestamp\":\"2026-09-26T08:00:00Z\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"" + id
+        + "\",\"name\":\"Agent\",\"input\":{\"description\":\"Review\",\"prompt\":\"go\"" + (background ? ",\"run_in_background\":true" : "") + "}}]}}";
+
+    private static string AgentResult(string id) =>
+        "{\"type\":\"user\",\"timestamp\":\"2026-09-26T08:05:00Z\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"" + id
+        + "\",\"content\":\"the report\"}]}}";
+
+    private static string AgentNotice(string id, string status) =>
+        "{\"type\":\"queue-operation\",\"timestamp\":\"2026-09-26T08:10:00Z\",\"content\":\"<task-notification>\\n<task-id>a1</task-id>\\n<tool-use-id>" + id
+        + "</tool-use-id>\\n<status>" + status + "</status>\\n</task-notification>\"}";
+
+    [Fact]
+    public void Records_when_a_subagent_finished_by_its_result_or_its_notice()
+    {
+        using var dir = new TempDir();
+        var file = dir.File("t.jsonl", string.Join('\n',
+            [AgentCall("fg", background: false), AgentCall("bg", background: true), ""]));
+        var reader = new TranscriptReader();
+
+        Assert.Empty(reader.Read("s", file).FinishedSubagents!);
+
+        // A foreground subagent is done when its call returns; a background one
+        // when a notice says it stopped.
+        File.AppendAllText(file, AgentResult("fg") + "\n" + AgentNotice("bg", "completed") + "\n");
+
+        var finished = reader.Read("s", file).FinishedSubagents!;
+        Assert.Equal(DateTimeOffset.Parse("2026-09-26T08:05:00Z"), finished["fg"]);
+        Assert.Equal(DateTimeOffset.Parse("2026-09-26T08:10:00Z"), finished["bg"]);
+    }
+
+    [Theory]
+    [InlineData(null, true)]
+    [InlineData(5, true)]
+    [InlineData(60, false)]
+    public void A_subagent_written_to_after_its_notice_was_resumed_and_is_running(int? secondsAfter, bool finished)
+    {
+        var at = DateTimeOffset.Parse("2026-09-26T08:10:00Z");
+        var subagent = new Subagent("a1", "general-purpose", "Review", 1, at.AddMinutes(-10), "bg",
+            secondsAfter is { } s ? at.AddSeconds(s) : null);
+
+        Assert.Equal(finished, AgentsDashboard.Core.Monitoring.MonitorService.Finished(subagent, new Dictionary<string, DateTimeOffset> { ["bg"] = at }));
+        Assert.False(AgentsDashboard.Core.Monitoring.MonitorService.Finished(subagent, new Dictionary<string, DateTimeOffset>()));
+    }
+
     [Fact]
     public void Only_reads_what_was_appended_since_last_time()
     {
@@ -206,6 +251,7 @@ public class SubagentReaderTests
         Assert.Equal("general-purpose", subagent.AgentType);
         Assert.Equal("Review webview UI", subagent.Description);
         Assert.Equal(1, subagent.SpawnDepth);
+        Assert.Equal("t1", subagent.ToolUseId);
     }
 
     [Fact]
