@@ -13,9 +13,6 @@ public sealed record Settings
     /// <summary>Roots the user explicitly hid, so discovery cannot bring them back.</summary>
     public IReadOnlyList<string> HiddenRoots { get; init; } = [];
 
-    /// <summary>Seconds between git status polls for a worktree nothing else watches.</summary>
-    public int GitPollSeconds { get; init; } = 10;
-
     /// <summary>Raise an OS notification when an agent starts waiting.</summary>
     public bool NotifyOnWaiting { get; init; } = true;
 

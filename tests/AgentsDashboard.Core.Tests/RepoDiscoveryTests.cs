@@ -103,14 +103,12 @@ public class SettingsStoreTests
         store.Save(new Settings
         {
             RepoRoots = ["/a", "/b"],
-            GitPollSeconds = 25,
             NotifyOnWaiting = false,
         });
 
         var loaded = store.Load();
 
         Assert.Equal(["/a", "/b"], loaded.RepoRoots);
-        Assert.Equal(25, loaded.GitPollSeconds);
         Assert.False(loaded.NotifyOnWaiting);
     }
 
@@ -123,7 +121,7 @@ public class SettingsStoreTests
         var loaded = new SettingsStore(new AppPaths(dir.Path)).Load();
 
         // A settings file we cannot parse must not stop the app starting.
-        Assert.Equal(10, loaded.GitPollSeconds);
+        Assert.True(loaded.NotifyOnWaiting);
         Assert.Empty(loaded.RepoRoots);
     }
 

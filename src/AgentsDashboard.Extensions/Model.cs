@@ -30,7 +30,10 @@ public enum AgentState
     Failed,
 }
 
-/// <summary>A git worktree the dashboard follows.</summary>
+/// <summary>
+/// A git worktree the dashboard follows. <see cref="Status"/> is read only for
+/// the worktree of the agent on screen and is null for the rest.
+/// </summary>
 public sealed record WorktreeContext(
     string Path,
     string Name,
