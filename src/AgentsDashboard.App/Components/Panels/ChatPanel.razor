@@ -257,13 +257,16 @@ else
 
         @* Work that goes on outside the turn: a subagent or a background
            command keeps running after the agent says it is done, and an
-           idle agent with work in flight is not finished. *@
+           idle agent with work in flight is not finished. Folded to its
+           count by default, so it does not take room from the thread; the
+           open attribute is left to the browser, so a re-render keeps it
+           open or shut as the user left it. *@
         @if (agent.BackgroundCount > 0 && agent.State is not (ChatState.Parked or ChatState.Failed))
         {
-            <div class="background-strip" aria-label="Running in the background">
-                <span class="background-head">
+            <details class="background-strip">
+                <summary class="background-head">
                     <WorkingDots /> Running in the background <span class="count">@agent.BackgroundCount</span>
-                </span>
+                </summary>
                 @foreach (var sub in agent.Subagents ?? [])
                 {
                     <span class="background-item" title="@sub.Description">
@@ -280,7 +283,7 @@ else
                         <span class="faint nums">@Fmt.Duration(Snapshot.Value.TakenAt - command.StartedAt)</span>
                     </span>
                 }
-            </div>
+            </details>
         }
 
         <form class="chat-composer" @onsubmit="Send">

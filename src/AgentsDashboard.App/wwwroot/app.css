@@ -1043,15 +1043,17 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent-dim); }
     border-top: 1px solid var(--border);
     background: var(--surface);
     padding: 6px 14px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
     font-size: 12px;
     max-height: 140px;
     overflow-y: auto;
 }
 
-.background-head { color: var(--text-dim); display: flex; align-items: center; gap: 6px; }
+.background-strip[open] { display: flex; flex-direction: column; gap: 4px; }
+.background-head { color: var(--text-dim); display: flex; align-items: center; gap: 6px; cursor: pointer; list-style: none; user-select: none; }
+.background-head::-webkit-details-marker { display: none; }
+.background-head::before { content: "\25b8"; display: inline-block; color: var(--text-faint); transition: transform 0.12s; }
+.background-strip[open] > .background-head::before { transform: rotate(90deg); }
+.background-head:hover { color: var(--text); }
 .background-item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: baseline; padding-left: 18px; }
 .background-kind { color: var(--accent); }
 .background-what { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
