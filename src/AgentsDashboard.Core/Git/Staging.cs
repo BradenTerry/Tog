@@ -127,6 +127,41 @@ public sealed class Staging(IGitCli git)
             : await Run(worktreePath, ["rm", "--cached", "--quiet", "--"], list, ct).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Throws away what the working tree has beyond the index: an edited file
+    /// goes back to its staged version (or its committed one, when nothing is
+    /// staged), and a new file is deleted. What is staged is kept, as VS Code's
+    /// Discard Changes keeps it.
+    /// </summary>
+    /// <remarks>
+    /// Each path is sorted by what <c>git status</c> says it is now, rather than
+    /// by what the caller last saw, so a path that has since become clean or
+    /// fully staged is left alone. <c>git clean</c> rather than a file delete for
+    /// new files: git will not reach outside the worktree or delete a tracked or
+    /// ignored file.
+    /// </remarks>
+    public async Task<GitResult> DiscardAsync(
+        string worktreePath,
+        IEnumerable<string> paths,
+        CancellationToken ct = default)
+    {
+        var stages = await ReadAsync(worktreePath, ct).ConfigureAwait(false);
+        var untracked = new List<string>();
+        var edited = new List<string>();
+        foreach (var path in paths.Distinct(StringComparer.Ordinal))
+        {
+            if (stages.TryGetValue(path, out var stage) && stage.Unstaged)
+            {
+                (stage.Untracked ? untracked : edited).Add(path);
+            }
+        }
+
+        var restored = await Run(worktreePath, ["restore", "--worktree", "--"], edited, ct).ConfigureAwait(false);
+        return restored.Ok
+            ? await Run(worktreePath, ["clean", "--force", "--quiet", "--"], untracked, ct).ConfigureAwait(false)
+            : restored;
+    }
+
     /// <summary>Stages everything, new files included.</summary>
     public Task<GitResult> StageAllAsync(string worktreePath, CancellationToken ct = default) =>
         git.RunAsync(worktreePath, ["add", "--all", "--"], ct);

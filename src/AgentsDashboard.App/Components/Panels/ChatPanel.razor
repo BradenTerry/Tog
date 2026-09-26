@@ -257,13 +257,16 @@ else
 
         @* Work that goes on outside the turn: a subagent or a background
            command keeps running after the agent says it is done, and an
-           idle agent with work in flight is not finished. *@
+           idle agent with work in flight is not finished. Folded to its
+           count by default, so it does not take room from the thread; the
+           open attribute is left to the browser, so a re-render keeps it
+           open or shut as the user left it. *@
         @if (agent.BackgroundCount > 0 && agent.State is not (ChatState.Parked or ChatState.Failed))
         {
-            <div class="background-strip" aria-label="Running in the background">
-                <span class="background-head">
+            <details class="background-strip">
+                <summary class="background-head">
                     <WorkingDots /> Running in the background <span class="count">@agent.BackgroundCount</span>
-                </span>
+                </summary>
                 @foreach (var sub in agent.Subagents ?? [])
                 {
                     <span class="background-item" title="@sub.Description">
@@ -280,7 +283,7 @@ else
                         <span class="faint nums">@Fmt.Duration(Snapshot.Value.TakenAt - command.StartedAt)</span>
                     </span>
                 }
-            </div>
+            </details>
         }
 
         <form class="chat-composer" @onsubmit="Send">
@@ -489,29 +492,42 @@ else
     private string? _lastLive;
     private DateTimeOffset _lastLiveAt;
 
+    /// <summary>When the agent was first seen out of its turn, or null while it is in one.</summary>
+    private DateTimeOffset? _idleSince;
+
     /// <summary>
     /// The reply being written, held on screen until the transcript has it.
     /// </summary>
     /// <remarks>
-    /// The host clears its live text at the next tool call or the end of the turn,
-    /// because the agent has written the message to its transcript by then. The
-    /// thread only rereads the transcript on the monitor's next tick, up to a
-    /// second later, so taking the host's word for it made the message vanish and
-    /// come back. Instead the last live text stays until a message in the thread
-    /// matches it, and the live copy steps aside as soon as the transcript has it,
-    /// so the two are never shown at once. A few seconds is the limit, in case the
-    /// transcript words it differently enough never to match.
+    /// The host clears its live text when a tool call starts or the turn ends. The
+    /// transcript is later than that: Claude writes a message to it only once the
+    /// tool call after it has finished streaming, which for a call that writes a
+    /// whole file is ten seconds or more. Taking the host's word made the message
+    /// vanish for that long and come back. So the last live text stays until a
+    /// message in the thread matches it, and steps aside as soon as one does, so
+    /// the two are never shown at once.
+    /// <para>
+    /// While the agent is still in its turn it is held for as long as a tool call
+    /// could take to stream. Once the turn is over the transcript has everything,
+    /// so a few seconds is the limit, in case it words the message differently
+    /// enough never to match.
+    /// </para>
     /// </remarks>
     private string? LiveToShow(ChatTarget target)
     {
         var now = DateTimeOffset.UtcNow;
-        var live = target.State is ChatState.Active or ChatState.Waiting ? target.LiveText : "";
+        var inTurn = target.State is ChatState.Active or ChatState.Waiting;
+        _idleSince = inTurn ? null : _idleSince ?? now;
+
+        var live = inTurn ? target.LiveText : "";
         if (live.Length > 0)
         {
             _lastLive = live;
             _lastLiveAt = now;
         }
-        else if (_lastLive is not null && now - _lastLiveAt > TimeSpan.FromSeconds(5))
+        else if (_lastLive is not null
+                 && (now - _lastLiveAt > TimeSpan.FromMinutes(2)
+                     || now - _idleSince > TimeSpan.FromSeconds(5)))
         {
             _lastLive = null;
         }

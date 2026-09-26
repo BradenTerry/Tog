@@ -38,6 +38,24 @@
 }
 
 <div class="panel-scroll">
+    @if (_discarding is { } discard)
+    {
+        <div class="banner danger panel-banner">
+            <strong>Discard changes in @Fmt.Count(discard.Files.Count, "file")?</strong>
+            <p class="muted" style="margin: 5px 0 8px;">
+                @if (discard.NewFiles > 0)
+                {
+                    <span>@Fmt.Count(discard.NewFiles, "new file") will be deleted. </span>
+                }
+                <span>What is staged is kept. This cannot be undone.</span>
+            </p>
+            <div class="inline">
+                <button class="danger small" @onclick="Discard" disabled="@Model.IsStaging">Discard</button>
+                <button class="ghost small" @onclick="() => { _discarding = null; Touch(); }">Cancel</button>
+            </div>
+        </div>
+    }
+
     @if (Model.StageError is { Length: > 0 } stageError)
     {
         <div class="banner danger panel-banner">
@@ -135,6 +153,37 @@
                 </FileRow>
             </PathTreeView>
         }
+    }
+
+    @if (_menu is { } menu)
+    {
+        <ContextMenu X="menu.X" Y="menu.Y" OnClose="CloseMenu">
+            @if (menu.InStaged)
+            {
+                <button type="button" class="context-item" @onclick="() => FromMenu(() => Model.Unstage(menu.Files))">
+                    Unstage <span class="faint">@Fmt.Count(menu.Files.Count, "file")</span>
+                </button>
+            }
+            else
+            {
+                <button type="button" class="context-item" @onclick="() => FromMenu(() => Model.Stage(menu.Files))">
+                    Stage <span class="faint">@Fmt.Count(menu.Files.Count, "file")</span>
+                </button>
+                <button type="button" class="context-item destructive" @onclick="() => AskDiscard(menu.Files)">
+                    Discard changes...
+                </button>
+            }
+            @if (menu.Files is [var only] && menu.PickedOne)
+            {
+                <hr class="context-sep" />
+                <button type="button" class="context-item" @onclick="() => FromMenu(() => { Show(only, keep: true); return Task.CompletedTask; })">
+                    Open changes
+                </button>
+                <button type="button" class="context-item" @onclick="() => FromMenu(() => { Bench.OpenFile(WorktreePath, only, keep: true); return Task.CompletedTask; })">
+                    Open file
+                </button>
+            }
+        </ContextMenu>
     }
 
     @if (Model.Submission is { } submission)
@@ -442,6 +491,9 @@
                       Collapsed="opened"
                       FoldedByDefault="true"
                       Selected="@_selected"
+                      Picked="@(section.InStaged ? _stagedPicked : _changesPicked)"
+                      OnPickedChanged="() => Picked(section.InStaged)"
+                      OnContextMenu="e => OpenMenu(section.Tree, section.InStaged, e)"
                       OnToggle="path => ToggleIn(opened, path)"
                       OnSelect="path => Show(path, keep: false)"
                       OnKeep="path => Show(path, keep: true)">
@@ -468,6 +520,106 @@
             </Actions>
         </PathTreeView>
     };
+
+    /// <summary>
+    /// Rows picked in each section for the context menu. One section at a time:
+    /// picking in one clears the other, since no action applies to both.
+    /// </summary>
+    private readonly HashSet<string> _stagedPicked = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _changesPicked = new(StringComparer.Ordinal);
+
+    /// <summary>An open context menu: the files it acts on, gathered when it opened.</summary>
+    private sealed record Menu(bool InStaged, double X, double Y, List<string> Files, bool PickedOne);
+
+    private Menu? _menu;
+
+    /// <summary>Files waiting on the discard confirmation, and how many of them are new.</summary>
+    private sealed record PendingDiscard(List<string> Files, int NewFiles);
+
+    private PendingDiscard? _discarding;
+
+    private void Picked(bool inStaged)
+    {
+        Touch();
+        (inStaged ? _changesPicked : _stagedPicked).Clear();
+    }
+
+    /// <summary>
+    /// Everything picked, folders as the files of this section under them, the
+    /// same rule the row buttons follow. A picked row that has since left the
+    /// section (staged from elsewhere) is skipped.
+    /// </summary>
+    private void OpenMenu(PathTreeNode<DiffFile> tree, bool inStaged, TreeContextMenu at)
+    {
+        Touch();
+        var picked = inStaged ? _stagedPicked : _changesPicked;
+        var files = picked
+            .Select(path => Find(tree, path))
+            .OfType<PathTreeNode<DiffFile>>()
+            .SelectMany(FilesUnder)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        _menu = files.Count == 0
+            ? null
+            : new Menu(inStaged, at.X, at.Y, files, picked.Count == 1 && Find(tree, picked.First()) is { IsFile: true });
+    }
+
+    private void CloseMenu()
+    {
+        Touch();
+        _menu = null;
+    }
+
+    /// <summary>Closes the menu, clears what was picked, and runs the chosen action.</summary>
+    private async Task FromMenu(Func<Task> action)
+    {
+        CloseMenu();
+        _stagedPicked.Clear();
+        _changesPicked.Clear();
+        await action();
+    }
+
+    /// <summary>
+    /// Asks before discarding, as VS Code does: unlike staging it throws work
+    /// away, and a new file is deleted outright.
+    /// </summary>
+    private void AskDiscard(List<string> files)
+    {
+        CloseMenu();
+        _discarding = new PendingDiscard(files, files.Count(f => Model.StageOf(f).Untracked));
+    }
+
+    private async Task Discard()
+    {
+        if (_discarding is not { } discard)
+        {
+            return;
+        }
+
+        Touch();
+        _discarding = null;
+        _changesPicked.Clear();
+        await Model.DiscardChanges(discard.Files);
+    }
+
+    private static PathTreeNode<DiffFile>? Find(PathTreeNode<DiffFile> node, string path)
+    {
+        foreach (var child in node.Children)
+        {
+            if (child.Path == path)
+            {
+                return child;
+            }
+
+            if (!child.IsFile && path.StartsWith(child.Path + "/", StringComparison.Ordinal) && Find(child, path) is { } found)
+            {
+                return found;
+            }
+        }
+
+        return null;
+    }
 
     /// <summary>
     /// The files a row stands for. A folder is the files of this section under

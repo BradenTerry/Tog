@@ -14,7 +14,8 @@
     @{
         var node = row.Node;
         var open = !node.IsFile && IsOpen(node.Path);
-        var rowClass = node.IsFile ? $"tree-row file {(Selected == node.Path ? "selected" : "")}" : "tree-row dir";
+        var rowClass = (node.IsFile ? $"tree-row file {(Selected == node.Path ? "selected" : "")}" : "tree-row dir")
+                       + (Picked?.Contains(node.Path) == true ? " picked" : "");
     }
     @if (Actions is null)
     {
@@ -23,8 +24,10 @@
                 style="@Indent(row.Depth)"
                 title="@(node.IsFile ? node.Path : null)"
                 aria-expanded="@(node.IsFile ? null : open.ToString().ToLowerInvariant())"
-                @onclick="() => Activate(node)"
-                @ondblclick="() => Keep(node)">
+                @onclick="e => Click(node, e)"
+                @ondblclick="() => Keep(node)"
+                @oncontextmenu="e => Context(node, e)"
+                @oncontextmenu:preventDefault="@(Picked is not null)">
             @RowContent((node, open))
         </button>
     }
@@ -32,12 +35,14 @@
     {
         @* With actions the row is a plain container: the actions are buttons,
            and a button cannot sit inside another. *@
-        <div class="@rowClass has-actions" style="@Indent(row.Depth)">
+        <div class="@rowClass has-actions" style="@Indent(row.Depth)"
+             @oncontextmenu="e => Context(node, e)"
+             @oncontextmenu:preventDefault="@(Picked is not null)">
             <button type="button"
                     class="tree-hit"
                     title="@(node.IsFile ? node.Path : null)"
                     aria-expanded="@(node.IsFile ? null : open.ToString().ToLowerInvariant())"
-                    @onclick="() => Activate(node)"
+                    @onclick="e => Click(node, e)"
                     @ondblclick="() => Keep(node)">
                 @RowContent((node, open))
             </button>
@@ -94,6 +99,99 @@
     /// <summary>A double click on a file, which opens it to stay rather than as a preview.</summary>
     [Parameter]
     public EventCallback<string> OnKeep { get; set; }
+
+    /// <summary>
+    /// The rows picked for a context menu, files and folders, which the caller
+    /// owns and this tree edits. Left null, the tree has no multiple selection
+    /// and no context menu.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="Selected"/>, the one file in view, as VS Code
+    /// keeps them: Cmd-clicking a row picks it without opening it.
+    /// </remarks>
+    [Parameter]
+    public HashSet<string>? Picked { get; set; }
+
+    /// <summary>Raised after <see cref="Picked"/> changes.</summary>
+    [Parameter]
+    public EventCallback OnPickedChanged { get; set; }
+
+    /// <summary>A right click on a row, once it is picked, with where the pointer was.</summary>
+    [Parameter]
+    public EventCallback<TreeContextMenu> OnContextMenu { get; set; }
+
+    /// <summary>Where a Shift-click range starts: the last row clicked without Shift.</summary>
+    private string? _anchor;
+
+    /// <summary>
+    /// A plain click picks the row alone and then acts as it always did. With
+    /// Cmd or Ctrl it adds or removes the row, and with Shift it picks every row
+    /// from the anchor to this one as they are drawn; neither opens anything.
+    /// </summary>
+    private async Task Click(PathTreeNode<TValue> node, MouseEventArgs e)
+    {
+        if (Picked is not null)
+        {
+            var adding = e.MetaKey || e.CtrlKey;
+            if (e.ShiftKey && _anchor is not null)
+            {
+                var paths = Rows.Select(r => r.Node.Path).ToList();
+                var from = paths.IndexOf(_anchor);
+                var to = paths.IndexOf(node.Path);
+                if (from >= 0 && to >= 0)
+                {
+                    if (!adding)
+                    {
+                        Picked.Clear();
+                    }
+
+                    Picked.UnionWith(paths.GetRange(Math.Min(from, to), Math.Abs(to - from) + 1));
+                    await OnPickedChanged.InvokeAsync();
+                    return;
+                }
+            }
+
+            _anchor = node.Path;
+            if (adding)
+            {
+                if (!Picked.Remove(node.Path))
+                {
+                    Picked.Add(node.Path);
+                }
+
+                await OnPickedChanged.InvokeAsync();
+                return;
+            }
+
+            Picked.Clear();
+            Picked.Add(node.Path);
+            await OnPickedChanged.InvokeAsync();
+        }
+
+        await Activate(node);
+    }
+
+    /// <summary>
+    /// A right click on a picked row acts on everything picked; on any other row
+    /// it picks that row alone first, as in VS Code.
+    /// </summary>
+    private async Task Context(PathTreeNode<TValue> node, MouseEventArgs e)
+    {
+        if (Picked is null)
+        {
+            return;
+        }
+
+        if (!Picked.Contains(node.Path))
+        {
+            Picked.Clear();
+            Picked.Add(node.Path);
+            _anchor = node.Path;
+            await OnPickedChanged.InvokeAsync();
+        }
+
+        await OnContextMenu.InvokeAsync(new TreeContextMenu(node.Path, e.ClientX, e.ClientY));
+    }
 
     private Task Keep(PathTreeNode<TValue> node) =>
         node.IsFile && OnKeep.HasDelegate ? OnKeep.InvokeAsync(node.Path) : Task.CompletedTask;

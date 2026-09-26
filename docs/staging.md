@@ -41,6 +41,35 @@ show its whole-file numbers in both sections, which reads as if each held all of
 it. The other diff bases keep the tree and the toolbar's Stage all and Unstage
 all, since what is committed on a branch is not a staging question.
 
+## Picking several and the context menu
+
+The staging trees select the way VS Code's do. A click picks a row (and opens
+a file, as before), Cmd or Ctrl-click adds or removes one, and Shift-click
+picks every row from the last plain click to this one in the order they are
+drawn, folder rows included. A right click on a picked row opens a menu for
+everything picked; on any other row it picks that row alone first. Picking in
+one section clears the other, since no action applies to both.
+
+| Section | Menu |
+| --- | --- |
+| Changes | Stage, Discard changes... |
+| Staged Changes | Unstage |
+| Either, one file picked | Open changes, Open file |
+
+A picked folder stands for this section's files under it, the same rule as its
+row button. `PathTreeView` owns the clicks and the range, and takes the picked
+set from its caller (`Picked`), so the Files tree, which passes none, is
+unchanged. The menu is `ContextMenu`: a transparent layer over the window
+closes it on the next click anywhere, and `agentsDashboard.fitMenu` moves it
+back inside the window once its size is known.
+
+**Discard** asks first, as VS Code does, and says how many new files it will
+delete. `Staging.DiscardAsync` sorts the paths by what `git status` says now:
+an edited or deleted file is restored from the index (`git restore
+--worktree`), so what is staged survives, and a new file is removed with `git
+clean`, which will not reach outside the worktree or touch an ignored file.
+Unlike a stage it changes lines, so the whole diff is read again after.
+
 ## Where the two states come from
 
 `git status --porcelain=v2` reports a two-character field per file, and the two
