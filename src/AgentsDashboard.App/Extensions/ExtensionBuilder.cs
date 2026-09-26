@@ -58,4 +58,12 @@ internal sealed class ExtensionBuilder(ExtensionInfo info) : IExtensionBuilder
         Services.AddSingleton<TWorker>();
         Workers.Add((id, typeof(TWorker)));
     }
+
+    public List<Type> CodeIntelligence { get; } = [];
+
+    public void AddCodeIntelligence<TProvider>() where TProvider : class, ICodeIntelligence
+    {
+        Services.AddSingleton<TProvider>();
+        CodeIntelligence.Add(typeof(TProvider));
+    }
 }

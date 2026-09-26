@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/extensions/">
+    <Project Path="extensions/CSharpCode/AgentsDashboard.Extensions.CSharpCode.csproj" />
     <Project Path="extensions/DotnetTests/AgentsDashboard.Extensions.DotnetTests.csproj" />
   </Folder>
   <Folder Name="/src/">
@@ -9,6 +10,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/AgentsDashboard.Core.Tests/AgentsDashboard.Core.Tests.csproj" />
+    <Project Path="tests/AgentsDashboard.Extensions.CSharpCode.Tests/AgentsDashboard.Extensions.CSharpCode.Tests.csproj" />
     <Project Path="tests/AgentsDashboard.Extensions.DotnetTests.Tests/AgentsDashboard.Extensions.DotnetTests.Tests.csproj" />
   </Folder>
 </Solution>

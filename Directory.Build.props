@@ -12,16 +12,4 @@
     <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
   </PropertyGroup>
 
-  <ItemGroup>
-    <!-- Microsoft.CodeAnalysis.Workspaces.MSBuild drags Microsoft.Build.Framework
-         in transitively, so every project downstream of Core would copy that
-         package's copy of it next to the app. MSBuild's assemblies have to come
-         from the SDK that MSBuildLocator points the process at: an app-local copy
-         resolves first, the locator's resolver never fires, and loading a solution
-         fails with a type mismatch. That is what MSBL001 guards. Referencing it
-         here, compile-only and non-flowing, keeps it out of every output folder in
-         the repository. -->
-    <PackageReference Include="Microsoft.Build.Framework" ExcludeAssets="runtime" PrivateAssets="all" />
-  </ItemGroup>
-
 </Project>

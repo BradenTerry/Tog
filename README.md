@@ -22,7 +22,7 @@ you actually need from them are the three things a terminal is worst at.
 | An agent is blocked and you do not notice | Agents waiting on you sort to the top of the agent list, longest-blocked first, with the question Claude recorded. An OS notification when one starts waiting. |
 | Reviewing the agent's work means eyeballing a terminal | A PR-style diff with line comments, submitted in one go as a markdown file the agent can act on, plus staging. See [docs/review.md](docs/review.md) and [docs/staging.md](docs/staging.md). |
 | Starting and steering agents means more terminals | Agents run in the dashboard over the Agent Client Protocol: replies stream in live, and permission prompts are answered in the app. See [docs/agent-control.md](docs/agent-control.md). |
-| Reading an agent's code means guessing what a symbol is | Hover, go to definition, find references and call hierarchy for C#, from Roslyn in-process. See [docs/code-intelligence.md](docs/code-intelligence.md). |
+| Reading an agent's code means guessing what a symbol is | Hover, go to definition, find references and call hierarchy, from an extension per language. The C# one runs Roslyn in-process, off until you press Load in a worktree. See [docs/code-intelligence.md](docs/code-intelligence.md). |
 | You want a view the app does not have | Write an extension: a small Razor project, usually by asking Claude, linked in Settings and reloaded on every build. See [docs/extensions.md](docs/extensions.md). |
 
 ## Screens
@@ -105,8 +105,9 @@ group together. Add or hide one under **Repositories**.
 | `src/AgentsDashboard.App` | The Blazor Server UI and the Photino window. `Program.cs` starts the host on a free loopback port, then opens the window at it. |
 | `src/AgentsDashboard.Extensions` | The extension API (1.0), the one assembly an extension compiles against. No reference to Core. |
 | `extensions/DotnetTests` | The Tests tab, as an extension. Not shipped with the app; link it in Settings. |
+| `extensions/CSharpCode` | C# navigation in the editor from Roslyn, as an extension. The app carries no Roslyn or MSBuild of its own. |
 | `templates/extension` | `dotnet new agents-dashboard-extension`, with an `AGENTS.md` for writing one. |
-| `tests/*` | xUnit v3 on Microsoft.Testing.Platform, for Core and for the Tests extension. |
+| `tests/*` | xUnit v3 on Microsoft.Testing.Platform, for Core and for both extensions. |
 
 Blazor Server rather than a hybrid webview because its circuit is the push
 channel this app needs: a file watcher on a background thread publishes a

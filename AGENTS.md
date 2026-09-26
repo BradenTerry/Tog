@@ -10,6 +10,7 @@ reviewing their diffs. Anything else is an extension.
   extension host.
 - `src/AgentsDashboard.Extensions` - the extension API. Versioned: 1.x only adds.
 - `extensions/DotnetTests` - the Tests tab, an extension, not shipped.
+- `extensions/CSharpCode` - C# navigation from Roslyn, an extension, not shipped.
 - `templates/extension` - the `dotnet new` template extensions start from.
 - `tests/*` - xUnit v3 on Microsoft.Testing.Platform.
 
@@ -33,7 +34,8 @@ twice:
 - `docs/editor.md` - Monaco in the editor, vendoring it, stamp-based saves
 - `docs/workbench.md` - the VS Code-style layout, the panels, editor tabs, the
   shared ChangesModel, what is kept per machine
-- `docs/code-intelligence.md` - Roslyn in-process, the on-demand load, why
+- `docs/code-intelligence.md` - the `ICodeIntelligence` extension point, the C#
+  extension's Roslyn load (opt-in per worktree), MSBuild in a load context, why
   references land in a panel rather than a peek widget
 
 A change to one of those subsystems belongs in its doc, with at most a line in
@@ -132,7 +134,8 @@ extension, and if the API cannot express it, the API grows (a minor version).
 
 **Extension types must come from the app's copy.** `ExtensionLoadContext` sends
 `AgentsDashboard.Extensions`, `Microsoft.AspNetCore.*`, `Microsoft.Extensions.*`
-and `System.*` to the default context. Load a second copy of any of them and the
+and `System.*` to the default context, and only falls back to the extension's
+own copy when the app has none (Roslyn's `System.Composition`). Load a second copy of any of them and the
 extension's `IComponent` is a different type from the app's, and nothing casts.
 An extension project references the API with `Private="false"` for the same
 reason.

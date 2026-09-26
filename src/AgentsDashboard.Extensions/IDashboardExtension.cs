@@ -53,6 +53,13 @@ public interface IExtensionBuilder
     /// exception is logged and the worker restarted after a pause.
     /// </summary>
     void AddWorker<TWorker>(string id) where TWorker : class, IExtensionWorker;
+
+    /// <summary>
+    /// Adds navigation for a language in the editor: hover, go to definition,
+    /// references, callers and colouring by symbol. Off in every worktree until
+    /// the user presses Load on a file it handles.
+    /// </summary>
+    void AddCodeIntelligence<TProvider>() where TProvider : class, ICodeIntelligence;
 }
 
 /// <summary>

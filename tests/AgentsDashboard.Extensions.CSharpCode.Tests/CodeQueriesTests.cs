@@ -1,10 +1,9 @@
 using System.Diagnostics;
-using AgentsDashboard.Core.Code;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Text;
 
-namespace AgentsDashboard.Core.Tests;
+namespace AgentsDashboard.Extensions.CSharpCode.Tests;
 
 public class CodeQueriesTests
 {
@@ -250,15 +249,47 @@ public class CodeQueriesTests
     [Fact]
     public void Code_intelligence_starts_not_loaded_and_ignores_edits_until_it_is()
     {
-        var intelligence = new CodeIntelligence(new SolutionLoader());
+        var intelligence = new RoslynCodeIntelligence(new SolutionLoader());
 
         // No MSBuild is touched here: nothing loads until EnsureLoadedAsync runs.
         intelligence.UpdateDocument(Worktree, "src/A.cs", "class X;");
 
         var status = intelligence.Status(Worktree);
-        Assert.Equal(LoadState.NotLoaded, status.State);
+        Assert.Equal(CodeLoadState.NotLoaded, status.State);
         Assert.Equal(0, status.Projects);
         Assert.Equal(0, status.Documents);
+    }
+
+    [Fact]
+    public async Task Queries_never_start_a_load()
+    {
+        var intelligence = new RoslynCodeIntelligence(new SolutionLoader());
+        var token = TestContext.Current.CancellationToken;
+
+        var hover = await intelligence.HoverAsync(Worktree, "src/A.cs", 1, 1, token);
+        var references = await intelligence.ReferencesAsync(Worktree, "src/A.cs", 1, 1, token);
+        var runs = await intelligence.ClassifyAsync(Worktree, "src/A.cs", token);
+
+        Assert.Null(hover);
+        Assert.Empty(references);
+        Assert.Empty(runs);
+        Assert.Equal(CodeLoadState.NotLoaded, intelligence.Status(Worktree).State);
+    }
+
+    [Fact]
+    public async Task A_failed_load_is_reported_and_unload_turns_it_off_again()
+    {
+        var intelligence = new RoslynCodeIntelligence(new SolutionLoader());
+        var missing = Path.Combine(Path.GetTempPath(), "no-such-worktree-" + Guid.NewGuid().ToString("N"));
+
+        // A missing directory fails before MSBuild is touched.
+        await Assert.ThrowsAsync<DirectoryNotFoundException>(
+            () => intelligence.LoadAsync(missing, TestContext.Current.CancellationToken));
+        Assert.Equal(CodeLoadState.Failed, intelligence.Status(missing).State);
+
+        intelligence.Unload(missing);
+
+        Assert.Equal(CodeLoadState.NotLoaded, intelligence.Status(missing).State);
     }
 
     [Fact(Skip = "Loads the real SDK; run by hand")]

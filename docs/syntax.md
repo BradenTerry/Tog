@@ -28,8 +28,9 @@ CSS and JavaScript ones, so a `.razor` file reads as it does in VS Code.
   is its Monaco token, and the themes in `monaco.js` carry Dark+ and Light+ rules
   for the scope names. Monaco matches a rule by dotted prefix, so one rule for
   `entity.name.tag` covers every language's tags.
-- **C# gets both.** The grammar colours C# as you type, and Roslyn's semantic
-  tokens then tell types, methods and locals apart on top of it (see
+- **C# can get both.** The grammar colours C# as you type, and with the C#
+  extension loaded and Load pressed, Roslyn's semantic tokens then tell types,
+  methods and locals apart on top of it (see
   [code-intelligence.md](code-intelligence.md)), which is how VS Code does it.
 
 ## Monaco as a tokenizer, not a renderer

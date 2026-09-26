@@ -1,14 +1,37 @@
 # Code intelligence
 
-The editor colours what each name is, and shows what a symbol is, where it is defined, where it is used and
-who calls it. VS Code gets that from a language server running beside the
-editor. The dashboard is already a .NET process, so it gets it from Roslyn
-in-process instead, which means no second process to install, start or keep
-alive.
+The editor can colour what each name is, and show what a symbol is, where it is
+defined, where it is used and who calls it. VS Code gets that from a language
+server running beside the editor. Here it comes from an extension, one per
+language, through `ICodeIntelligence`; the app itself has no language support
+beyond Monaco's colouring, and carries no Roslyn or MSBuild.
 
-C# only. Other languages keep what Monaco does on its own, which is colouring
-and, for TypeScript and JavaScript, symbols within the open file. The "Open in
-VS Code" link is the fallback for everything else.
+The one that exists is C#, in `extensions/CSharpCode`. The dashboard is already
+a .NET process, so it runs Roslyn in-process, which means no second process to
+install, start or keep alive. Other languages keep what Monaco does on its own,
+which is colouring and, for TypeScript and JavaScript, symbols within the open
+file. The "Open in VS Code" link is the fallback for everything else.
+
+## The extension point
+
+```mermaid
+flowchart LR
+    E["extension: AddCodeIntelligence()"] --> H[ExtensionHost]
+    H --> N["CodeNavigation (app)"]
+    N -->|"For(path)"| F["FileDocument: chip, Load"]
+    N -->|"For(path)"| C["CodeEditor: hover, F12, Shift+F12"]
+    N -->|Languages| M["monaco.js: providers per language"]
+```
+
+- `CodeNavigation` asks the loaded extensions which one `Handles` a file, each
+  time rather than once, because a provider goes when its extension reloads.
+  With none, the file's bar has no chip and every query answers with nothing.
+- Monaco's providers are registered per language id, once for the page, for
+  the languages the loaded providers name. A language that arrives with an
+  extension loaded later is registered then; one whose extension goes stays
+  registered and is answered with nothing.
+- A provider is extension code on the circuit, so the app catches whatever it
+  throws: an exception out of a JSInvokable ends the circuit.
 
 ## How a query travels
 
@@ -16,12 +39,12 @@ VS Code" link is the fallback for everything else.
 sequenceDiagram
     participant M as Monaco (browser)
     participant E as CodeEditor.razor
-    participant C as CodeIntelligence (Core)
+    participant C as RoslynCodeIntelligence (extension)
     participant R as Roslyn Solution
 
     M->>E: hover / definition / references / callers (line, column)
     E->>C: query(worktree, file, line, column)
-    C->>C: EnsureLoaded(worktree)
+    C->>C: solution for worktree (waits on a load, never starts one)
     C->>R: SymbolFinder, GetSymbolInfo
     R-->>C: symbols and locations
     C-->>E: CodeLocation[] (worktree-relative, 1-based)
@@ -36,25 +59,39 @@ expressed as a URI and an unnamed model has none to match.
 
 Every position that crosses the boundary is one-based in both line and column,
 which is what Monaco uses. Roslyn's `LinePosition` is zero-based, and the
-conversion lives in Core in exactly one place, because an off-by-one here shows
-up as "go to definition lands on the line above" and nowhere else.
+conversion lives in the extension's `CodeQueries` in exactly one place, because
+an off-by-one here shows up as "go to definition lands on the line above" and
+nowhere else.
 
 ## Loading a solution
 
 ```mermaid
 stateDiagram-v2
     [*] --> NotLoaded
-    NotLoaded --> Loading: a C# file is opened
+    NotLoaded --> Loading: Load pressed
     Loading --> Ready: MSBuildWorkspace finishes
     Loading --> Failed: no solution, or MSBuild failed
+    Loading --> NotLoaded: Cancel pressed
+    Failed --> Loading: Retry pressed
     Ready --> Loading: Reload pressed
+    Ready --> NotLoaded: Unload pressed
     Ready --> Ready: a document changes
 ```
 
-- A solution is loaded **on demand** the first time a C# file is opened in a
-  worktree, never for every worktree the dashboard watches. Loading takes a few
-  seconds and a few hundred megabytes, and most worktrees on screen are never
-  browsed.
+- Roslyn is **off until asked for**. Opening a C# file only reads it; the Load
+  button on the file's bar loads that worktree's solution. Loading takes a few
+  seconds and a few hundred megabytes, and navigation is only wanted when an
+  agent's changes need tracing, not for every worktree glanced at. Hover,
+  definition, references and colouring answer with nothing until then, and
+  none of them starts a load.
+- A load belongs to the worktree, not to the tab that asked for it. It runs on
+  its own cancellation token, which only Reload, Unload and Cancel trip; a
+  caller's token only stops that caller waiting. When it was the first
+  caller's, closing that tab (which switching agents does) cancelled the shared
+  load, left it failed, and the next visit started MSBuild from nothing. A load
+  that finishes after it was superseded is discarded rather than written back.
+- Once loaded, a solution stays warm for the life of the app, so switching
+  agents and back costs nothing. Unload hands the memory back.
 - What gets loaded: the `.slnx` or `.sln` at the worktree root, else every
   `.csproj` found there. One workspace per worktree, kept warm.
 - `MSBuildWorkspace` needs the SDK's MSBuild registered through
@@ -77,9 +114,10 @@ stateDiagram-v2
 | Shift+F12 | Find all references, in a panel under the editor | `SymbolFinder.FindReferencesAsync` |
 | Shift+Alt+H | Callers and callees of the method under the caret | `SymbolFinder.FindCallersAsync`; callees by walking the body's invocations |
 
-A C# file's bar carries a chip for the worktree's solution, showing not
-loaded, what the load is doing, "ready" with the project count, or failed with
-the reason in its tooltip, and a Reload beside it.
+A C# file's bar carries a chip for the worktree's solution, showing off, what
+the load is doing, "ready" with the project count, or failed with the reason in
+its tooltip, and beside it whichever of Load, Cancel, Reload and Unload, or
+Retry applies.
 
 References and callers go to a **panel under the editor** rather than Monaco's
 peek widgets. The peek widgets want a text model for every file they show, which
@@ -97,6 +135,24 @@ on nothing at all when no identifier of that length fits.
 Definition targets in other files go through Monaco's editor opener, which the
 dashboard handles by opening that file in its own tab at that line, exactly
 as a clicked reference would.
+
+## MSBuild inside an extension
+
+The C# extension is loaded into a collectible `ExtensionLoadContext` like any
+other, which MSBuild does not expect, and two things follow from it.
+
+- `Microsoft.Build.Locator` hooks the *default* load context, so MSBuild's
+  assemblies land there, outside the extension, whatever copy asked. That is
+  what makes them agree with the out-of-process build host.
+- MSBuild can be registered once per process, and the locator throws if its
+  assemblies are already loaded. When the extension is rebuilt and reloaded,
+  the new copy finds MSBuild already there from the old one and uses it as it
+  is, and a copy that registered unregisters when it is disposed, so its hook
+  on the default context does not keep the old copy alive.
+
+Roslyn's `System.Composition` is a package, not part of the shared framework,
+so the load context takes it from the extension's own folder; see
+[extensions.md](extensions.md).
 
 ## What is deliberately not here
 
@@ -125,6 +181,7 @@ with the grammar, so they are coloured at once and never wait on the server.
 - An edit still waiting on the typing pause is pushed to the solution before
   asking, so the answer is for the text on screen. An answer that comes back
   after another edit is dropped rather than painted onto moved lines.
-- The first request waits for the solution to load, so a C# file opened cold is
-  plain for the few seconds MSBuild takes, then colours.
+- Until the solution is loaded, names are plain. Loading or unloading fires the
+  provider's `onDidChange` (`agentsEditor.refreshSemantics`), so every open C#
+  editor asks again and colours without being reopened.
 

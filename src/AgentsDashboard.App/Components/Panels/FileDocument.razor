@@ -1,6 +1,6 @@
-@using AgentsDashboard.Core.Code
+@using AgentsDashboard.Extensions
 @inject WorktreeFiles Files
-@inject CodeIntelligence Code
+@inject CodeNavigation Code
 @inject DiffReader Diffs
 @inject WorktreeViews Views
 @inject Workbench Bench
@@ -14,10 +14,26 @@
 <div class="doc-file">
     <div class="doc-bar">
         <span class="mono truncate faint" title="@Path">@Path</span>
-        @if (IsCSharp)
+        @if (Intelligence is not null)
         {
             <span class="chip @CodeChipKind" title="@(CodeStatus.Message ?? CodeChip)">@CodeChip</span>
-            <button class="ghost small" @onclick="ReloadCode">Reload</button>
+            @switch (CodeStatus.State)
+            {
+                case CodeLoadState.NotLoaded:
+                    <button class="ghost small" @onclick="LoadCode"
+                            title="Load this worktree into @Intelligence.Name for go to definition, references and callers">Load</button>
+                    break;
+                case CodeLoadState.Loading:
+                    <button class="ghost small" @onclick="UnloadCode">Cancel</button>
+                    break;
+                case CodeLoadState.Ready:
+                    <button class="ghost small" @onclick="LoadCodeAgain" title="Load the solution again, for when a project file changed">Reload</button>
+                    <button class="ghost small" @onclick="UnloadCode" title="Drop the solution and free its memory">Unload</button>
+                    break;
+                case CodeLoadState.Failed:
+                    <button class="ghost small" @onclick="LoadCode">Retry</button>
+                    break;
+            }
         }
         <span class="spacer"></span>
         @if (_file?.Editable == true)
@@ -195,7 +211,6 @@
     private string _panelTitle = "";
 
     private CodeEditor? _editor;
-    private CancellationTokenSource? _codeLoad;
 
     /// <summary>
     /// Set by anything that changes what this document shows. The layout
@@ -274,6 +289,7 @@
         }
 
         Code.StatusChanged += OnCodeStatusChanged;
+        Code.ProvidersChanged += OnCodeProvidersChanged;
         Views.BaseChanged += OnBaseChanged;
         Bench.FilesChanged += OnFilesChanged;
         _view = Views.For(WorktreePath);
@@ -316,7 +332,6 @@
             Render(_file.Text);
         }
 
-        StartLoadingCode();
         _ = ReadMarks();
     }
 
@@ -407,7 +422,7 @@
 
         if (paths.Contains(Path) && Files.ReadText(WorktreePath, Path) is { } disk && disk.Stamp != _stamp)
         {
-            Code.RefreshDocumentFromDisk(WorktreePath, Path);
+            Intelligence?.RefreshDocumentFromDisk(WorktreePath, Path);
             Read();
             StateHasChanged();
         }
@@ -506,7 +521,7 @@
             // The solution was holding the buffer as it was typed. What is on disk
             // now is the same text, but reading it back is what the rest of the
             // solution's view of this file is rebuilt from.
-            Code.RefreshDocumentFromDisk(WorktreePath, _file.Path);
+            Intelligence?.RefreshDocumentFromDisk(WorktreePath, _file.Path);
             MarkSaved();
             _ = ReadMarks();
             return;
@@ -520,7 +535,7 @@
     {
         // The conflict means someone else wrote the file, so the solution is
         // holding text that no longer exists anywhere.
-        Code.RefreshDocumentFromDisk(WorktreePath, Path);
+        Intelligence?.RefreshDocumentFromDisk(WorktreePath, Path);
         Read();
         Bench.SetDirty(WorktreePath, Doc.Key, false);
     }
@@ -553,45 +568,66 @@
 
     // ---------- code intelligence ----------
 
-    private bool IsCSharp => Path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase);
+    /// <summary>
+    /// The extension that answers for this file, if one is loaded. Asked each
+    /// time rather than kept, because it goes when its extension reloads.
+    /// </summary>
+    private ICodeIntelligence? Intelligence => Code.For(Path);
 
-    private LoadStatus CodeStatus => Code.Status(WorktreePath);
+    private static readonly CodeLoadStatus Off = new(CodeLoadState.NotLoaded, null, 0, 0);
 
-    private string CodeChip => CodeStatus switch
+    private CodeLoadStatus CodeStatus => Intelligence?.Status(WorktreePath) ?? Off;
+
+    private string CodeChip => (Intelligence?.Name ?? "") + CodeStatus switch
     {
-        { State: LoadState.Loading } s => $"Roslyn: {s.Message ?? "loading"}",
-        { State: LoadState.Ready } s => $"Roslyn: ready, {Fmt.Count(s.Projects, "project")}",
-        { State: LoadState.Failed } => "Roslyn: failed",
-        _ => "Roslyn: not loaded",
+        { State: CodeLoadState.Loading } s => $": {s.Message ?? "loading"}",
+        { State: CodeLoadState.Ready } s => $": ready, {Fmt.Count(s.Projects, "project")}",
+        { State: CodeLoadState.Failed } => ": failed",
+        _ => ": off",
     };
 
     private string CodeChipKind => CodeStatus.State switch
     {
-        LoadState.Loading => "waiting",
-        LoadState.Ready => "accent",
-        LoadState.Failed => "danger",
+        CodeLoadState.Loading => "waiting",
+        CodeLoadState.Ready => "accent",
+        CodeLoadState.Failed => "danger",
         _ => "",
     };
 
     /// <summary>
-    /// Opening a C# file is what starts the solution load, and it is deliberately
-    /// not awaited: MSBuild takes seconds, and the file itself is on screen from
-    /// the moment it is read. The chip is how the wait is shown.
+    /// Code intelligence is off until asked for: opening a file only reads it. A
+    /// load can be seconds of work and hundreds of megabytes, and it is worth it
+    /// only for the worktree whose changes are being traced. Not awaited, and not
+    /// tied to this document: the load belongs to the worktree and carries on
+    /// when this tab closes or another agent is picked. The chip shows the wait.
     /// </summary>
-    private void StartLoadingCode()
+    private void LoadCode()
     {
-        if (!IsCSharp || !RendererInfo.IsInteractive)
+        Touch();
+        if (Intelligence is { } intelligence)
         {
-            return;
+            _ = intelligence.LoadAsync(WorktreePath, CancellationToken.None);
         }
+    }
 
-        _codeLoad ??= new CancellationTokenSource();
-        _ = Code.EnsureLoadedAsync(WorktreePath, _codeLoad.Token);
+    private void LoadCodeAgain()
+    {
+        Touch();
+        if (Intelligence is { } intelligence)
+        {
+            _ = intelligence.ReloadAsync(WorktreePath, CancellationToken.None);
+        }
+    }
+
+    private void UnloadCode()
+    {
+        Touch();
+        Intelligence?.Unload(WorktreePath);
     }
 
     private void OnCodeStatusChanged(string worktreePath)
     {
-        if (!IsCSharp
+        if (Intelligence is null
             || (!string.Equals(worktreePath, WorktreePath, StringComparison.Ordinal)
                 && !string.Equals(System.IO.Path.GetFullPath(worktreePath), System.IO.Path.GetFullPath(WorktreePath), StringComparison.Ordinal)))
         {
@@ -600,26 +636,51 @@
 
         // The event comes off whichever thread the load is on, and the chip is
         // rendered on the circuit's.
-        _ = InvokeAsync(() =>
+        _ = InvokeAsync(async () =>
         {
             Touch();
             StateHasChanged();
+
+            // Colouring was asked for before there was a solution and came back
+            // empty, and Monaco does not ask again on its own.
+            if (CodeStatus.State is CodeLoadState.Ready or CodeLoadState.NotLoaded)
+            {
+                await RefreshSemantics();
+            }
         });
     }
 
-    private void ReloadCode()
+    /// <summary>
+    /// An extension with a provider loaded or went away: the chip appears or
+    /// goes, and the editor registers the language's providers if it is new.
+    /// </summary>
+    private void OnCodeProvidersChanged() => _ = InvokeAsync(async () =>
     {
         Touch();
-        _codeLoad ??= new CancellationTokenSource();
-        _ = Code.ReloadAsync(WorktreePath, _codeLoad.Token);
+        StateHasChanged();
+        await RefreshSemantics();
+    });
+
+    private async Task RefreshSemantics()
+    {
+        try
+        {
+            await Js.InvokeVoidAsync("agentsEditor.refreshSemantics", Code.Languages);
+        }
+        catch (JSException)
+        {
+        }
+        catch (InvalidOperationException)
+        {
+        }
     }
 
     /// <summary>The buffer after a pause in typing, so references answer for it.</summary>
     private void PushText(string text)
     {
-        if (_file is not null && IsCSharp)
+        if (_file is not null)
         {
-            Code.UpdateDocument(WorktreePath, _file.Path, text);
+            Intelligence?.UpdateDocument(WorktreePath, _file.Path, text);
         }
     }
 
@@ -708,11 +769,10 @@
     public void Dispose()
     {
         Code.StatusChanged -= OnCodeStatusChanged;
+        Code.ProvidersChanged -= OnCodeProvidersChanged;
         Views.BaseChanged -= OnBaseChanged;
         Bench.FilesChanged -= OnFilesChanged;
         _self?.Dispose();
-        _codeLoad?.Cancel();
-        _codeLoad?.Dispose();
         _savedFor?.Dispose();
     }
 }
