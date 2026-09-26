@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agents Dashboard - workbench layout mockup</title>
+<style>
+    :root {
+        --bg: #0d0f13;
+        --surface: #141820;
+        --surface-2: #1a1f29;
+        --border: #262d3a;
+        --border-soft: #1d232d;
+        --text: #e8eaee;
+        --text-dim: #9aa2af;
+        --text-faint: #6c7482;
+        --accent: #7aa2f7;
+        --accent-bg: rgba(122, 162, 247, 0.12);
+        --waiting: #f5b942;
+        --waiting-bg: rgba(245, 185, 66, 0.14);
+        --active: #56d364;
+        --active-bg: rgba(86, 211, 100, 0.13);
+        --idle: #6c7482;
+        --danger: #f2777a;
+        --t-com: #626b7d;
+        --t-str: #9ece6a;
+        --t-num: #ff9e64;
+        --t-kw: #bb9af7;
+        --t-typ: #7dcfff;
+        --add-bg: rgba(86, 211, 100, 0.10);
+        --del-bg: rgba(242, 119, 122, 0.10);
+        --ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+        --mono: ui-monospace, SFMono-Regular, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+        --left-w: 260px;
+        --right-w: 300px;
+        --bottom-h: 320px;
+        --agents-w: 240px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.45 var(--ui); overflow: hidden; }
+    button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+
+    /* Shell */
+    .shell { display: grid; height: 100vh; grid-template-rows: 34px minmax(0, 1fr) 22px; }
+    .titlebar { display: flex; align-items: center; gap: 12px; padding: 0 12px 0 80px; border-bottom: 1px solid var(--border); background: var(--surface); }
+    .titlebar .title { font-weight: 600; }
+    .titlebar .crumb { color: var(--text-dim); font-size: 12px; }
+    .titlebar .spacer { flex: 1; }
+    .toggle { padding: 3px 8px; border-radius: 5px; color: var(--text-dim); font-size: 12px; border: 1px solid transparent; }
+    .toggle.on { color: var(--text); border-color: var(--border); background: var(--surface-2); }
+    .layout-btn { width: 26px; height: 24px; border-radius: 5px; display: grid; place-items: center; color: var(--text-faint); }
+    .layout-btn:hover { background: var(--surface-2); color: var(--text); }
+    .layout-btn svg { width: 16px; height: 16px; }
+    .layout-btn svg .fill { fill: currentColor; opacity: 0; }
+    .layout-btn.on { color: var(--text-dim); }
+    .layout-btn.on svg .fill { opacity: 1; }
+    .layout-group { display: flex; gap: 2px; }
+
+    /* Panel tab strips */
+    .ptabs { display: flex; align-items: stretch; height: 32px; padding: 0 4px; border-bottom: 1px solid var(--border-soft); flex: none; gap: 2px; }
+    .ptab { display: flex; align-items: center; gap: 6px; padding: 0 8px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
+        color: var(--text-faint); border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+    .ptab:hover { color: var(--text-dim); }
+    .ptab.active { color: var(--text); border-bottom-color: var(--accent); }
+    .ptab .n { text-transform: none; letter-spacing: 0; background: var(--surface-2); border-radius: 8px; padding: 0 6px; font-size: 10.5px; color: var(--text-dim); }
+    .ptab .n.w { background: var(--waiting-bg); color: var(--waiting); }
+    .ptabs .spacer { flex: 1; }
+    .ptabs .icon-btn { align-self: center; }
+    .ptab-add { color: var(--text-faint); padding: 0 6px; font-size: 14px; }
+    .ptab-add:hover { color: var(--text); }
+    .pane { display: none; flex: 1; flex-direction: column; min-height: 0; min-width: 0; }
+    .pane.active { display: flex; }
+    .search-box { margin: 8px; }
+    .search-box input { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; font: 12.5px var(--ui); }
+    .hit { padding: 3px 10px 3px 28px; font: 12px var(--mono); color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+    .hit:hover { background: var(--surface-2); }
+    .hit mark { background: rgba(245,185,66,.25); color: var(--text); border-radius: 2px; }
+    .placeholder { padding: 12px; color: var(--text-faint); font-size: 12.5px; }
+    .test-row { display: flex; gap: 8px; align-items: center; padding: 3px 10px; font-size: 12.5px; }
+    .test-row .ok { color: var(--active); } .test-row .bad { color: var(--danger); } .test-row .run { color: var(--waiting); }
+    .activity-row { display: grid; grid-template-columns: 70px 90px minmax(0, 1fr); gap: 8px; padding: 3px 14px; font: 12px var(--mono); color: var(--text-dim); }
+    .activity-row .t { color: var(--text-faint); }
+    .activity-row .k { color: var(--t-typ); }
+    .term { flex: 1; overflow: auto; padding: 8px 14px; font: 12px/18px var(--mono); color: var(--text-dim); white-space: pre; }
+
+    .workbench { display: grid; min-height: 0;
+        grid-template-columns: var(--left-w) 4px minmax(0, 1fr) 4px var(--right-w); }
+    .workbench.no-left { grid-template-columns: 0 0 minmax(0, 1fr) 4px var(--right-w); }
+    .workbench.no-right { grid-template-columns: var(--left-w) 4px minmax(0, 1fr) 0 0; }
+    .workbench.no-left.no-right { grid-template-columns: 0 0 minmax(0, 1fr) 0 0; }
+    .workbench.no-left .left, .workbench.no-right .right { display: none; }
+
+    .sash { background: var(--border-soft); cursor: col-resize; }
+    .sash:hover, .sash.dragging { background: var(--accent); }
+    .sash.h { cursor: row-resize; }
+
+    .panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--surface); }
+    .panel-head { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; border-bottom: 1px solid var(--border-soft);
+        font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--text-dim); flex: none; }
+    .panel-head .sub { text-transform: none; letter-spacing: 0; color: var(--text-faint); }
+    .panel-head .spacer { flex: 1; }
+    .panel-body { flex: 1; overflow: auto; min-height: 0; }
+    .icon-btn { width: 22px; height: 22px; border-radius: 4px; color: var(--text-dim); display: inline-grid; place-items: center; }
+    .icon-btn:hover { background: var(--surface-2); color: var(--text); }
+
+    /* Left: files of the active agent */
+    .agent-chip { display: flex; align-items: center; gap: 8px; margin: 8px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); }
+    .agent-chip .name { font-weight: 600; }
+    .agent-chip .branch { color: var(--text-faint); font: 11px var(--mono); }
+    .tree { padding: 2px 0 12px; font-size: 13px; }
+    .tree-row { display: flex; align-items: center; gap: 6px; height: 22px; padding-right: 10px; cursor: pointer; white-space: nowrap; }
+    .tree-row:hover { background: var(--surface-2); }
+    .tree-row.selected { background: var(--accent-bg); }
+    .tree-row .chev { width: 12px; color: var(--text-faint); font-size: 10px; }
+    .tree-row .badge { margin-left: auto; font: 11px var(--mono); }
+    .badge.M { color: var(--waiting); }
+    .badge.A { color: var(--active); }
+    .badge.D { color: var(--danger); }
+    .ficon { width: 14px; height: 14px; border-radius: 3px; display: inline-grid; place-items: center; font: 700 8px var(--mono); color: #0d0f13; flex: none; }
+    .ficon.cs { background: #9b7bea; }
+    .ficon.razor { background: #7aa2f7; }
+    .ficon.css { background: #56b6c2; }
+    .ficon.js { background: #e5c07b; }
+    .ficon.md { background: #8a93a5; }
+    .ficon.dir { background: none; color: var(--text-faint); font-size: 11px; }
+
+    /* Center column */
+    .center { display: grid; min-height: 0; grid-template-rows: minmax(0, 1fr) 4px var(--bottom-h); background: var(--bg); }
+    .center.no-bottom { grid-template-rows: minmax(0, 1fr) 0 0; }
+    .center.no-bottom .bottom { display: none; }
+
+    .editor { display: flex; flex-direction: column; min-height: 0; }
+    .tabs { display: flex; height: 34px; background: var(--surface); border-bottom: 1px solid var(--border); overflow-x: auto; flex: none; }
+    .tab { display: flex; align-items: center; gap: 6px; padding: 0 8px 0 12px; border-right: 1px solid var(--border-soft); color: var(--text-dim); cursor: pointer; white-space: nowrap; position: relative; }
+    .tab.active { background: var(--bg); color: var(--text); }
+    .tab.active::after { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: var(--accent); }
+    .tab.preview .label { font-style: italic; }
+    .tab .tab-btn { width: 18px; height: 18px; border-radius: 4px; display: grid; place-items: center; color: var(--text-faint); font-size: 12px; visibility: hidden; }
+    .tab:hover .tab-btn, .tab.active .tab-btn, .tab.pinned .tab-btn.pin { visibility: visible; }
+    .tab .tab-btn:hover { background: var(--surface-2); color: var(--text); }
+    .tab.pinned .tab-btn.pin { color: var(--accent); }
+    /* Unpinned the pin leans over, VS Code style; pinned it stands up and fills in. */
+    .tab-btn.pin svg { width: 13px; height: 13px; transform: rotate(45deg); transition: transform .12s; }
+    .tab.pinned .tab-btn.pin svg { transform: none; }
+    .tab.pinned .tab-btn.pin svg .head { fill: currentColor; }
+    .tab .dirty { width: 7px; height: 7px; border-radius: 50%; background: var(--text-dim); }
+    .tabs .divider { width: 1px; background: var(--border); margin: 6px 2px; }
+
+    .crumbs { height: 24px; padding: 0 12px; display: flex; align-items: center; gap: 6px; color: var(--text-faint); font-size: 12px; border-bottom: 1px solid var(--border-soft); flex: none; }
+    .crumbs .toggle { margin-left: auto; padding: 1px 7px; font-size: 11px; }
+    .code { flex: 1; overflow: auto; font: 12.5px/20px var(--mono); padding: 6px 0; min-height: 0; }
+    .code .ln { display: grid; grid-template-columns: 48px minmax(0, 1fr); }
+    .code .ln .n { text-align: right; padding-right: 14px; color: var(--text-faint); user-select: none; }
+    .code .ln.add { background: var(--add-bg); }
+    .code .ln.del { background: var(--del-bg); }
+    .code .ln .t { white-space: pre; padding-right: 20px; }
+    .kw { color: var(--t-kw); } .typ { color: var(--t-typ); } .str { color: var(--t-str); } .com { color: var(--t-com); font-style: italic; } .num { color: var(--t-num); }
+    .empty { flex: 1; display: grid; place-items: center; color: var(--text-faint); text-align: center; }
+
+    /* Bottom: chat + agent list */
+    .bottom { display: grid; min-height: 0; grid-template-columns: minmax(0, 1fr) 4px var(--agents-w); background: var(--surface); border-top: 1px solid var(--border); }
+    .chat { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+    .chat-head { display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 12px; border-bottom: 1px solid var(--border-soft); flex: none; }
+    .chat-head .name { font-weight: 600; }
+    .chat-head .meta { color: var(--text-faint); font-size: 12px; }
+    .chat-head .spacer { flex: 1; }
+    .meter { width: 90px; height: 5px; border-radius: 3px; background: var(--border); overflow: hidden; }
+    .meter > i { display: block; height: 100%; background: var(--accent); }
+    .messages { flex: 1; overflow: auto; padding: 10px 14px; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+    .msg { max-width: 760px; }
+    .msg .who { font-size: 11px; color: var(--text-faint); margin-bottom: 2px; }
+    .msg.user .bubble { background: var(--accent-bg); border: 1px solid rgba(122,162,247,.25); padding: 6px 10px; border-radius: 8px; display: inline-block; }
+    .tool { font: 12px var(--mono); color: var(--text-dim); border-left: 2px solid var(--border); padding: 2px 8px; }
+    .tool b { color: var(--t-typ); font-weight: 500; }
+    .permission { border: 1px solid rgba(245,185,66,.4); background: var(--waiting-bg); border-radius: 8px; padding: 8px 10px; max-width: 760px; }
+    .permission .q { margin-bottom: 6px; }
+    .permission code { font: 12px var(--mono); background: rgba(0,0,0,.25); padding: 1px 5px; border-radius: 4px; }
+    .btn { padding: 4px 10px; border-radius: 5px; border: 1px solid var(--border); background: var(--surface-2); font-size: 12px; }
+    .btn.primary { background: var(--accent); color: #0d0f13; border-color: var(--accent); font-weight: 600; }
+    .btn + .btn { margin-left: 6px; }
+    .composer { display: flex; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--border-soft); flex: none; }
+    .composer textarea { flex: 1; resize: none; height: 36px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; font: 13px var(--ui); }
+    .composer textarea:focus { outline: none; border-color: var(--accent); }
+
+    .agents { display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--border-soft); }
+    .agent-list { flex: 1; overflow: auto; padding: 4px; }
+    .agent { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 4px 8px; align-items: center; padding: 7px 8px; border-radius: 6px; cursor: pointer; }
+    .agent:hover { background: var(--surface-2); }
+    .agent.selected { background: var(--accent-bg); outline: 1px solid rgba(122,162,247,.3); }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--idle); }
+    .dot.waiting { background: var(--waiting); box-shadow: 0 0 0 3px var(--waiting-bg); }
+    .dot.active { background: var(--active); box-shadow: 0 0 0 3px var(--active-bg); animation: pulse 1.6s infinite; }
+    @keyframes pulse { 50% { box-shadow: 0 0 0 5px transparent; } }
+    .agent .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .agent .state { font-size: 11px; color: var(--text-faint); }
+    .agent .state.waiting { color: var(--waiting); }
+    .agent .sum { grid-column: 2 / 4; font-size: 11.5px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .new-agent { margin: 6px; padding: 6px; border: 1px dashed var(--border); border-radius: 6px; color: var(--text-dim); }
+    .new-agent:hover { color: var(--text); border-color: var(--accent); }
+
+    /* Right: source control */
+    .scm-commit { padding: 8px; border-bottom: 1px solid var(--border-soft); }
+    .scm-commit textarea { width: 100%; height: 54px; resize: none; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font: 12.5px var(--ui); }
+    .scm-commit .row { display: flex; gap: 6px; margin-top: 6px; }
+    .scm-commit .row .btn { flex: 1; margin: 0; }
+    .scm-section { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-dim); padding: 8px 10px 4px; display: flex; gap: 6px; }
+    .scm-section .count { margin-left: auto; background: var(--surface-2); border-radius: 8px; padding: 0 6px; }
+    .scm-row { display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; cursor: pointer; }
+    .scm-row:hover { background: var(--surface-2); }
+    .scm-row .path { color: var(--text-faint); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .scm-row .stat { margin-left: auto; font: 11px var(--mono); color: var(--text-faint); }
+    .scm-row .stat .a { color: var(--active); } .scm-row .stat .d { color: var(--danger); }
+    .scm-row .badge { width: 12px; text-align: center; font: 11px var(--mono); }
+    .scm-row .acts { display: none; gap: 2px; }
+    .scm-row:hover .acts { display: flex; }
+    .scm-row:hover .stat { display: none; }
+    .base { margin: 8px 10px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 12px; color: var(--text-dim); display: flex; gap: 6px; }
+    .base b { color: var(--text); font-weight: 500; font-family: var(--mono); font-size: 11.5px; }
+    .review { margin: 10px; padding: 8px 10px; border-radius: 6px; background: var(--surface-2); font-size: 12px; color: var(--text-dim); }
+    .review .btn { margin-top: 6px; width: 100%; margin-left: 0; }
+
+    .statusbar { display: flex; align-items: center; gap: 16px; padding: 0 10px; font-size: 11.5px; background: var(--surface); border-top: 1px solid var(--border); color: var(--text-dim); }
+    .statusbar .spacer { flex: 1; }
+    .statusbar .w { color: var(--waiting); }
+    .note { position: fixed; right: 14px; bottom: 30px; max-width: 280px; padding: 10px 12px; font-size: 12px; color: var(--text-dim);
+        background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.45); }
+    .note b { color: var(--text); }
+    .note button { position: absolute; right: 6px; top: 4px; color: var(--text-faint); }
+</style>
+</head>
+<body>
+<div class="shell">
+    <header class="titlebar">
+        <span class="title">Agents Dashboard</span>
+        <span class="crumb">agents-dashboard / <span id="tb-agent">eager-lynx-475</span></span>
+        <span class="spacer"></span>
+        <div class="layout-group">
+            <button class="layout-btn on" data-toggle="left" title="Toggle left panel">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><rect class="fill" x="2" y="3" width="4" height="10" rx="1"/><line x1="6" y1="2.5" x2="6" y2="13.5"/></svg>
+            </button>
+            <button class="layout-btn on" data-toggle="bottom" title="Toggle bottom panel">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><rect class="fill" x="2" y="9" width="12" height="4" rx="1"/><line x1="1.5" y1="9" x2="14.5" y2="9"/></svg>
+            </button>
+            <button class="layout-btn on" data-toggle="right" title="Toggle right panel">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><rect class="fill" x="10" y="3" width="4" height="10" rx="1"/><line x1="10" y1="2.5" x2="10" y2="13.5"/></svg>
+            </button>
+        </div>
+    </header>
+
+    <div class="workbench" id="wb">
+        <!-- LEFT: files of the active agent's worktree -->
+        <aside class="panel left">
+            <div class="ptabs" data-group="left">
+                <button class="ptab active" data-ptab="files">Files</button>
+                <button class="ptab" data-ptab="search">Search</button>
+                <button class="ptab" data-ptab="outline">Outline</button>
+                <span class="spacer"></span>
+                <button class="icon-btn" title="More views">&#8943;</button>
+            </div>
+            <div class="agent-chip">
+                <span class="dot active" id="chip-dot"></span>
+                <div><div class="name" id="chip-name">eager-lynx-475</div><div class="branch" id="chip-branch">worktree-eager-lynx-475</div></div>
+            </div>
+            <div class="pane active" data-pane="left:files">
+                <div class="panel-body"><div class="tree" id="tree"></div></div>
+            </div>
+            <div class="pane" data-pane="left:search">
+                <div class="search-box"><input value="AgentSnapshot" placeholder="Search this worktree"></div>
+                <div class="panel-body">
+                    <div class="tree-row" style="padding-left:8px" data-open="src/AgentsDashboard.Core/Monitor/AgentSnapshot.cs"><span class="chev">&#9662;</span><span class="ficon cs">C#</span>AgentSnapshot.cs <span class="badge" style="color:var(--text-faint)">3</span></div>
+                    <div class="hit">public sealed record <mark>AgentSnapshot</mark>(</div>
+                    <div class="hit">// The <mark>snapshot</mark> is published once a second</div>
+                    <div class="tree-row" style="padding-left:8px" data-open="src/AgentsDashboard.App/Components/Layout/Workbench.razor"><span class="chev">&#9662;</span><span class="ficon razor">@</span>Workbench.razor <span class="badge" style="color:var(--text-faint)">1</span></div>
+                    <div class="hit">[Parameter] public <mark>AgentSnapshot</mark> Selected { get; set; }</div>
+                </div>
+            </div>
+            <div class="pane" data-pane="left:outline">
+                <div class="panel-body">
+                    <div class="tree-row" style="padding-left:8px"><span class="chev">&#9662;</span><span class="typ">record</span>&nbsp;AgentSnapshot</div>
+                    <div class="tree-row" style="padding-left:28px"><span class="kw">prop</span>&nbsp;NeedsAnswer</div>
+                    <div class="tree-row" style="padding-left:28px"><span class="kw">prop</span>&nbsp;Added</div>
+                    <div class="tree-row" style="padding-left:28px"><span class="kw">prop</span>&nbsp;Removed</div>
+                </div>
+            </div>
+        </aside>
+        <div class="sash" data-sash="left"></div>
+
+        <!-- CENTER: editor on top, agents panel on bottom -->
+        <main class="center" id="center">
+            <section class="editor">
+                <div class="tabs" id="tabs"></div>
+                <div class="crumbs" id="crumbs"></div>
+                <div class="code" id="code"></div>
+            </section>
+            <div class="sash h" data-sash="bottom"></div>
+            <section class="bottom">
+                <div class="chat">
+                    <div class="ptabs" data-group="bottom">
+                        <button class="ptab active" data-ptab="chat">Chat</button>
+                        <button class="ptab" data-ptab="activity">Activity <span class="n">6</span></button>
+                        <button class="ptab" data-ptab="output">Output</button>
+                        <button class="ptab" data-ptab="problems">Problems <span class="n w">2</span></button>
+                        <span class="spacer"></span>
+                        <button class="icon-btn" title="Maximise panel" data-max>&#8599;</button>
+                    </div>
+                    <div class="pane" data-pane="bottom:activity">
+                        <div class="messages" style="padding:6px 0;gap:0">
+                            <div class="activity-row"><span class="t">14:02:11</span><span class="k">Read</span><span>MainLayout.razor</span></div>
+                            <div class="activity-row"><span class="t">14:02:19</span><span class="k">Grep</span><span>"grid-template-columns" wwwroot</span></div>
+                            <div class="activity-row"><span class="t">14:03:40</span><span class="k">Edit</span><span>app.css  +88 -12</span></div>
+                            <div class="activity-row"><span class="t">14:04:02</span><span class="k">Write</span><span>Workbench.razor</span></div>
+                            <div class="activity-row"><span class="t">14:04:30</span><span class="k">Task</span><span>subagent: find every ShouldRender override</span></div>
+                            <div class="activity-row"><span class="t">14:05:12</span><span class="k">Bash</span><span>dotnet build  (background)</span></div>
+                        </div>
+                    </div>
+                    <div class="pane" data-pane="bottom:output">
+                        <div class="term">$ dotnet build
+  Determining projects to restore...
+  AgentsDashboard.Core -> bin/Debug/net10.0/AgentsDashboard.Core.dll
+  AgentsDashboard.App -> bin/Debug/net10.0/AgentsDashboard.App.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)</div>
+                    </div>
+                    <div class="pane" data-pane="bottom:problems">
+                        <div class="messages" style="padding:6px 0;gap:0">
+                            <div class="test-row"><span class="run">&#9888;</span> Workbench.razor(14,9): CS8618 Non-nullable property 'Selected' is uninitialized</div>
+                            <div class="test-row"><span class="run">&#9888;</span> app.js(41): 'start' is assigned but never used</div>
+                        </div>
+                    </div>
+                    <div class="pane active" data-pane="bottom:chat">
+                    <div class="chat-head">
+                        <span class="dot active" id="chat-dot"></span>
+                        <span class="name" id="chat-name">eager-lynx-475</span>
+                        <span class="meta" id="chat-meta">working 4m 12s</span>
+                        <span class="spacer"></span>
+                        <span class="meta">context</span>
+                        <span class="meter" title="Context used"><i id="ctx" style="width: 38%"></i></span>
+                        <button class="icon-btn" title="Stop turn">&#9632;</button>
+                    </div>
+                    <div class="messages" id="messages"></div>
+                    <div class="composer">
+                        <textarea placeholder="Message this agent (Enter to send, Shift+Enter for a newline)"></textarea>
+                        <button class="btn primary">Send</button>
+                    </div>
+                    </div>
+                </div>
+                <div class="sash" data-sash="agents"></div>
+                <div class="agents">
+                    <div class="panel-head">Agents <span class="sub" id="agent-count"></span><span class="spacer"></span>
+                        <button class="icon-btn" title="Filter">&#9776;</button>
+                    </div>
+                    <div class="agent-list" id="agents"></div>
+                    <button class="new-agent">+ New agent in a worktree</button>
+                </div>
+            </section>
+        </main>
+
+        <div class="sash" data-sash="right"></div>
+        <!-- RIGHT: source control -->
+        <aside class="panel right">
+            <div class="ptabs" data-group="right">
+                <button class="ptab active" data-ptab="scm">Source control <span class="n" id="scm-n"></span></button>
+                <button class="ptab" data-ptab="tests">Tests</button>
+                <button class="ptab" data-ptab="commits">History</button>
+                <span class="spacer"></span>
+                <button class="icon-btn" title="More views">&#8943;</button>
+            </div>
+            <div class="pane" data-pane="right:tests">
+                <div class="panel-body">
+                    <div class="placeholder" style="padding-bottom:4px">DotnetTests extension &middot; 142 passed, 1 failed, 3 running</div>
+                    <div class="test-row"><span class="bad">&#10007;</span> TrxStreamTests.ReadsHalfWrittenFile</div>
+                    <div class="test-row"><span class="run">&#9711;</span> MonitorTests.PublishesEverySecond</div>
+                    <div class="test-row"><span class="run">&#9711;</span> ReviewWriterTests.SubmitOrder</div>
+                    <div class="test-row"><span class="run">&#9711;</span> StagingTests.UnstageWithoutHead</div>
+                    <div class="test-row"><span class="ok">&#10003;</span> DiffParserTests.InterleavedNumbering</div>
+                    <div class="test-row"><span class="ok">&#10003;</span> DiffParserTests.OneLineReplacement</div>
+                </div>
+            </div>
+            <div class="pane" data-pane="right:commits">
+                <div class="panel-body">
+                    <div class="scm-row"><span style="font:11px var(--mono);color:var(--text-faint)">4908624</span> Merge pull request #4</div>
+                    <div class="scm-row"><span style="font:11px var(--mono);color:var(--text-faint)">586fb40</span> Show background work, keep a draft</div>
+                    <div class="scm-row"><span style="font:11px var(--mono);color:var(--text-faint)">dd8e9b1</span> Pick a repository folder</div>
+                    <div class="scm-row"><span style="font:11px var(--mono);color:var(--text-faint)">2ed5bb9</span> Resizable sidebar, context meter</div>
+                </div>
+            </div>
+            <div class="pane active" data-pane="right:scm">
+            <div class="panel-body">
+                <div class="base">Diff against <b>main</b> <span style="margin-left:auto;color:var(--accent);cursor:pointer">change</span></div>
+                <div class="scm-commit">
+                    <textarea placeholder="Commit message (offered to the agent, never run on its own)"></textarea>
+                    <div class="row"><button class="btn primary">Commit staged</button><button class="btn">Ask agent to commit</button></div>
+                </div>
+                <div class="scm-section">Staged <span class="count" id="staged-count"></span></div>
+                <div id="staged"></div>
+                <div class="scm-section">Changes <span class="count" id="changes-count"></span></div>
+                <div id="changes"></div>
+                <div class="review">
+                    <div><b style="color:var(--text)">Review</b> &middot; 3 line comments drafted</div>
+                    <button class="btn primary">Send review to agent</button>
+                </div>
+            </div>
+            </div>
+        </aside>
+    </div>
+
+    <footer class="statusbar">
+        <span>&#9679; <span id="sb-branch">worktree-eager-lynx-475</span></span>
+        <span id="sb-diff">+214 &minus;37</span>
+        <span class="spacer"></span>
+        <span class="w" id="sb-waiting"></span>
+        <span>ACP bridge connected</span>
+    </footer>
+</div>
+
+<div class="note" id="note">
+    <button onclick="this.parentNode.remove()">&times;</button>
+    <b>Mockup.</b> Click files (left or right) to open them as preview tabs; double-click a tab or edit to keep it, use the pin to pin it. Click an agent to switch every panel to it. Each panel has its own tabs. Drag the dividers. The three layout icons in the title bar collapse the left, bottom and right panels.
+</div>
+
+<script>
+const agents = [
+    { id: "eager-lynx-475", branch: "worktree-eager-lynx-475", state: "active", label: "working 4m 12s", ctx: 38,
+      sum: "Reworking the shell into a three-panel workbench",
+      files: {
+        "src/AgentsDashboard.App/Components/Layout/MainLayout.razor": "M",
+        "src/AgentsDashboard.App/Components/Layout/Workbench.razor": "A",
+        "src/AgentsDashboard.App/wwwroot/app.css": "M",
+        "src/AgentsDashboard.App/wwwroot/app.js": "M",
+        "src/AgentsDashboard.Core/Monitor/AgentSnapshot.cs": "M",
+        "docs/layout.md": "A" },
+      staged: ["src/AgentsDashboard.App/wwwroot/app.css"],
+      chat: [
+        { who: "user", text: "Move the agent list into a bottom panel and give the diff its own column on the right." },
+        { who: "agent", text: "I'll split MainLayout into a Workbench component with three regions and persist the sizes per window." },
+        { tool: "Read", arg: "src/AgentsDashboard.App/Components/Layout/MainLayout.razor" },
+        { tool: "Edit", arg: "src/AgentsDashboard.App/wwwroot/app.css  +88 -12" },
+        { tool: "Write", arg: "src/AgentsDashboard.App/Components/Layout/Workbench.razor" },
+        { who: "agent", text: "Workbench is in place. Wiring the sash drag through app.js so resizing does not go through the circuit." } ] },
+    { id: "quiet-otter-112", branch: "worktree-quiet-otter-112", state: "waiting", label: "needs permission", ctx: 61,
+      sum: "Streaming TRX parser fix for the Tests extension",
+      files: {
+        "extensions/DotnetTests/TrxStream.cs": "M",
+        "extensions/DotnetTests/TestRunner.cs": "M",
+        "tests/DotnetTests.Tests/TrxStreamTests.cs": "A" },
+      staged: [],
+      chat: [
+        { who: "user", text: "The Tests tab stops updating halfway through a run. Find out why." },
+        { tool: "Grep", arg: "\"ReadToEnd\" extensions/DotnetTests" },
+        { who: "agent", text: "The TRX reader rereads the whole file every tick and trips on the half-written closing tag. I added an incremental reader and a test." },
+        { permission: "Run <code>dotnet test tests/DotnetTests.Tests</code>?" } ] },
+    { id: "brave-heron-908", branch: "worktree-brave-heron-908", state: "waiting", label: "asked a question", ctx: 22,
+      sum: "Roslyn find-references panel",
+      files: { "src/AgentsDashboard.Core/Code/References.cs": "A", "docs/code-intelligence.md": "M" },
+      staged: [],
+      chat: [
+        { who: "user", text: "Add find references for C# symbols in the Files tab." },
+        { who: "agent", text: "Should references open in a side panel, or in the bottom panel next to the chat? The bottom panel would compete with the agent conversation." } ] },
+    { id: "calm-finch-330", branch: "worktree-calm-finch-330", state: "idle", label: "stopped 2h ago", ctx: 74,
+      sum: "Resizable sidebar and context meter (merged)",
+      files: {}, staged: [],
+      chat: [ { who: "agent", text: "Done. PR #4 is merged." } ] },
+];
+
+const sample = {
+    cs: `<span class="kw">namespace</span> AgentsDashboard.Core.Monitor;
+
+<span class="com">// The snapshot is published once a second. Panels read it; none of them poll.</span>
+<span class="kw">public sealed record</span> <span class="typ">AgentSnapshot</span>(
+    <span class="typ">string</span> Id,
+    <span class="typ">string</span> Branch,
+    <span class="typ">AgentState</span> State,
+    <span class="typ">int</span> ContextPercent,
+    <span class="typ">IReadOnlyList</span>&lt;<span class="typ">ChangedFile</span>&gt; Files)
+{
+    <span class="kw">public bool</span> NeedsAnswer =&gt; State <span class="kw">is</span> <span class="typ">AgentState</span>.Waiting;
+    <span class="kw">public int</span> Added =&gt; Files.Sum(f =&gt; f.Added);
+    <span class="kw">public int</span> Removed =&gt; Files.Sum(f =&gt; f.Removed);
+}`,
+    razor: `<span class="com">@* Three regions and a bottom panel. Sizes live in localStorage, not on the circuit. *@</span>
+&lt;<span class="typ">div</span> class=<span class="str">"workbench"</span> style=<span class="str">"@GridStyle"</span>&gt;
+    &lt;<span class="typ">FilesPanel</span> Agent=<span class="str">"@Selected"</span> OnOpen=<span class="str">"Open"</span> /&gt;
+    &lt;<span class="typ">Sash</span> Side=<span class="str">"left"</span> /&gt;
+    &lt;<span class="typ">div</span> class=<span class="str">"center"</span>&gt;
+        &lt;<span class="typ">EditorTabs</span> Tabs=<span class="str">"@Tabs"</span> /&gt;
+        &lt;<span class="typ">Sash</span> Side=<span class="str">"bottom"</span> /&gt;
+        &lt;<span class="typ">AgentsPanel</span> @bind-Selected=<span class="str">"Selected"</span> /&gt;
+    &lt;/<span class="typ">div</span>&gt;
+    &lt;<span class="typ">Sash</span> Side=<span class="str">"right"</span> /&gt;
+    &lt;<span class="typ">SourceControlPanel</span> Agent=<span class="str">"@Selected"</span> /&gt;
+&lt;/<span class="typ">div</span>&gt;`,
+    css: `<span class="com">/* minmax(0, 1fr): a bare 1fr has an auto minimum and one long line widens the column. */</span>
+.workbench {
+    display: grid;
+    grid-template-columns: var(--left-w) <span class="num">4px</span> minmax(<span class="num">0</span>, <span class="num">1fr</span>) <span class="num">4px</span> var(--right-w);
+}
+.center {
+    display: grid;
+    grid-template-rows: minmax(<span class="num">0</span>, <span class="num">1fr</span>) <span class="num">4px</span> var(--bottom-h);
+}`,
+    js: `<span class="com">// Dragging is followed here and reported once on release, like line selection.</span>
+<span class="kw">export function</span> watchSash(el, name) {
+    el.addEventListener(<span class="str">"mousedown"</span>, e =&gt; {
+        <span class="kw">const</span> start = e.clientX;
+        <span class="com">// ...</span>
+    });
+}`,
+    md: `# Layout
+
+The workbench has three regions: files on the left, source control on the
+right, and the agents panel along the bottom of the centre column.`,
+};
+
+let current = agents[0];
+let tabs = [];        // { path, pinned, preview, agent }
+let activeTab = null;
+
+const ext = p => { const e = p.split(".").pop(); return e === "cs" ? "cs" : e === "razor" ? "razor" : e === "css" ? "css" : e === "js" ? "js" : "md"; };
+const base = p => p.split("/").pop();
+const dir = p => p.split("/").slice(0, -1).join("/");
+const ficon = p => `<span class="ficon ${ext(p)}">${{cs:"C#",razor:"@",css:"#",js:"JS",md:"M"}[ext(p)]}</span>`;
+
+function renderTree() {
+    const t = document.getElementById("tree");
+    const paths = Object.keys(current.files).sort();
+    if (!paths.length) { t.innerHTML = `<div style="padding:12px;color:var(--text-faint)">No changed files.</div>`; return; }
+    const dirs = {};
+    paths.forEach(p => (dirs[dir(p)] ??= []).push(p));
+    let html = "";
+    Object.keys(dirs).sort().forEach(d => {
+        const parts = d.split("/");
+        html += `<div class="tree-row" style="padding-left:8px"><span class="chev">&#9662;</span><span class="ficon dir">&#128193;</span><span style="color:var(--text-dim)">${parts.slice(-2).join("/")}</span></div>`;
+        dirs[d].forEach(p => {
+            const sel = activeTab === p ? " selected" : "";
+            html += `<div class="tree-row${sel}" style="padding-left:28px" data-open="${p}">${ficon(p)}<span>${base(p)}</span><span class="badge ${current.files[p]}">${current.files[p]}</span></div>`;
+        });
+    });
+    t.innerHTML = html;
+}
+
+function renderScm() {
+    const all = Object.keys(current.files);
+    const staged = all.filter(p => current.staged.includes(p));
+    const changes = all.filter(p => !current.staged.includes(p));
+    const row = (p, isStaged) => {
+        const a = (p.length * 7) % 90 + 3, d = (p.length * 3) % 20;
+        return `<div class="scm-row" data-open="${p}">${ficon(p)}<span>${base(p)}</span><span class="path">${dir(p).split("/").slice(-2).join("/")}</span>
+            <span class="stat"><span class="a">+${a}</span> <span class="d">&minus;${d}</span></span>
+            <span class="acts" style="margin-left:auto">
+                <button class="icon-btn" title="Discard (offered, not done)">&#8630;</button>
+                <button class="icon-btn" title="${isStaged ? "Unstage" : "Stage"}" data-stage="${p}">${isStaged ? "&minus;" : "+"}</button>
+            </span>
+            <span class="badge ${current.files[p]}">${current.files[p]}</span></div>`;
+    };
+    document.getElementById("staged").innerHTML = staged.map(p => row(p, true)).join("") || `<div class="scm-row" style="color:var(--text-faint);cursor:default">Nothing staged</div>`;
+    document.getElementById("changes").innerHTML = changes.map(p => row(p, false)).join("");
+    document.getElementById("staged-count").textContent = staged.length;
+    document.getElementById("changes-count").textContent = changes.length;
+    document.getElementById("scm-n").textContent = all.length;
+}
+
+function renderAgents() {
+    const waiting = agents.filter(a => a.state === "waiting").length;
+    document.getElementById("agent-count").textContent = `${agents.length} · ${waiting} waiting`;
+    document.getElementById("sb-waiting").textContent = waiting ? `${waiting} agents need an answer` : "";
+    const order = { waiting: 0, active: 1, idle: 2 };
+    document.getElementById("agents").innerHTML = [...agents].sort((a, b) => order[a.state] - order[b.state]).map(a => `
+        <div class="agent${a === current ? " selected" : ""}" data-agent="${a.id}">
+            <span class="dot ${a.state}"></span>
+            <span class="name">${a.id}</span>
+            <span class="state ${a.state}">${a.state === "waiting" ? "waiting" : a.state === "active" ? "working" : "idle"}</span>
+            <span class="sum">${a.sum}</span>
+        </div>`).join("");
+}
+
+function renderChat() {
+    document.getElementById("chat-name").textContent = current.id;
+    document.getElementById("chat-meta").textContent = current.label;
+    document.getElementById("chat-dot").className = "dot " + current.state;
+    document.getElementById("ctx").style.width = current.ctx + "%";
+    const m = document.getElementById("messages");
+    m.innerHTML = current.chat.map(c => {
+        if (c.tool) return `<div class="tool"><b>${c.tool}</b> ${c.arg}</div>`;
+        if (c.permission) return `<div class="permission"><div class="q">${c.permission}</div><button class="btn primary">Allow once</button><button class="btn">Always allow</button><button class="btn">Deny</button></div>`;
+        return `<div class="msg ${c.who}"><div class="who">${c.who === "user" ? "You" : current.id}</div><div class="bubble">${c.text}</div></div>`;
+    }).join("");
+    m.scrollTop = m.scrollHeight;
+}
+
+function renderChrome() {
+    document.getElementById("chip-name").textContent = current.id;
+    document.getElementById("chip-branch").textContent = current.branch;
+    document.getElementById("chip-dot").className = "dot " + current.state;
+    document.getElementById("tb-agent").textContent = current.id;
+    document.getElementById("sb-branch").textContent = current.branch;
+}
+
+const pinIcon = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round">
+    <path class="head" d="M5.5 2h5l-.8 4.2 2.3 2.3H4l2.3-2.3z"/><line x1="8" y1="8.5" x2="8" y2="14"/></svg>`;
+
+function renderTabs() {
+    const el = document.getElementById("tabs");
+    const pinned = tabs.filter(t => t.pinned), rest = tabs.filter(t => !t.pinned);
+    const tabHtml = t => `
+        <div class="tab${t.path === activeTab ? " active" : ""}${t.pinned ? " pinned" : ""}${t.preview ? " preview" : ""}" data-tab="${t.path}" title="${t.agent} : ${t.path}">
+            ${ficon(t.path)}<span class="label">${base(t.path)}</span>
+            <button class="tab-btn pin" data-pin="${t.path}" title="${t.pinned ? "Unpin" : "Pin"}">${pinIcon}</button>
+            ${t.pinned ? "" : `<button class="tab-btn" data-close="${t.path}" title="Close">&times;</button>`}
+        </div>`;
+    el.innerHTML = pinned.map(tabHtml).join("") + (pinned.length && rest.length ? `<span class="divider"></span>` : "") + rest.map(tabHtml).join("");
+
+    const code = document.getElementById("code"), crumbs = document.getElementById("crumbs");
+    const t = tabs.find(t => t.path === activeTab);
+    if (!t) {
+        crumbs.innerHTML = "";
+        code.innerHTML = `<div class="empty" style="height:100%"><div>No file open<br><span style="font-size:12px">Pick a file from the left panel or from Source control.</span></div></div>`;
+        return;
+    }
+    crumbs.innerHTML = `${t.agent} &rsaquo; ${t.path.split("/").join(" &rsaquo; ")} <button class="toggle on" id="mode">Diff</button><button class="toggle" style="margin-left:4px">File</button>`;
+    const lines = sample[ext(t.path)].split("\n");
+    code.innerHTML = lines.map((l, i) => {
+        const cls = i === 3 || i === 4 ? " add" : i === 7 ? " add" : "";
+        return `<div class="ln${cls}"><span class="n">${i + 1}</span><span class="t">${l || " "}</span></div>`;
+    }).join("");
+}
+
+function openFile(path, keep) {
+    let t = tabs.find(t => t.path === path);
+    if (!t) {
+        // One preview tab at a time, like VS Code: a single click replaces it.
+        const prev = tabs.findIndex(t => t.preview);
+        t = { path, pinned: false, preview: !keep, agent: current.id };
+        if (prev >= 0 && !keep) tabs[prev] = t; else tabs.push(t);
+    } else if (keep) t.preview = false;
+    activeTab = path;
+    renderTabs(); renderTree();
+}
+
+function selectAgent(id) {
+    current = agents.find(a => a.id === id);
+    renderAll();
+}
+
+function renderAll() { renderChrome(); renderTree(); renderScm(); renderAgents(); renderChat(); renderTabs(); }
+
+document.addEventListener("click", e => {
+    const q = s => e.target.closest(s);
+    let el;
+    if ((el = q("[data-stage]"))) {
+        e.stopPropagation();
+        const p = el.dataset.stage, s = current.staged;
+        s.includes(p) ? s.splice(s.indexOf(p), 1) : s.push(p);
+        return renderScm();
+    }
+    if ((el = q("[data-pin]"))) {
+        const t = tabs.find(t => t.path === el.dataset.pin);
+        t.pinned = !t.pinned; t.preview = false;
+        return renderTabs();
+    }
+    if ((el = q("[data-close]"))) {
+        const i = tabs.findIndex(t => t.path === el.dataset.close);
+        tabs.splice(i, 1);
+        if (activeTab === el.dataset.close) activeTab = tabs[Math.min(i, tabs.length - 1)]?.path ?? null;
+        renderTabs(); return renderTree();
+    }
+    if ((el = q("[data-ptab]"))) {
+        const strip = el.closest("[data-group]"), group = strip.dataset.group;
+        strip.querySelectorAll(".ptab").forEach(b => b.classList.toggle("active", b === el));
+        document.querySelectorAll(`[data-pane^="${group}:"]`).forEach(p =>
+            p.classList.toggle("active", p.dataset.pane === `${group}:${el.dataset.ptab}`));
+        return;
+    }
+    if ((el = q("[data-tab]"))) { activeTab = el.dataset.tab; renderTabs(); return renderTree(); }
+    if ((el = q("[data-open]"))) return openFile(el.dataset.open, false);
+    if ((el = q("[data-agent]"))) return selectAgent(el.dataset.agent);
+    if ((el = q("[data-toggle]"))) {
+        el.classList.toggle("on");
+        const which = el.dataset.toggle;
+        if (which === "bottom") document.getElementById("center").classList.toggle("no-bottom");
+        else document.getElementById("wb").classList.toggle("no-" + which);
+    }
+});
+document.addEventListener("dblclick", e => {
+    const el = e.target.closest("[data-tab], [data-open]");
+    if (el) openFile(el.dataset.tab ?? el.dataset.open, true);
+});
+document.addEventListener("auxclick", e => {
+    const el = e.target.closest("[data-tab]");
+    if (el && e.button === 1) { const t = tabs.find(t => t.path === el.dataset.tab); if (!t.pinned) el.querySelector("[data-close]").click(); }
+});
+
+// Sashes
+document.querySelectorAll(".sash").forEach(s => s.addEventListener("mousedown", e => {
+    e.preventDefault();
+    const which = s.dataset.sash, root = document.documentElement.style;
+    const cs = getComputedStyle(document.documentElement);
+    const startX = e.clientX, startY = e.clientY;
+    const start = { left: parseInt(cs.getPropertyValue("--left-w")), right: parseInt(cs.getPropertyValue("--right-w")),
+                    bottom: parseInt(cs.getPropertyValue("--bottom-h")), agents: parseInt(cs.getPropertyValue("--agents-w")) };
+    s.classList.add("dragging");
+    const move = ev => {
+        const dx = ev.clientX - startX, dy = ev.clientY - startY;
+        const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+        if (which === "left") root.setProperty("--left-w", clamp(start.left + dx, 160, 520) + "px");
+        if (which === "right") root.setProperty("--right-w", clamp(start.right - dx, 200, 560) + "px");
+        if (which === "bottom") root.setProperty("--bottom-h", clamp(start.bottom - dy, 140, window.innerHeight - 200) + "px");
+        if (which === "agents") root.setProperty("--agents-w", clamp(start.agents - dx, 180, 420) + "px");
+    };
+    const up = () => { s.classList.remove("dragging"); removeEventListener("mousemove", move); removeEventListener("mouseup", up); };
+    addEventListener("mousemove", move); addEventListener("mouseup", up);
+}));
+document.querySelector("[data-max]").addEventListener("click", () => {
+    const root = document.documentElement.style;
+    const big = window.innerHeight - 140;
+    root.setProperty("--bottom-h", (parseInt(getComputedStyle(document.documentElement).getPropertyValue("--bottom-h")) > big - 20 ? 320 : big) + "px");
+});
+
+renderAll();
+openFile("src/AgentsDashboard.App/Components/Layout/Workbench.razor", true);
+tabs[0].pinned = true;
+openFile("src/AgentsDashboard.Core/Monitor/AgentSnapshot.cs", false);
+</script>
+</body>
+</html>
