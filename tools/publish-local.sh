@@ -2,7 +2,8 @@
 # Publishes this checkout of the app as a macOS app, by default
 # ~/Desktop/Agents Dashboard.app.
 #
-# The bundle holds only a zsh launcher and an Info.plist. The builds live
+# The bundle holds only a zsh launcher, an Info.plist and the icon
+# (assets/icon/AppIcon.icns, built from assets/icon/icon.svg). The builds live
 # outside it, in ~/Library/Application Support/AgentsDashboard/<bundle name>:
 # one folder per build under builds/, and two one-line files naming the build
 # to run (current) and one waiting (next). macOS will not let an app signed
@@ -137,10 +138,21 @@ if [[ ! -f "$bundle/Contents/Info.plist" ]]; then
     <key>CFBundleExecutable</key><string>launcher</string>
     <key>LSMinimumSystemVersion</key><string>12.0</string>
     <key>NSHighResolutionCapable</key><true/>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
 </dict>
 </plist>
 PLIST
 fi
+
+# The icon is copied every time so a redesign reaches existing bundles, and a
+# bundle whose Info.plist predates the icon gets the key added once. Touching
+# the bundle makes Finder and the Dock read the icon again.
+mkdir -p "$bundle/Contents/Resources"
+cp "$repo/assets/icon/AppIcon.icns" "$bundle/Contents/Resources/AppIcon.icns"
+if ! /usr/libexec/PlistBuddy -c "Print :CFBundleIconFile" "$bundle/Contents/Info.plist" >/dev/null 2>&1; then
+    /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string AppIcon" "$bundle/Contents/Info.plist"
+fi
+touch "$bundle"
 
 # One-line files written whole and renamed into place, so the launcher and
 # the app never read half of one.
