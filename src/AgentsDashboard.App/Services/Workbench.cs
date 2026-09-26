@@ -1,3 +1,4 @@
+using AgentsDashboard.Core.Git;
 using AgentsDashboard.Extensions;
 
 namespace AgentsDashboard.App.Services;
@@ -245,6 +246,43 @@ public sealed class Workbench(IServiceProvider services) : IDisposable
         Raise();
     }
 
+    /// <summary>
+    /// Opens a file by its absolute path, for a request from outside the app.
+    /// Inside the worktree in view it opens as that worktree's file, editable as
+    /// any other; anywhere else, a screenshot in a temp folder say, it opens
+    /// read-only among the worktree's tabs. Always kept rather than previewed:
+    /// somebody asked for it by name. Asking again for a file already open
+    /// brings it to the front and reads it again.
+    /// </summary>
+    public void OpenExternal(string worktreePath, string absolutePath, int? line = null)
+    {
+        if (worktreePath.Length > 0
+            && System.IO.Path.GetRelativePath(worktreePath, absolutePath).Replace('\\', '/') is var relative
+            && WorktreeFiles.Resolve(worktreePath, relative) == absolutePath)
+        {
+            OpenFile(worktreePath, relative, line, keep: true);
+            if (Editors(worktreePath).Find(EditorDoc.FileKey(relative)) is { } opened)
+            {
+                opened.Reveal++;
+            }
+
+            return;
+        }
+
+        var group = Editors(worktreePath);
+        var key = EditorDoc.ExternalKey(absolutePath);
+        if (group.Find(key) is not { } doc)
+        {
+            doc = new EditorDoc(key, DocKind.External, absolutePath);
+            group.Docs.Insert(group.InsertAt(), doc);
+        }
+
+        doc.Line = line;
+        doc.Reveal++;
+        group.ActiveKey = key;
+        Raise();
+    }
+
     /// <summary>Opens the worktree's whole diff, every file in one document, scrolled to a file when one is given.</summary>
     public void OpenChanges(string worktreePath, string? file = null)
     {
@@ -477,6 +515,9 @@ public enum DocKind
 
     /// <summary>Every worktree of every repo, and cleaning them up.</summary>
     Worktrees,
+
+    /// <summary>A file outside the worktree, by absolute path, asked for from outside the app. Read-only.</summary>
+    External,
 }
 
 /// <summary>A worktree's open documents, in the order they were opened.</summary>
@@ -519,13 +560,15 @@ public sealed class EditorDoc(string key, DocKind kind, string? path)
 
     public static string FileKey(string path) => "file:" + path;
 
+    public static string ExternalKey(string absolutePath) => "ext:" + absolutePath;
+
     public static string KeyFor(DocKind kind, string path) => kind == DocKind.Diff ? "diff:" + path : FileKey(path);
 
     public string Key { get; } = key;
 
     public DocKind Kind { get; } = kind;
 
-    /// <summary>The worktree-relative path of a file or a file's diff.</summary>
+    /// <summary>The worktree-relative path of a file or a file's diff, or an external file's absolute path.</summary>
     public string? Path { get; } = path;
 
     public bool Pinned { get; set; }
@@ -546,6 +589,7 @@ public sealed class EditorDoc(string key, DocKind kind, string? path)
         DocKind.Changes => "Changes",
         DocKind.Settings => "Settings",
         DocKind.Worktrees => "Worktrees",
+        DocKind.External => System.IO.Path.GetFileName(Path!),
         _ => Path![(Path!.LastIndexOf('/') + 1)..],
     };
 }

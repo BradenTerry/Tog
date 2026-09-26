@@ -31,7 +31,8 @@ twice:
   passes a diff hunk needs
 - `docs/agent-control.md` - ACP, the host, a turn, permissions, the bridge
 - `docs/staging.md` - the two-character status field, unstaging with no HEAD
-- `docs/editor.md` - Monaco in the editor, vendoring it, stamp-based saves
+- `docs/editor.md` - Monaco in the editor, vendoring it, stamp-based saves,
+  images, opening a file from outside the app
 - `docs/workbench.md` - the VS Code-style layout, the panels, editor tabs, the
   shared ChangesModel, what is kept per machine
 - `docs/code-intelligence.md` - the `ICodeIntelligence` extension point, the C#

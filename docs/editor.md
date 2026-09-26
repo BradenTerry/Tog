@@ -128,6 +128,53 @@ forever after, for the same reason `DiffDocument` guards its own rendering: the
 layout re-renders every second because the monitor publishes a snapshot that
 often, and the host is full of children Blazor did not create.
 
+## Images
+
+A file whose extension `ImageTypes` knows (png, jpeg, gif, webp, avif, bmp,
+ico, svg) opens as a picture, in `ImageDocument`, rather than in Monaco, which
+would only say "binary". It is fitted to the tab until **Actual size** is
+pressed, over a checkerboard so a transparent image reads as one.
+
+The picture is not sent over the circuit. A screenshot is megabytes, and the
+layout re-renders every second, so a data URI in the page is the wrong shape.
+`ImageViews` gives each image a random token and the page loads it from
+`/_image/<token>/<name>?v=<write time>`: the browser fetches it once, and a file
+written again gets a new `v` and shows again. The route knows only the tokens
+components asked for and serves only image types, so it cannot be used to read
+anything else off the disk. An SVG goes out with a `sandbox` content security
+policy, since opening its URL directly would otherwise run its script on the
+app's origin.
+
+## Opening a file from outside
+
+Anything on the machine can ask the running dashboard to show a file by
+dropping a request into `~/.agents-dashboard/open/` (under `--data-dir` when one
+is given):
+
+```sh
+f=~/.agents-dashboard/open/$(uuidgen)
+printf '{"path": "%s"}' /tmp/shot.png > "$f.tmp" && mv "$f.tmp" "$f.json"
+```
+
+`{"path": "/abs/file", "line": 12}`; the path has to be absolute. Written under
+another name and renamed, so a half-written request is never read. This is how
+an agent in a terminal shows you a screenshot it took: see the
+`open-in-dashboard` skill.
+
+A folder rather than an HTTP route because the port changes on every start,
+and because a route on the loopback host is reachable from any page open in
+any browser, where a file in the user's home can only come from the user's own
+processes.
+
+`OpenRequests` watches the folder, reads each request, deletes it, and hands it
+to every open window. A request older than two minutes is dropped, so one left
+while the app was closed does not surface the next day, and one that beats the
+first window is held for it. Each window opens the file among the tabs of what
+it is looking at (`Workbench.OpenExternal`): a file inside that worktree opens
+as the worktree's own, editable; anywhere else it opens read-only as an
+`External` document, a picture if it is an image and its text otherwise. The
+editor never saves outside a worktree.
+
 ## Change marks
 
 The editor marks lines that differ from the diff base the way VS Code does: a

@@ -437,7 +437,7 @@
                     <path d="@(open ? "M4 6l4 4 4-4" : "M6 4l4 4-4 4")" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
                 </svg>
             </button>
-            <div class="stack">
+            <div class="stack wt-who">
                 <span class="mono truncate wt-name" title="@wt.Path">@wt.Name</span>
                 <span class="faint truncate wt-branch">
                     @(wt.Branch ?? (wt.Detached ? "detached HEAD" : ""))
@@ -447,7 +447,7 @@
                     }
                 </span>
             </div>
-            <span><span class="chip @PillClass(row.State)">@Label(row.State)</span></span>
+            <span class="wt-state"><span class="chip @PillClass(row.State)">@Label(row.State)</span></span>
             <span class="wt-facts truncate">@GitFacts(row)</span>
             <span class="faint wt-when">@(row.LastActive is { } at ? Fmt.When(at, Snapshot.Value.TakenAt) : "")</span>
             <div class="wt-size">
@@ -457,11 +457,11 @@
                 }
                 else if (facts is { TotalBytes: > 0 })
                 {
-                    <span class="nums" title="@SizeTitle(facts)">
-                        @Fmt.Bytes(facts.TotalBytes)
+                    <span class="nums wt-size-label" title="@SizeTitle(facts)">
+                        <span>@Fmt.Bytes(facts.TotalBytes)</span>
                         @if (facts.ChangesBytes > 0 || facts.Changes.Count > 0)
                         {
-                            <span class="wt-changes"> &middot; changes @Fmt.Bytes(facts.ChangesBytes)</span>
+                            <span class="wt-changes">changes @Fmt.Bytes(facts.ChangesBytes)</span>
                         }
                     </span>
                     <div class="wt-bar" aria-hidden="true">
