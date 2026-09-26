@@ -1,0 +1,352 @@
+@using AgentsDashboard.Core.Code
+@implements IAsyncDisposable
+@inject IJSRuntime Js
+@inject CodeIntelligence Code
+
+<div class="code-editor" @ref="_host"></div>
+
+@code {
+    /// <summary>The file's worktree-relative path, which is what picks the language.</summary>
+    [Parameter, EditorRequired]
+    public string Path { get; set; } = "";
+
+    /// <summary>
+    /// The same file as an absolute path, which is what the Monaco model is named
+    /// after. A definition in another file can only be expressed to Monaco as a
+    /// file URI, so an unnamed model would drop every cross-file jump.
+    /// </summary>
+    [Parameter]
+    public string AbsolutePath { get; set; } = "";
+
+    /// <summary>The worktree the file is in, which is what the queries run against.</summary>
+    [Parameter]
+    public string WorktreePath { get; set; } = "";
+
+    [Parameter]
+    public string Text { get; set; } = "";
+
+    /// <summary>
+    /// The stamp the text was read with. It is not used here beyond identity:
+    /// a new stamp for the same path means the file was saved or re-read, and the
+    /// editor has to be pushed back into step with the disk.
+    /// </summary>
+    [Parameter]
+    public string Stamp { get; set; } = "";
+
+    [Parameter]
+    public int? Line { get; set; }
+
+    [Parameter]
+    public bool ReadOnly { get; set; }
+
+    /// <summary>Called with the editor's current text when the user asks to save.</summary>
+    [Parameter]
+    public EventCallback<string> OnSave { get; set; }
+
+    [Parameter]
+    public EventCallback<bool> OnDirtyChanged { get; set; }
+
+    /// <summary>
+    /// A jump to another file: an absolute path, because that is what Monaco's
+    /// editor opener hands over. The tab turns it back into a worktree-relative
+    /// path, which is the only form the rest of the app deals in.
+    /// </summary>
+    [Parameter]
+    public EventCallback<(string AbsolutePath, int Line, int Column)> OnNavigate { get; set; }
+
+    [Parameter]
+    public EventCallback<IReadOnlyList<CodeLocation>> OnReferences { get; set; }
+
+    [Parameter]
+    public EventCallback<CallHierarchy?> OnCallHierarchy { get; set; }
+
+    /// <summary>The buffer after a pause in typing, for the solution to answer from.</summary>
+    [Parameter]
+    public EventCallback<string> OnTextChanged { get; set; }
+
+    private ElementReference _host;
+    private DotNetObjectReference<CodeEditor>? _self;
+    private int? _handle;
+
+    /// <summary>
+    /// Cancelled on dispose. A Roslyn query outlives the click that started it
+    /// often enough to matter, and answering into a component that is gone is
+    /// how a navigation turns into an exception on the circuit.
+    /// </summary>
+    private readonly CancellationTokenSource _queries = new();
+
+    private string _shownPath = "";
+    private string _shownStamp = "";
+    private int? _shownLine;
+    private bool _rendered;
+
+    /// <summary>
+    /// The host div is rendered once and Monaco owns everything under it. The
+    /// worktree page re-renders every second because the monitor publishes a
+    /// snapshot that often, and a re-render here would hand the diff an element
+    /// full of children it did not create.
+    /// </summary>
+    protected override bool ShouldRender() => !_rendered;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Creation happens after the first render, when the host element exists,
+        // so the first parameter set has nothing to push yet.
+        if (_handle is null)
+        {
+            return;
+        }
+
+        await Sync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        _rendered = true;
+        _self = DotNetObjectReference.Create(this);
+
+        try
+        {
+            _handle = await Js.InvokeAsync<int>(
+                "agentsEditor.create",
+                _host,
+                _self,
+                new
+                {
+                    text = Text,
+                    path = Path,
+                    absolutePath = AbsolutePath,
+                    readOnly = ReadOnly,
+                    line = Line,
+                });
+
+            _shownPath = Path;
+            _shownStamp = Stamp;
+            _shownLine = Line;
+
+            // Parameters can have moved on while Monaco was being fetched, which
+            // takes long enough on a cold load for a click to land in the middle.
+            await Sync();
+        }
+        catch (JSException)
+        {
+            // Monaco could not load. The tab still shows the header and the file
+            // is still reachable through the VS Code link.
+        }
+        catch (InvalidOperationException)
+        {
+            // Prerendering, where there is no JS runtime yet.
+        }
+    }
+
+    private async Task Sync()
+    {
+        if (_handle is not { } handle)
+        {
+            return;
+        }
+
+        var changed = !string.Equals(Path, _shownPath, StringComparison.Ordinal)
+            || !string.Equals(Stamp, _shownStamp, StringComparison.Ordinal);
+
+        if (!changed && Line == _shownLine)
+        {
+            return;
+        }
+
+        _shownPath = Path;
+        _shownStamp = Stamp;
+        _shownLine = Line;
+
+        try
+        {
+            if (changed)
+            {
+                await Js.InvokeVoidAsync("agentsEditor.setText", handle, Text, Stamp, Path, AbsolutePath);
+            }
+
+            if (Line is { } line)
+            {
+                await Js.InvokeVoidAsync("agentsEditor.revealLine", handle, line);
+            }
+        }
+        catch (JSException)
+        {
+            // The editor is gone, or the circuit is on its way down.
+        }
+        catch (InvalidOperationException)
+        {
+        }
+    }
+
+    /// <summary>
+    /// The text as the browser currently has it, for a save the keyboard did not
+    /// start. Null when the editor is not there to ask.
+    /// </summary>
+    public async Task<string?> GetTextAsync()
+    {
+        if (_handle is not { } handle)
+        {
+            return null;
+        }
+
+        try
+        {
+            return await Js.InvokeAsync<string>("agentsEditor.getText", handle);
+        }
+        catch (JSException)
+        {
+            return null;
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    [JSInvokable]
+    public Task SaveFromEditor(string text) => OnSave.InvokeAsync(text);
+
+    [JSInvokable]
+    public Task SetDirty(bool dirty) => OnDirtyChanged.InvokeAsync(dirty);
+
+    [JSInvokable]
+    public async Task<object?> Hover(int line, int column)
+    {
+        var info = await Query(token => Code.HoverAsync(WorktreePath, Path, line, column, token), null);
+
+        return info is null ? null : new { signature = info.Signature, summary = info.Summary };
+    }
+
+    /// <summary>
+    /// Definitions for Monaco, which wants absolute paths: it addresses files by
+    /// URI, and a worktree-relative one would be resolved against the page.
+    /// </summary>
+    [JSInvokable]
+    public async Task<object[]> Definition(int line, int column)
+    {
+        var found = await Query(
+            token => Code.DefinitionAsync(WorktreePath, Path, line, column, token),
+            (IReadOnlyList<CodeLocation>)[]);
+
+        return found
+            .Select(l => new { Location = l, Absolute = WorktreeFiles.Resolve(WorktreePath, l.Path) })
+            .Where(x => x.Absolute is not null)
+            .Select(object (x) => new
+            {
+                path = x.Absolute,
+                line = x.Location.Line,
+                column = x.Location.Column,
+                endLine = x.Location.EndLine,
+                endColumn = x.Location.EndColumn,
+            })
+            .ToArray();
+    }
+
+    /// <summary>A definition in another file, handed over by Monaco's editor opener.</summary>
+    [JSInvokable]
+    public Task OpenLocation(string absolutePath, int line, int column) =>
+        OnNavigate.InvokeAsync((absolutePath, line, column));
+
+    [JSInvokable]
+    public async Task ShowReferences(int line, int column)
+    {
+        if (!IsCSharp)
+        {
+            return;
+        }
+
+        var found = await Query(
+            token => Code.ReferencesAsync(WorktreePath, Path, line, column, token),
+            (IReadOnlyList<CodeLocation>)[]);
+
+        await OnReferences.InvokeAsync(found);
+    }
+
+    [JSInvokable]
+    public async Task ShowCallHierarchy(int line, int column)
+    {
+        if (!IsCSharp)
+        {
+            return;
+        }
+
+        var hierarchy = await Query(
+            token => Code.CallHierarchyAsync(WorktreePath, Path, line, column, token),
+            null);
+
+        await OnCallHierarchy.InvokeAsync(hierarchy);
+    }
+
+    [JSInvokable]
+    public Task TextChanged(string text) => OnTextChanged.InvokeAsync(text);
+
+    /// <summary>
+    /// The keyboard actions are on the editor whatever the file is, and asking
+    /// for references in a Markdown file would otherwise start an MSBuild load
+    /// that can only ever answer with nothing.
+    /// </summary>
+    private bool IsCSharp => Path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Runs a query against the solution and swallows its failures. Roslyn throws
+    /// for a project that will not open and for a file that moved underneath it,
+    /// and an exception out of a JSInvokable takes the circuit down with it.
+    /// </summary>
+    private async Task<T> Query<T>(Func<CancellationToken, Task<T>> query, T fallback)
+    {
+        if (_queries.IsCancellationRequested || WorktreePath.Length == 0)
+        {
+            return fallback;
+        }
+
+        try
+        {
+            return await query(_queries.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return fallback;
+        }
+        catch (InvalidOperationException)
+        {
+            return fallback;
+        }
+        catch (IOException)
+        {
+            return fallback;
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await _queries.CancelAsync();
+
+        if (_handle is { } handle)
+        {
+            try
+            {
+                await Js.InvokeVoidAsync("agentsEditor.dispose", handle);
+            }
+            catch (JSDisconnectedException)
+            {
+                // The browser closed the circuit first, which disposes the editor
+                // along with the page it was in.
+            }
+            catch (JSException)
+            {
+            }
+            catch (InvalidOperationException)
+            {
+            }
+        }
+
+        _self?.Dispose();
+        _queries.Dispose();
+    }
+}

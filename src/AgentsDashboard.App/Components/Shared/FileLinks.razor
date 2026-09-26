@@ -1,0 +1,65 @@
+@*
+    Text an agent or a test runner wrote, with the files it mentions turned into
+    links: one into the Files tab at the line, and a small one that hands the
+    absolute path to VS Code.
+
+    Whether a candidate is a real file is answered from disk, so the scan is done
+    once per piece of text rather than on every render. The pages that show this
+    text redraw every second from the monitor's snapshot, and re-reading the
+    worktree at that rate for prose that has not changed is pure waste.
+*@
+<span class="file-links">
+    @foreach (var segment in _segments)
+    {
+        if (segment.Reference is { } reference)
+        {
+            <a class="file-link" href="@Urls.File(WorktreePath, reference.Path, reference.Line)"
+               title="Open in the Files tab">@segment.Text</a>
+
+            if (WorktreeFiles.Resolve(WorktreePath, reference.Path) is { } absolute)
+            {
+                <a class="file-link-vscode" href="@EditorLinks.VsCode(absolute, reference.Line)"
+                   title="Open in VS Code" aria-label="Open in VS Code">code</a>
+            }
+        }
+        else
+        {
+            @segment.Text
+        }
+    }
+</span>
+
+@code {
+    [Parameter]
+    [EditorRequired]
+    public string Text { get; set; } = "";
+
+    [Parameter]
+    [EditorRequired]
+    public string WorktreePath { get; set; } = "";
+
+    private IReadOnlyList<TextSegment> _segments = [];
+
+    /// <summary>The text and worktree the segments were built from.</summary>
+    private (string Text, string WorktreePath)? _scanned;
+
+    protected override void OnParametersSet()
+    {
+        var key = (Text: Text ?? "", WorktreePath: WorktreePath ?? "");
+        if (_scanned == key)
+        {
+            return;
+        }
+
+        _scanned = key;
+
+        // An agent outside any worktree has nothing to resolve paths against, so
+        // its text is shown as it is rather than guessed at.
+        _segments = key.WorktreePath.Length == 0
+            ? [new TextSegment(key.Text, null)]
+            : FileReferences.Segments(key.Text, FileReferences.Find(key.Text, key.WorktreePath, Exists));
+    }
+
+    private bool Exists(string path) =>
+        File.Exists(WorktreeFiles.Resolve(WorktreePath, path));
+}

@@ -1,0 +1,268 @@
+@inherits StateComponent
+@inject ClaudeCli Cli
+@inject MonitorService Monitor
+@inject SettingsStore Settings
+@inject AgentsDashboard.Core.Platform.IClipboard Clipboard
+
+@* The form is a front end for `claude --bg`, so it shows the line it is about to
+   run. Every field left blank is omitted from that line, which leaves the CLI's
+   own default standing rather than pinning one here. *@
+
+<div class="stack" style="gap: 10px;">
+    @if (WorktreePath is null)
+    {
+        @if (Repos.Count == 0)
+        {
+            <div class="banner info">
+                No repositories to start in yet. Add them in <a href="settings">Settings</a> and they
+                are listed here.
+            </div>
+        }
+        else
+        {
+            <div class="inline">
+                <div class="stack" style="gap: 4px; flex: 1;">
+                    <label class="faint" for="start-repo">Repository</label>
+                    @* An explicit value plus onchange rather than @@bind, the same as the
+                       rest of the app: binding will not push a value the component itself
+                       changed back into the DOM. *@
+                    <select id="start-repo" value="@Repo"
+                            @onchange="e => { _repo = e.Value?.ToString() ?? string.Empty; _worktree = string.Empty; Touch(); }">
+                        @foreach (var root in Repos)
+                        {
+                            <option value="@root">@(State.Repo(root)?.Name ?? Fmt.Leaf(root))</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="stack" style="gap: 4px; flex: 1;">
+                    <label class="faint" for="start-worktree">Worktree</label>
+                    <select id="start-worktree" value="@Worktree"
+                            @onchange="e => { _worktree = e.Value?.ToString() ?? string.Empty; Touch(); }">
+                        <option value="">New worktree</option>
+                        @foreach (var worktree in Worktrees)
+                        {
+                            <option value="@worktree.Worktree.Path">
+                                @(worktree.Worktree.IsPrimary ? "Primary checkout" : worktree.Worktree.Name)
+                                @(worktree.Worktree.Branch is { Length: > 0 } branch ? $" ({branch})" : "")
+                            </option>
+                        }
+                    </select>
+                </div>
+            </div>
+
+            @if (NewWorktree)
+            {
+                <div class="stack" style="gap: 4px;">
+                    <label class="faint" for="start-worktree-name">Worktree name (optional)</label>
+                    <input id="start-worktree-name" type="text" placeholder="Claude picks one when blank"
+                           value="@_worktreeName"
+                           @oninput="e => { _worktreeName = e.Value?.ToString() ?? string.Empty; Touch(); }" />
+                </div>
+            }
+        }
+    }
+
+    <div class="stack" style="gap: 4px;">
+        <label class="faint" for="start-prompt">Prompt</label>
+        <textarea id="start-prompt" rows="3"
+                  placeholder="What should it work on? Leave empty to start it idle."
+                  value="@_prompt"
+                  @oninput="e => { _prompt = e.Value?.ToString() ?? string.Empty; Touch(); }"
+                  @onkeydown="OnPromptKey"></textarea>
+    </div>
+
+    <div class="inline">
+        <div class="stack" style="gap: 4px;">
+            <label class="faint" for="start-model">Model</label>
+            <select id="start-model" value="@_model"
+                    @onchange="e => { _model = e.Value?.ToString() ?? string.Empty; Touch(); }">
+                <option value="">CLI default</option>
+                @foreach (var model in StartChoices.Models)
+                {
+                    <option value="@model">@model</option>
+                }
+            </select>
+        </div>
+
+        <div class="stack" style="gap: 4px;">
+            <label class="faint" for="start-effort">Effort</label>
+            <select id="start-effort" value="@_effort"
+                    @onchange="e => { _effort = e.Value?.ToString() ?? string.Empty; Touch(); }">
+                <option value="">CLI default</option>
+                @foreach (var effort in StartChoices.Efforts)
+                {
+                    <option value="@effort">@effort</option>
+                }
+            </select>
+        </div>
+
+        <div class="stack" style="gap: 4px;">
+            <label class="faint" for="start-permission">Permission mode</label>
+            <select id="start-permission" value="@_permissionMode"
+                    @onchange="e => { _permissionMode = e.Value?.ToString() ?? string.Empty; Touch(); }">
+                <option value="">CLI default</option>
+                @foreach (var mode in StartChoices.PermissionModes)
+                {
+                    <option value="@mode">@mode</option>
+                }
+            </select>
+        </div>
+    </div>
+
+    <div class="stack" style="gap: 4px;">
+        <span class="faint">Will run:</span>
+        <div class="inline">
+            <code class="will-run" style="flex: 1;">@CommandLine</code>
+            <button class="ghost small" @onclick="Copy">@(_copied ? "Copied" : "Copy")</button>
+        </div>
+    </div>
+
+    <div class="inline">
+        <button class="primary" @onclick="Start" disabled="@(_busy || Where is null)">
+            @(_busy ? "Working..." : "Start agent")
+        </button>
+        <span class="faint">
+            Starts a background agent with <span class="mono">claude --bg</span>. With no prompt it
+            starts idle and does nothing until you send it one.
+        </span>
+    </div>
+</div>
+
+@code {
+    /// <summary>The worktree to start in. When set, the picker is hidden.</summary>
+    [Parameter]
+    public string? WorktreePath { get; set; }
+
+    /// <summary>Handed the CLI's result, whether it worked or not, so the host can show it.</summary>
+    [Parameter]
+    public EventCallback<CliResult> OnStarted { get; set; }
+
+    /// <summary>Handed the new agent's id when the CLI printed one.</summary>
+    [Parameter]
+    public EventCallback<string> OnStartedAgent { get; set; }
+
+    private string _prompt = "";
+    private AgentsDashboard.Core.Repos.Settings _settings = new();
+    private string _repo = "";
+    private string _worktree = "";
+    private string _worktreeName = "";
+    private string _model = "";
+    private string _effort = "";
+    private string _permissionMode = "";
+    private bool _busy;
+    private bool _copied;
+
+    /// <summary>Redraws after work that finished off an event handler.</summary>
+    private void Touch()
+    {
+        _copied = false;
+        StateHasChanged();
+    }
+
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+
+        _settings = Settings.Load();
+        _model = _settings.DefaultModel ?? "";
+        _effort = _settings.DefaultEffort ?? "";
+        _permissionMode = _settings.DefaultPermissionMode ?? "";
+    }
+
+    /// <summary>The repositories configured in Settings, minus any since hidden.</summary>
+    private IReadOnlyList<string> Repos =>
+        _settings.RepoRoots.Where(r => !_settings.HiddenRoots.Contains(r, StringComparer.Ordinal)).ToList();
+
+    /// <summary>
+    /// The selected repository, falling back to the first one.
+    /// </summary>
+    /// <remarks>
+    /// Derived on each render rather than stored, as is the worktree below: the
+    /// worktree list arrives with the monitor's snapshot and can change under the
+    /// form, and a stored selection would keep pointing at one no longer there.
+    /// </remarks>
+    private string Repo =>
+        Repos.Contains(_repo, StringComparer.Ordinal) ? _repo : Repos.FirstOrDefault() ?? "";
+
+    private IReadOnlyList<WorktreeView> Worktrees => State.Repo(Repo)?.Worktrees ?? [];
+
+    /// <summary>The existing worktree picked, or empty for a new one.</summary>
+    private string Worktree =>
+        Worktrees.Any(w => w.Worktree.Path == _worktree) ? _worktree : "";
+
+    private bool NewWorktree => WorktreePath is null && Worktree.Length == 0;
+
+    /// <summary>The directory the CLI is started in, or null when there is nothing to start in.</summary>
+    private string? Where =>
+        WorktreePath
+        ?? (Worktree.Length > 0 ? Worktree : null)
+        ?? (Repo.Length > 0 ? Repo : null);
+
+    private StartOptions Options => new(
+        Blank(_prompt),
+        Blank(_model),
+        Blank(_effort),
+        Blank(_permissionMode),
+        NewWorktree,
+        NewWorktree ? Blank(_worktreeName) : null);
+
+    private string CommandLine => ClaudeCommands.Render(ClaudeCommands.Start(Options));
+
+    private static string? Blank(string value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private async Task OnPromptKey(KeyboardEventArgs e)
+    {
+        // Plain Enter stays a newline: a prompt is usually more than one line.
+        if (e.Key == "Enter" && (e.MetaKey || e.CtrlKey))
+        {
+            await Start();
+        }
+    }
+
+    private void Copy()
+    {
+        _copied = Clipboard.TryCopy(CommandLine);
+        StateHasChanged();
+    }
+
+    private async Task Start()
+    {
+        if (_busy || Where is not { Length: > 0 } directory)
+        {
+            return;
+        }
+
+        _busy = true;
+        _copied = false;
+        StateHasChanged();
+
+        CliResult result;
+        string? id = null;
+        try
+        {
+            (result, id) = await Cli.StartAsync(directory, Options);
+        }
+        catch (Exception e) when (e is IOException or InvalidOperationException)
+        {
+            result = CliResult.Failed(e.Message);
+        }
+
+        _busy = false;
+
+        if (result.Ok)
+        {
+            _prompt = "";
+            _worktreeName = "";
+            result = new CliResult(true, id is null ? "Started." : $"Started {id}.");
+            Monitor.InvalidateWorktrees();
+        }
+
+        StateHasChanged();
+        await OnStarted.InvokeAsync(result);
+        if (result.Ok && id is not null)
+        {
+            await OnStartedAgent.InvokeAsync(id);
+        }
+    }
+}

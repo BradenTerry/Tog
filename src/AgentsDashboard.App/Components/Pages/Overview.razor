@@ -1,4 +1,4 @@
-@page "/"
+@page "/overview"
 @inherits StateComponent
 @inject IJSRuntime Js
 
@@ -22,13 +22,19 @@
             <div class="card needs-card">
                 @foreach (var agent in Snapshot.Waiting)
                 {
-                    <a class="needs-item" href="@Urls.Worktree(agent.WorktreePath, "agents")">
+                    @* The row opens the agent, and the question inside it can carry
+                       links to the files it names. An anchor inside an anchor is not
+                       HTML, so the row is a box with one link stretched over it. *@
+                    <div class="needs-item">
+                        <a class="needs-open" href="@Urls.Chat(agent.Session.SessionId)"
+                           aria-label="Open @agent.Session.Label"></a>
                         <span class="dot waiting" aria-hidden="true"></span>
                         <div class="stack" style="flex: 1;">
                             <div class="needs-question">
-                                @(string.IsNullOrWhiteSpace(agent.Session.WaitingFor)
-                                    ? agent.Session.Label
-                                    : agent.Session.WaitingFor)
+                                <FileLinks WorktreePath="@agent.WorktreePath"
+                                           Text="@(string.IsNullOrWhiteSpace(agent.Session.WaitingFor)
+                                                    ? agent.Session.Label
+                                                    : agent.Session.WaitingFor)" />
                             </div>
                             <div class="needs-where">
                                 <span>@Where(agent)</span>
@@ -40,7 +46,7 @@
                             </div>
                         </div>
                         <span class="needs-for">@Fmt.Duration(Now - agent.Session.StatusSince)</span>
-                    </a>
+                    </div>
                 }
             </div>
         </section>

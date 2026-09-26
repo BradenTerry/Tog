@@ -1,4 +1,6 @@
+@using AgentsDashboard.Core.Code
 @inject WorktreeFiles Files
+@inject CodeIntelligence Code
 @implements IDisposable
 
 <div class="inline" style="margin-bottom: 12px;">
@@ -48,7 +50,7 @@ else
                               Collapsed="_collapsed"
                               Selected="@_selected"
                               OnToggle="ToggleDirectory"
-                              OnSelect="Open">
+                              OnSelect="Select">
                     <FileRow Context="node">
                         <span class="kind @(node.Value!.Tracked ? "" : "added")"
                               title="@(node.Value.Tracked ? "Tracked" : "Untracked")">
@@ -61,7 +63,47 @@ else
         </aside>
 
         <div>
-            @if (_content is null)
+            @if (_pending is { } pending)
+            {
+                <div class="banner">
+                    <div class="inline">
+                        <span>Discard unsaved changes to <span class="mono">@_file?.Path</span>?</span>
+                        <span class="spacer"></span>
+                        <button class="small" @onclick="() => Open(pending, _pendingLine)">Discard</button>
+                        <button class="ghost small" @onclick="KeepEditing">Keep editing</button>
+                    </div>
+                </div>
+            }
+
+            @if (_outside is { } outside)
+            {
+                <div class="banner">
+                    <div class="inline">
+                        <span>That definition is outside this worktree: <span class="mono">@outside</span></span>
+                        <span class="spacer"></span>
+                        <a class="btn small" href="@EditorLinks.VsCode(outside, _outsideLine)">Open in VS Code</a>
+                        <button class="ghost small" @onclick="() => _outside = null">Dismiss</button>
+                    </div>
+                </div>
+            }
+
+            @if (_conflict)
+            {
+                <div class="banner">
+                    <div class="inline">
+                        <span>The file changed on disk since you opened it.</span>
+                        <span class="spacer"></span>
+                        <button class="small" @onclick="Reload">Reload from disk</button>
+                        <button class="small" @onclick="Overwrite">Overwrite</button>
+                    </div>
+                </div>
+            }
+            else if (_failure is { Length: > 0 } failure)
+            {
+                <div class="banner danger">@failure</div>
+            }
+
+            @if (_file is null)
             {
                 <div class="empty">
                     <h2>Pick a file</h2>
@@ -70,65 +112,82 @@ else
             }
             else
             {
-                <article class="card">
+                <article class="card editor-card">
                     <div class="card-head diff-file-head">
-                        <span class="mono truncate" title="@_content.Path">@_content.Path</span>
-                        <span class="spacer"></span>
-                        @if (_content.Error is null && !_content.IsBinary)
+                        <span class="mono truncate" title="@_file.Path">@_file.Path</span>
+                        @if (_unsaved)
                         {
-                            <span class="faint nums">@Fmt.Count(_content.Lines.Count, "line")</span>
+                            <span class="chip waiting">unsaved</span>
                         }
-                        <span class="faint nums">@Fmt.Bytes(_content.Bytes)</span>
+                        @if (IsCSharp)
+                        {
+                            <span class="chip @CodeChipKind" title="@(CodeStatus.Message ?? CodeChip)">@CodeChip</span>
+                            <button class="ghost small" @onclick="ReloadCode">Reload</button>
+                        }
+                        <span class="spacer"></span>
+                        @if (_file.Editable)
+                        {
+                            <button class="primary small" disabled="@(!_unsaved || _saving)" @onclick="Save">
+                                @(_saving ? "Saving..." : "Save")
+                            </button>
+                        }
+                        <a class="btn small" href="@VsCodeLink" title="Open this file in VS Code">Open in VS Code</a>
+                        <span class="faint nums">@Status</span>
                     </div>
 
-                    @if (_content.Error is { Length: > 0 } error)
+                    @if (_file.Error is { Length: > 0 } error)
                     {
                         <div class="row faint">@error</div>
                     }
-                    else if (_content.IsBinary)
+                    else if (_file.IsBinary)
                     {
                         <div class="row faint">Binary file, not shown.</div>
                     }
-                    else
+                    else if (_file.Truncated)
                     {
-                        @if (_content.Truncated)
-                        {
-                            <div class="row faint">
-                                Large file: showing the first part of it.
-                            </div>
-                        }
-
+                        <div class="row faint">
+                            Large file: showing the first part of it. It is too big to edit here.
+                        </div>
                         <div class="diff-lines file-lines">
-                            @for (var i = 0; i < _content.Lines.Count; i++)
+                            @foreach (var (line, index) in _file.Text.Split('\n').Select((l, i) => (l, i)))
                             {
-                                var segments = _highlighted.Count > i ? _highlighted[i] : [];
                                 <div class="diff-line">
-                                    <span class="ln-static">@(i + 1)</span>
-                                    <span class="code">
-                                        @if (segments.Count == 0)
-                                        {
-                                            @_content.Lines[i]
-                                        }
-                                        else
-                                        {
-                                            foreach (var segment in segments)
-                                            {
-                                                if (segment.Css is null)
-                                                {
-                                                    @segment.Text
-                                                }
-                                                else
-                                                {
-                                                    <span class="@segment.Css">@segment.Text</span>
-                                                }
-                                            }
-                                        }
-                                    </span>
+                                    <span class="ln-static">@(index + 1)</span>
+                                    <span class="code">@line</span>
                                 </div>
                             }
                         </div>
                     }
+                    else
+                    {
+                        <CodeEditor @ref="_editor"
+                                    Path="@_file.Path"
+                                    AbsolutePath="@(WorktreeFiles.Resolve(WorktreePath, _file.Path) ?? "")"
+                                    WorktreePath="@WorktreePath"
+                                    Text="@_file.Text"
+                                    Stamp="@_stamp"
+                                    Line="@_line"
+                                    OnSave="Save"
+                                    OnDirtyChanged="SetUnsaved"
+                                    OnNavigate="Navigate"
+                                    OnReferences="ShowReferences"
+                                    OnCallHierarchy="ShowCallHierarchy"
+                                    OnTextChanged="PushText" />
+
+                        <div class="row faint editor-hint">
+                            Ctrl+S or Cmd+S saves.@(IsCSharp ? " F12 goes to a definition, Shift+F12 finds references, Shift+Alt+H shows callers." : "")
+                        </div>
+                    }
                 </article>
+
+                @if (_hierarchy is not null || _references is not null)
+                {
+                    <CodePanel Title="@_panelTitle"
+                               Locations="@(_references ?? [])"
+                               Hierarchy="@_hierarchy"
+                               OnPick="Pick"
+                               OnClose="ClosePanel" />
+                }
             }
         </div>
     </div>
@@ -138,14 +197,50 @@ else
     [Parameter, EditorRequired]
     public string WorktreePath { get; set; } = "";
 
+    /// <summary>A file to open on arrival, from <c>?file=</c> on the URL.</summary>
+    [Parameter]
+    public string? InitialFile { get; set; }
+
+    /// <summary>The line to reveal in it, from <c>?line=</c>.</summary>
+    [Parameter]
+    public int? InitialLine { get; set; }
+
     private IReadOnlyList<WorktreeFile> _files = [];
     private readonly HashSet<string> _collapsed = new(StringComparer.Ordinal);
     private string _filter = "";
     private string? _selected;
-    private FileContent? _content;
 
-    /// <summary>The open file's lines, split into coloured runs, index-aligned.</summary>
-    private IReadOnlyList<IReadOnlyList<Segment>> _highlighted = [];
+    private TextFile? _file;
+    private string _stamp = "";
+    private int? _line;
+
+    /// <summary>True while the editor holds changes that are not on disk.</summary>
+    private bool _unsaved;
+    private bool _saving;
+    private bool _conflict;
+    private string? _failure;
+    private DateTimeOffset? _savedAt;
+    private Timer? _savedFor;
+
+    /// <summary>A file the user picked while the open one had unsaved changes.</summary>
+    private string? _pending;
+
+    /// <summary>The line to reveal in <see cref="_pending"/> once it is opened.</summary>
+    private int? _pendingLine;
+
+    /// <summary>A definition that landed outside the worktree, which has no tab to open in.</summary>
+    private string? _outside;
+    private int? _outsideLine;
+
+    private IReadOnlyList<CodeLocation>? _references;
+    private CallHierarchy? _hierarchy;
+    private string _panelTitle = "";
+
+    private CodeEditor? _editor;
+
+    /// <summary>The last <see cref="InitialFile"/> acted on, so a re-render does not reopen it.</summary>
+    private string? _applied;
+
     private bool _loading;
     private CancellationTokenSource? _load;
 
@@ -157,20 +252,20 @@ else
     /// re-renders every second because the monitor publishes that often, and
     /// nothing here depends on the snapshot.
     /// </summary>
-    private bool _dirty = true;
+    private bool _render = true;
 
     protected override bool ShouldRender()
     {
-        if (!_dirty)
+        if (!_render)
         {
             return false;
         }
 
-        _dirty = false;
+        _render = false;
         return true;
     }
 
-    private void Touch() => _dirty = true;
+    private void Touch() => _render = true;
 
     private IReadOnlyList<WorktreeFile> Shown => _filter.Length == 0
         ? _files
@@ -191,13 +286,73 @@ else
         }
     }
 
+    private string VsCodeLink =>
+        WorktreeFiles.Resolve(WorktreePath, _file?.Path ?? "") is { } full
+            ? EditorLinks.VsCode(full, null)
+            : "";
+
+    /// <summary>
+    /// What the header says about the file on the right. A save is worth
+    /// confirming for a few seconds, after which the counts are more useful.
+    /// </summary>
+    private string Status
+    {
+        get
+        {
+            if (_savedAt is not null)
+            {
+                return "Saved just now";
+            }
+
+            if (_file is null || _file.Error is not null || _file.IsBinary)
+            {
+                return _file is null ? "" : Fmt.Bytes(_file.Bytes);
+            }
+
+            return $"{Fmt.Count(LineCount, "line")}, {Fmt.Bytes(_file.Bytes)}";
+        }
+    }
+
+    private int LineCount
+    {
+        get
+        {
+            if (_file is null || _file.Text.Length == 0)
+            {
+                return 0;
+            }
+
+            var lines = _file.Text.Split('\n').Length;
+
+            // A trailing newline produces one empty element that is not a line.
+            return _file.Text.EndsWith('\n') ? lines - 1 : lines;
+        }
+    }
+
     protected override async Task OnInitializedAsync()
     {
         // Listing is a git call, and prerendering throws its result away.
         if (RendererInfo.IsInteractive)
         {
+            Code.StatusChanged += OnCodeStatusChanged;
             await Load();
         }
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (!RendererInfo.IsInteractive
+            || InitialFile is not { Length: > 0 } file
+            || string.Equals(file, _applied, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        // A deep link is an instruction, not a selection, so it opens the file
+        // whether or not the listing has it: ReadText reports a missing file
+        // better than an empty pane would.
+        _applied = file;
+        Open(file, InitialLine);
     }
 
     private async Task Load()
@@ -248,39 +403,164 @@ else
         _collapsed.Clear();
     }
 
-    private void Open(string path)
+    /// <summary>
+    /// Picking a file in the tree. Unsaved work is never thrown away on a click,
+    /// and a JS confirm() would block the circuit for as long as the dialog is up,
+    /// so the question is asked inline instead.
+    /// </summary>
+    private void Select(string path)
     {
         Touch();
-        _selected = path;
-        _content = Files.Read(WorktreePath, path);
-        _highlighted = Colour(_content);
+        if (_unsaved && !string.Equals(path, _file?.Path, StringComparison.Ordinal))
+        {
+            _pending = path;
+            return;
+        }
+
+        Open(path, null);
     }
 
-    /// <summary>
-    /// Colours the whole file in one pass. Done once on open rather than per
-    /// render, and in order, because a block comment or a multi-line string only
-    /// makes sense as a continuation of the line before it.
-    /// </summary>
-    private static IReadOnlyList<IReadOnlyList<Segment>> Colour(FileContent content)
+    private void KeepEditing()
     {
-        if (content.Error is not null || content.IsBinary)
+        Touch();
+        _pending = null;
+        _pendingLine = null;
+    }
+
+    private void Open(string path, int? line)
+    {
+        Touch();
+        _pending = null;
+        _pendingLine = null;
+        _selected = path;
+        _line = line;
+        _unsaved = false;
+        _conflict = false;
+        _failure = null;
+        ClearSaved();
+
+        _file = Files.ReadText(WorktreePath, path);
+        _stamp = _file.Stamp;
+
+        StartLoadingCode();
+    }
+
+    private void SetUnsaved(bool unsaved)
+    {
+        Touch();
+        _unsaved = unsaved;
+    }
+
+    /// <summary>Ctrl+S, which arrives with the text already attached.</summary>
+    private void Save(string text) => Write(text, force: false);
+
+    /// <summary>
+    /// The Save button, which does not have the text: the editor holds it in the
+    /// browser. Fetching it costs the one round trip the shortcut takes anyway,
+    /// and is cheaper than shipping every keystroke up to keep a server copy.
+    /// </summary>
+    private async Task Save()
+    {
+        if (await Current() is { } text)
         {
-            return [];
+            Write(text, force: false);
+        }
+    }
+
+    private async Task Overwrite()
+    {
+        if (await Current() is { } text)
+        {
+            Write(text, force: true);
+        }
+    }
+
+    private async Task<string?> Current() =>
+        _editor is null ? null : await _editor.GetTextAsync();
+
+    private void Write(string text, bool force)
+    {
+        if (_file is null)
+        {
+            return;
         }
 
-        var highlighter = new LineHighlighter(content.Path);
-        if (!highlighter.Enabled)
+        Touch();
+        _saving = true;
+        _failure = null;
+
+        var result = Files.Write(
+            WorktreePath,
+            _file.Path,
+            text,
+            _stamp,
+            _file.Eol,
+            _file.HasBom,
+            force);
+
+        _saving = false;
+
+        if (result.Ok)
         {
-            return [];
+            _stamp = result.Stamp ?? _stamp;
+            _unsaved = false;
+            _conflict = false;
+
+            // The editor is already showing this text, so the record of it here is
+            // updated rather than pushed back down: a new Text with the same stamp
+            // would not move the editor anyway, and a new stamp would reset the
+            // undo stack under the user's hands.
+            _file = _file with { Text = text, Stamp = _stamp, Bytes = System.Text.Encoding.UTF8.GetByteCount(text) };
+
+            // The solution was holding the buffer as it was typed. What is on disk
+            // now is the same text, but reading it back is what the rest of the
+            // solution's view of this file is rebuilt from.
+            Code.RefreshDocumentFromDisk(WorktreePath, _file.Path);
+            MarkSaved();
+            return;
         }
 
-        var lines = new List<IReadOnlyList<Segment>>(content.Lines.Count);
-        foreach (var line in content.Lines)
+        _conflict = result.Conflict;
+        _failure = result.Conflict ? null : result.Message;
+    }
+
+    private void Reload()
+    {
+        if (_file is null)
         {
-            lines.Add(highlighter.Next(line));
+            return;
         }
 
-        return lines;
+        // The conflict means someone else wrote the file, so the solution is
+        // holding text that no longer exists anywhere.
+        Code.RefreshDocumentFromDisk(WorktreePath, _file.Path);
+        Open(_file.Path, null);
+    }
+
+    private void MarkSaved()
+    {
+        _savedAt = DateTimeOffset.UtcNow;
+        _savedFor?.Dispose();
+
+        // Five seconds is long enough to read and short enough that the counts,
+        // which are what the header is for the rest of the time, come back.
+        _savedFor = new Timer(
+            _ => InvokeAsync(() =>
+            {
+                _savedAt = null;
+                Touch();
+                StateHasChanged();
+            }),
+            null,
+            TimeSpan.FromSeconds(5),
+            Timeout.InfiniteTimeSpan);
+    }
+
+    private void ClearSaved()
+    {
+        _savedAt = null;
+        _savedFor?.Dispose();
+        _savedFor = null;
     }
 
     private void ToggleDirectory(string path)
@@ -315,9 +595,174 @@ else
             .Where(c => !c.IsFile)
             .SelectMany(c => new[] { c.Path }.Concat(AllDirectories(c)));
 
+    // ---------- code intelligence ----------
+
+    private CancellationTokenSource? _codeLoad;
+
+    private bool IsCSharp => _file?.Path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) ?? false;
+
+    private LoadStatus CodeStatus => Code.Status(WorktreePath);
+
+    private string CodeChip => CodeStatus switch
+    {
+        { State: LoadState.Loading } s => $"Roslyn: {s.Message ?? "loading"}",
+        { State: LoadState.Ready } s => $"Roslyn: ready, {Fmt.Count(s.Projects, "project")}",
+        { State: LoadState.Failed } => "Roslyn: failed",
+        _ => "Roslyn: not loaded",
+    };
+
+    private string CodeChipKind => CodeStatus.State switch
+    {
+        LoadState.Loading => "waiting",
+        LoadState.Ready => "accent",
+        LoadState.Failed => "danger",
+        _ => "",
+    };
+
+    /// <summary>
+    /// Opening a C# file is what starts the solution load, and it is deliberately
+    /// not awaited: MSBuild takes seconds, and the file itself is on screen from
+    /// the moment it is read. The chip is how the wait is shown.
+    /// </summary>
+    private void StartLoadingCode()
+    {
+        if (!IsCSharp || !RendererInfo.IsInteractive)
+        {
+            return;
+        }
+
+        _codeLoad ??= new CancellationTokenSource();
+        _ = Code.EnsureLoadedAsync(WorktreePath, _codeLoad.Token);
+    }
+
+    private void OnCodeStatusChanged(string worktreePath)
+    {
+        if (!string.Equals(worktreePath, WorktreePath, StringComparison.Ordinal)
+            && !string.Equals(Path.GetFullPath(worktreePath), Path.GetFullPath(WorktreePath), StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        // The event comes off whichever thread the load is on, and the chip is
+        // rendered on the circuit's.
+        _ = InvokeAsync(() =>
+        {
+            Touch();
+            StateHasChanged();
+        });
+    }
+
+    private void ReloadCode()
+    {
+        Touch();
+        _codeLoad ??= new CancellationTokenSource();
+        _ = Code.ReloadAsync(WorktreePath, _codeLoad.Token);
+    }
+
+    /// <summary>The buffer after a pause in typing, so references answer for it.</summary>
+    private void PushText(string text)
+    {
+        if (_file is not null && IsCSharp)
+        {
+            Code.UpdateDocument(WorktreePath, _file.Path, text);
+        }
+    }
+
+    /// <summary>
+    /// A definition Monaco could not open itself. It arrives absolute, because
+    /// that is the only form a Monaco URI has, and everything here works in
+    /// worktree-relative paths.
+    /// </summary>
+    private void Navigate((string AbsolutePath, int Line, int Column) target)
+    {
+        Touch();
+
+        if (Relative(target.AbsolutePath) is not { } relative)
+        {
+            // A source-linked dependency, or a project referenced from outside the
+            // worktree. There is no tab for it, so VS Code is the way out.
+            _outside = target.AbsolutePath;
+            _outsideLine = target.Line;
+            return;
+        }
+
+        _outside = null;
+        OpenAt(relative, target.Line);
+    }
+
+    private void ShowReferences(IReadOnlyList<CodeLocation> locations)
+    {
+        Touch();
+        _hierarchy = null;
+        _references = locations;
+        _panelTitle = "References";
+    }
+
+    private void ShowCallHierarchy(CallHierarchy? hierarchy)
+    {
+        Touch();
+        _references = null;
+        _hierarchy = hierarchy;
+        _panelTitle = "Call hierarchy";
+    }
+
+    /// <summary>A row in the panel. The panel stays up, so a list can be walked.</summary>
+    private void Pick(CodeLocation location)
+    {
+        Touch();
+        OpenAt(location.Path, location.Line);
+    }
+
+    private void ClosePanel()
+    {
+        Touch();
+        _references = null;
+        _hierarchy = null;
+    }
+
+    /// <summary>
+    /// Opening at a line, asking first when the editor holds unsaved work. The
+    /// same file is revealed rather than reopened: rereading it would throw the
+    /// edit away to move the caret.
+    /// </summary>
+    private void OpenAt(string path, int line)
+    {
+        if (string.Equals(path, _file?.Path, StringComparison.Ordinal))
+        {
+            // Already open: moving the caret is a parameter change, and rereading
+            // the file to do it would throw away whatever is being edited.
+            _line = line;
+            return;
+        }
+
+        if (_unsaved)
+        {
+            _pending = path;
+            _pendingLine = line;
+            return;
+        }
+
+        Open(path, line);
+    }
+
+    /// <summary>The worktree-relative form of an absolute path, or null when it is outside.</summary>
+    private string? Relative(string absolutePath)
+    {
+        var root = Path.GetFullPath(WorktreePath).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var full = Path.GetFullPath(absolutePath);
+
+        return full.StartsWith(root, StringComparison.Ordinal)
+            ? full[root.Length..].Replace(Path.DirectorySeparatorChar, '/')
+            : null;
+    }
+
     public void Dispose()
     {
+        Code.StatusChanged -= OnCodeStatusChanged;
+        _codeLoad?.Cancel();
+        _codeLoad?.Dispose();
         _load?.Cancel();
         _load?.Dispose();
+        _savedFor?.Dispose();
     }
 }

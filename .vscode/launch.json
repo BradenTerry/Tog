@@ -1,0 +1,34 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Dashboard (native window)",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "program": "${workspaceFolder}/src/AgentsDashboard.App/bin/Debug/net10.0/agents-dashboard.dll",
+            "args": [],
+            "cwd": "${workspaceFolder}/src/AgentsDashboard.App",
+            "stopAtEntry": false,
+            "console": "internalConsole",
+            "env": { "ASPNETCORE_ENVIRONMENT": "Development" }
+        },
+        {
+            "name": "Dashboard (browser, port 5178)",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "program": "${workspaceFolder}/src/AgentsDashboard.App/bin/Debug/net10.0/agents-dashboard.dll",
+            "args": ["--browser", "--port", "5178", "--verbose"],
+            "cwd": "${workspaceFolder}/src/AgentsDashboard.App",
+            "stopAtEntry": false,
+            "console": "integratedTerminal",
+            "serverReadyAction": {
+                "action": "openExternally",
+                "pattern": "running at (http://\\S+)",
+                "uriFormat": "%s"
+            },
+            "env": { "ASPNETCORE_ENVIRONMENT": "Development" }
+        }
+    ]
+}

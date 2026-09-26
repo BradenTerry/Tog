@@ -23,6 +23,21 @@ public static class WorktreeRoute
     }
 
     /// <summary>
+    /// The URL for one file of a worktree, optionally scrolled to a line.
+    /// </summary>
+    /// <remarks>
+    /// The file goes in the query string rather than in the path because a path is
+    /// already one escaped segment here, and nesting a second escaped path inside
+    /// it makes a URL nobody can read in the address bar. <see cref="PathOf"/>
+    /// drops the query, so the worktree a page shows is unaffected.
+    /// </remarks>
+    public static string ForFile(string worktreePath, string relativeFile, int? line = null)
+    {
+        var url = For(worktreePath, "files") + "?file=" + Uri.EscapeDataString(relativeFile);
+        return line is null ? url : url + "&line=" + line;
+    }
+
+    /// <summary>
     /// The worktree path a base-relative URL is showing, or null when it is not a
     /// worktree page.
     /// </summary>

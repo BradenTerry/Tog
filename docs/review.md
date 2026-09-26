@@ -63,6 +63,29 @@ The target is the whole line-number gutter rather than a small glyph, because
 picking lines is the primary gesture on this screen and it should be where the
 pointer already is.
 
+### Selecting a range
+
+Press on a line number, drag along the gutter, release. The rows light up as you
+go, in either direction, and the comment editor opens on the last row of the
+range with the range in its heading. Shift-clicking another line number extends
+what is already selected, for when a drag is awkward, and Escape cancels.
+
+A comment belongs to one side of the diff, so a drag covers one side: the side
+under the pointer when you let go. Rows of the other side inside the drag are
+stepped over. Dragging from a removed line down into the added lines that
+replaced it therefore comments on the added lines, which is the side you were
+pointing at.
+
+That last rule is the fix for a bug worth remembering. The drag used to lock onto
+the side of the row it started on and ignore every row of the other side, which
+sounds harmless until you notice that a changed block is removed lines followed
+by added ones: a drag down the gutter crosses the boundary almost every time. It
+stopped extending at the crossing, so a one-line replacement -- a `-` with a `+`
+under it, the most common shape in any diff -- selected a single line no matter
+how far you dragged, and the feature looked like it did not exist. Walking rows
+in the order they are drawn, rather than matching on side, is what makes the
+gesture follow the pointer.
+
 ### Why the drag is not on the server
 
 A drag is a stream of mousemove events, and sending each one over the Blazor

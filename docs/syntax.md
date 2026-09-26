@@ -1,9 +1,41 @@
 # Syntax colouring
 
-Code in the diff and the file browser is coloured. It is done on the server, as
-part of the render, and it is deliberately approximate.
+Code in the diff is coloured by Monaco's tokenizer, the same one the Files tab
+and VS Code use, so a file looks the same in both tabs and every language Monaco
+ships is covered. The diff itself is still rendered on the server; Monaco only
+answers which class each run of a line gets.
 
-## Why not a JavaScript highlighter
+## Monaco as a tokenizer, not a renderer
+
+`agentsEditor.colourLines` in `monaco.js` takes a file's path and its lines as
+blocks, tokenizes each block in a throwaway model, and returns each line's run
+ends and Monaco's `mtkN` classes. Those classes are global rules the theme
+service injects, so they colour a plain span outside any editor. `mtk1` is the
+theme's plain foreground and is dropped, so uncoloured code keeps the page's own
+text colour.
+
+The Changes tab asks once per file, after the render that first draws it, and
+shows that file plain until the answer arrives. One call per file keeps each
+answer well inside the circuit's message size. Two details are easy to break:
+
+- **Languages load lazily.** Tokenizing a model straight after creating it reads
+  every line as plain, because the grammar has not arrived. `colourLines` awaits
+  `monaco.editor.colorize` on an empty string first, which waits for it.
+- **A stray `\r` inside a line is a line break to Monaco.** It would shift every
+  later answer by one line, so it is replaced with a space of the same length.
+
+The classes index the theme's colour map, which differs between the light and
+dark themes. A diff coloured before the OS switches theme keeps the old indices
+until it is reloaded.
+
+## The server highlighter is the fallback
+
+The server-side tokenizer below still exists. It colours a file when Monaco has
+no language for it (`.gitignore`, `.editorconfig`) and every file once Monaco has
+failed to load. What follows describes it; the two-pass reading of a hunk
+applies to both, since Monaco is handed the same two blocks per hunk.
+
+## Why the server highlighter does not rewrite the DOM
 
 Blazor owns the DOM. A client-side highlighter rewrites the rendered lines, and
 the next render puts them back; re-running it after every render turns adding one

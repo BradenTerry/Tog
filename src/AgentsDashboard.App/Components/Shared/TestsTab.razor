@@ -94,11 +94,11 @@ else if (!mtp)
                 <div class="failure-name">@failure.Name</div>
                 @if (failure.Message is { Length: > 0 } message)
                 {
-                    <pre>@message</pre>
+                    <pre><FileLinks Text="@message" WorktreePath="@View.Worktree.Path" /></pre>
                 }
                 @if (failure.StackTrace is { Length: > 0 } stack)
                 {
-                    <pre class="faint">@stack</pre>
+                    <pre class="faint"><FileLinks Text="@stack" WorktreePath="@View.Worktree.Path" /></pre>
                 }
             </div>
         }

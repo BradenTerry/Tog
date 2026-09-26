@@ -38,12 +38,19 @@ public sealed class ClaudeCli(TimeSpan? timeout = null)
         (await RunAsync(null, ["--version"], ct).ConfigureAwait(false)).Ok;
 
     /// <summary>Starts a background agent in a worktree.</summary>
-    public async Task<(CliResult Result, string? Id)> StartAsync(
+    public Task<(CliResult Result, string? Id)> StartAsync(
         string worktreePath,
         string? prompt,
+        CancellationToken ct = default) =>
+        StartAsync(worktreePath, new StartOptions(prompt), ct);
+
+    /// <summary>Starts a background agent in a worktree with the given options.</summary>
+    public async Task<(CliResult Result, string? Id)> StartAsync(
+        string worktreePath,
+        StartOptions options,
         CancellationToken ct = default)
     {
-        var result = await RunAsync(worktreePath, ClaudeCommands.Start(prompt), ct).ConfigureAwait(false);
+        var result = await RunAsync(worktreePath, ClaudeCommands.Start(options), ct).ConfigureAwait(false);
         return (result, result.Ok ? ClaudeCommands.ParseStartedId(result.Message) : null);
     }
 
@@ -52,6 +59,49 @@ public sealed class ClaudeCli(TimeSpan? timeout = null)
 
     public Task<CliResult> RemoveAsync(string id, CancellationToken ct = default) =>
         RunAsync(null, ClaudeCommands.Remove(id), ct);
+
+    /// <summary>
+    /// A background session's recent terminal output.
+    /// </summary>
+    /// <remarks>
+    /// A session with nothing to show is not a failure, so an empty log reads as
+    /// success with an empty message rather than as an error.
+    /// </remarks>
+    public Task<CliResult> LogsAsync(string id, CancellationToken ct = default) =>
+        RunAsync(null, ClaudeCommands.Logs(id), ct);
+
+    /// <summary>Restarts a background session on the current CLI binary.</summary>
+    public Task<CliResult> RespawnAsync(string id, CancellationToken ct = default) =>
+        RunAsync(null, ClaudeCommands.Respawn(id), ct);
+
+    /// <summary>Stops several agents, carrying on past the ones that refuse.</summary>
+    /// <remarks>
+    /// In sequence rather than at once: these are calls into the same CLI over the
+    /// same registry, and one failure should not take the rest of the selection
+    /// with it.
+    /// </remarks>
+    public Task<CliResult> StopManyAsync(IReadOnlyList<string> ids, CancellationToken ct = default) =>
+        EachAsync(ids, StopAsync, "Stopped", "stop", ct);
+
+    /// <summary>Removes several agents, carrying on past the ones that refuse.</summary>
+    public Task<CliResult> RemoveManyAsync(IReadOnlyList<string> ids, CancellationToken ct = default) =>
+        EachAsync(ids, RemoveAsync, "Removed", "remove", ct);
+
+    private static async Task<CliResult> EachAsync(
+        IReadOnlyList<string> ids,
+        Func<string, CancellationToken, Task<CliResult>> run,
+        string done,
+        string verb,
+        CancellationToken ct)
+    {
+        var results = new List<(string Id, CliResult Result)>(ids.Count);
+        foreach (var id in ids)
+        {
+            results.Add((id, await run(id, ct).ConfigureAwait(false)));
+        }
+
+        return BulkOutcome.Summarise(done, verb, results);
+    }
 
     /// <summary>
     /// Delivers a message to a background agent, stopping it first if need be.

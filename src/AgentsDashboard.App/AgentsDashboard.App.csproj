@@ -14,4 +14,24 @@
     <ProjectReference Include="..\AgentsDashboard.Core\AgentsDashboard.Core.csproj" />
   </ItemGroup>
 
+  <!--
+    Monaco is a 24 MB build artefact, so it is fetched into wwwroot rather than
+    committed, and a clone with no monaco/ still builds and runs. The wwwroot
+    Content glob is evaluated before any target runs, so the files vendored here
+    are added as Content by hand, and the target runs before the static web
+    assets pipeline reads that list; otherwise the first build on a fresh clone
+    would vendor the files and not serve them until the second.
+  -->
+  <Target Name="VendorMonaco"
+          BeforeTargets="ResolveCurrentProjectStaticWebAssetsInputs;BeforeBuild"
+          Condition="!Exists('$(MSBuildThisFileDirectory)wwwroot\monaco\vs\loader.js')">
+    <Message Importance="high" Text="Vendoring monaco-editor into wwwroot/monaco" />
+    <Exec Command="bash tools/vendor-monaco.sh" WorkingDirectory="$(MSBuildThisFileDirectory)../.." />
+    <ItemGroup>
+      <!-- Project-relative on purpose: the static web assets pipeline only
+           keeps Content whose identity starts with wwwroot/. -->
+      <Content Include="wwwroot\monaco\**" Exclude="@(Content)" />
+    </ItemGroup>
+  </Target>
+
 </Project>

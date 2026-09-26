@@ -1,0 +1,38 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build",
+            "type": "shell",
+            "command": "dotnet",
+            "args": ["build", "AgentsDashboard.slnx"],
+            "group": { "kind": "build", "isDefault": true },
+            "problemMatcher": "$msCompile",
+            "presentation": { "reveal": "silent", "clear": true }
+        },
+        {
+            "label": "test",
+            "type": "shell",
+            "command": "dotnet",
+            "args": ["test", "AgentsDashboard.slnx"],
+            "group": { "kind": "test", "isDefault": true },
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "vendor monaco",
+            "type": "shell",
+            "command": "bash",
+            "args": ["tools/vendor-monaco.sh"],
+            "problemMatcher": []
+        },
+        {
+            "label": "run in browser",
+            "type": "shell",
+            "command": "dotnet",
+            "args": ["run", "--project", "src/AgentsDashboard.App", "--", "--browser", "--port", "5178"],
+            "isBackground": true,
+            "problemMatcher": [],
+            "presentation": { "reveal": "always", "panel": "dedicated" }
+        }
+    ]
+}

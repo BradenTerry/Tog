@@ -19,10 +19,12 @@ public sealed record Settings
     /// <summary>Raise an OS notification when an agent starts waiting.</summary>
     public bool NotifyOnWaiting { get; init; } = true;
 
-    /// <summary>
-    /// After writing a review, hand it to a background agent working in that
-    /// worktree. The file and the clipboard copy happen either way; this only
-    /// controls whether an agent is told about it.
-    /// </summary>
-    public bool SendReviewToAgent { get; init; } = true;
+    /// <summary>Model to preselect when starting an agent. Null leaves it to the CLI.</summary>
+    public string? DefaultModel { get; init; }
+
+    /// <summary>Effort to preselect when starting an agent. Null leaves it to the CLI.</summary>
+    public string? DefaultEffort { get; init; }
+
+    /// <summary>Permission mode to preselect when starting an agent. Null leaves it to the CLI.</summary>
+    public string? DefaultPermissionMode { get; init; }
 }
