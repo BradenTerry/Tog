@@ -200,9 +200,10 @@ What does not work out of the box:
   overflows, `Environment.Exit` and infinite loops on the circuit. The host
   runs workers under its own supervisor with `try`/`catch` and backoff, and
   starts with `--no-extensions` for the case where one breaks startup.
-- **The MSBuild locator.** `CodeIntelligence` registers MSBuild into the
-  process through `Microsoft.Build.Locator`. An extension that brings its own
-  MSBuild or Roslyn would collide with that. The template's notes say not to.
+- **The MSBuild locator.** The C# navigation extension registers MSBuild into
+  the process through `Microsoft.Build.Locator`, and MSBuild can be registered
+  only once per process. Another extension that registers it would collide.
+  The template's notes say not to.
 
 Scaffolding with Claude Code: very good. It is the same language, framework and
 component model as the app itself, so an extension reads like a file from

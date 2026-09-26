@@ -8,7 +8,7 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.FindSymbols;
 using Microsoft.CodeAnalysis.Text;
 
-namespace AgentsDashboard.Core.Code;
+namespace AgentsDashboard.Extensions.CSharpCode;
 
 /// <summary>
 /// The four questions the editor asks about a position in a C# file: what is

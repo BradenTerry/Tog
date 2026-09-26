@@ -30,13 +30,28 @@ public sealed class ExtensionLoadContext(string entryPath, string name)
         "AgentsDashboard.Extensions",
     ];
 
+    /// <remarks>
+    /// A shared name is the app's copy when the app has one, and the extension's
+    /// own when it does not. The prefixes are wider than what the app carries:
+    /// <c>System.Composition</c>, which Roslyn needs, is a package and not part
+    /// of the shared framework, so sending it to the default context
+    /// unconditionally would fail to load it at all. No type of the app's can be
+    /// an assembly the app does not have, so there is nothing to disagree about.
+    /// </remarks>
     protected override Assembly? Load(AssemblyName assemblyName)
     {
         var simple = assemblyName.Name ?? "";
         if (simple is "System" or "mscorlib" or "netstandard"
             || SharedPrefixes.Any(p => simple.StartsWith(p, StringComparison.Ordinal)))
         {
-            return null;
+            try
+            {
+                return Default.LoadFromAssemblyName(assemblyName);
+            }
+            catch (Exception e) when (e is FileNotFoundException or FileLoadException)
+            {
+                // Not the app's, or older than asked for: the extension's own copy.
+            }
         }
 
         return _resolver.ResolveAssemblyToPath(assemblyName) is { } path

@@ -31,6 +31,12 @@ dashboard is available, on purpose.
 - `b.AddWorker<T>(id)` runs `IExtensionWorker.RunAsync(stopping)` in the
   background while the extension is loaded, restarted with a pause if it throws.
   Stop when `stopping` is cancelled: a reload waits for it.
+- `b.AddCodeIntelligence<T>()` gives the editor navigation for a language:
+  `ICodeIntelligence` answers hover, definition, references, callers and
+  colouring by symbol for the files its `Handles` accepts, in Monaco's
+  `Language`. The app draws the chip, its Load button and the results. Load
+  nothing until `LoadAsync`; a query must never start a load. Positions are
+  one-based.
 - `b.Services` is the extension's own DI container. Views reach it through
   `Context.Get<T>()`, not `@inject`: `@inject` resolves from the dashboard's
   container, which only has the API services below.
@@ -53,8 +59,9 @@ your own), and `ILogger<T>`.
 - Never write into `~/.claude`.
 - Anything that changes the user's repository must be a button the user clicks,
   never done on its own.
-- Do not reference MSBuild or Roslyn packages: the dashboard loads its own and
-  the two would collide.
+- Do not register MSBuild through `Microsoft.Build.Locator`: the C# navigation
+  extension does, MSBuild can only be registered once per process, and the two
+  would collide.
 
 ## Looking native
 

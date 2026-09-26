@@ -306,19 +306,36 @@ function caretOf(editor) {
     return editor.getPosition() || { lineNumber: 1, column: 1 };
 }
 
-let providers = false;
+// Languages some extension answers for, each registered once.
+const registered = new Set();
 
-// One registration for the page, not one per editor: Monaco's registries are
-// global, and a second editor would otherwise install a second provider and
-// every hover would be answered twice.
-function registerProviders(monaco) {
-    if (providers) {
-        return;
+// Fired when a worktree's code intelligence loads or unloads, so every editor
+// asks for its colouring again. Names are coloured by an extension, which is
+// off until the user loads it, and an answer given before that was empty.
+let semanticsChanged = null;
+
+// One registration per language for the page, not one per editor: Monaco's
+// registries are global, and a second editor would otherwise install a second
+// provider and every hover would be answered twice. The languages are the ones
+// the loaded extensions answer for; the app has none of its own, and one that
+// arrives later is registered then. One that goes away stays registered and the
+// server answers its questions with nothing.
+function registerProviders(monaco, languages) {
+    if (!semanticsChanged) {
+        semanticsChanged = new monaco.Emitter();
+        registerOpener(monaco);
     }
 
-    providers = true;
+    for (const language of languages || []) {
+        if (!registered.has(language)) {
+            registered.add(language);
+            registerLanguage(monaco, language);
+        }
+    }
+}
 
-    monaco.languages.registerHoverProvider('csharp', {
+function registerLanguage(monaco, language) {
+    monaco.languages.registerHoverProvider(language, {
         provideHover: async (model, position) => {
             const state = ownerOf(model);
             if (!state) {
@@ -330,7 +347,7 @@ function registerProviders(monaco) {
                 return null;
             }
 
-            const contents = [{ value: '```csharp\n' + info.signature + '\n```' }];
+            const contents = [{ value: '```' + language + '\n' + info.signature + '\n```' }];
             if (info.summary) {
                 contents.push({ value: info.summary });
             }
@@ -339,13 +356,14 @@ function registerProviders(monaco) {
         },
     });
 
-    // What each name is comes from Roslyn, as VS Code's comes from its language
-    // server. The buffer is pushed first when an edit has not reached the server
-    // yet, so the answer is for the text on screen; an answer that arrives after
-    // another edit is dropped rather than painted onto lines that have moved, and
-    // Monaco asks again for the newer text anyway.
-    monaco.languages.registerDocumentSemanticTokensProvider('csharp', {
+    // What each name is comes from the extension, as VS Code's comes from its
+    // language server. The buffer is pushed first when an edit has not reached
+    // the server yet, so the answer is for the text on screen; an answer that
+    // arrives after another edit is dropped rather than painted onto lines that
+    // have moved, and Monaco asks again for the newer text anyway.
+    monaco.languages.registerDocumentSemanticTokensProvider(language, {
         getLegend: () => ({ tokenTypes, tokenModifiers: [] }),
+        onDidChange: semanticsChanged.event,
         provideDocumentSemanticTokens: async (model) => {
             const state = ownerOf(model);
             if (!state) {
@@ -382,7 +400,7 @@ function registerProviders(monaco) {
         releaseDocumentSemanticTokens: () => { },
     });
 
-    monaco.languages.registerDefinitionProvider('csharp', {
+    monaco.languages.registerDefinitionProvider(language, {
         provideDefinition: async (model, position) => {
             const state = ownerOf(model);
             if (!state) {
@@ -402,7 +420,9 @@ function registerProviders(monaco) {
             }));
         },
     });
+}
 
+function registerOpener(monaco) {
     // F12 and Cmd+click on something in another file. Monaco would otherwise want
     // a model for that file to open it in; the opener hands the path to the Files
     // tab instead, which opens it the same way a clicked link does.
@@ -492,7 +512,7 @@ window.agentsEditor = {
         const monaco = await ensureLoaded();
         const settings = options || {};
 
-        registerProviders(monaco);
+        registerProviders(monaco, settings.languages);
 
         const model = makeModel(monaco, settings.text || '', settings.path, settings.absolutePath);
 
@@ -749,6 +769,15 @@ window.agentsEditor = {
         }
 
         return await monaco.editor.colorize(text, id, { tabSize: 4 });
+    },
+
+    refreshSemantics: (languages) => {
+        if (!window.monaco) {
+            return;
+        }
+
+        registerProviders(window.monaco, languages);
+        semanticsChanged.fire();
     },
 
     setTheme: (theme) => {

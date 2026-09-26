@@ -76,6 +76,7 @@ public sealed class ExtensionHost : IDisposable
         public required ExtensionContext Context { get; init; }
         public required IReadOnlyList<ExtensionView> Views { get; init; }
         public required IReadOnlyDictionary<string, IAgentIndicator> Indicators { get; init; }
+        public required IReadOnlyList<ICodeIntelligence> CodeIntelligence { get; init; }
         public required CancellationTokenSource Stopping { get; init; }
         public required string CopyDirectory { get; init; }
 
@@ -190,6 +191,15 @@ public sealed class ExtensionHost : IDisposable
     /// writes, and an extension loaded at runtime is not in it.
     /// </summary>
     public const string AssetsFolder = "assets";
+
+    /// <summary>Every code intelligence provider of the extensions loaded now, in load order.</summary>
+    public IReadOnlyList<ICodeIntelligence> CodeIntelligence()
+    {
+        lock (_gate)
+        {
+            return [.. _loaded.Values.OrderBy(l => l.Generation).SelectMany(l => l.CodeIntelligence)];
+        }
+    }
 
     /// <summary>
     /// The indicator on a view for an agent. An indicator that throws shows
@@ -373,6 +383,7 @@ public sealed class ExtensionHost : IDisposable
                 Context = new ExtensionContext(info, services),
                 Views = builder.Views,
                 Indicators = indicators,
+                CodeIntelligence = [.. builder.CodeIntelligence.Select(t => (ICodeIntelligence)services.GetRequiredService(t))],
                 Stopping = new CancellationTokenSource(),
                 CopyDirectory = copy,
                 EntryStamp = Stamp(entry),
