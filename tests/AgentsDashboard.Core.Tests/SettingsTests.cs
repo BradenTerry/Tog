@@ -1,3 +1,4 @@
+using AgentsDashboard.Core.Presentation;
 using AgentsDashboard.Core.Repos;
 using AgentsDashboard.Core.Tests.Support;
 
@@ -57,4 +58,24 @@ public class SettingsTests
         Assert.Null(loaded.DefaultEffort);
         Assert.Null(loaded.DefaultPermissionMode);
     }
+
+    [Fact]
+    public void Round_trips_the_theme()
+    {
+        using var temp = new TempDir();
+        var store = new SettingsStore(new AppPaths(temp.Path));
+
+        store.Save(new Settings { Theme = "nord" });
+
+        Assert.Equal("nord", store.Load().Theme);
+    }
+
+    [Theory]
+    [InlineData(null, Themes.System)]
+    [InlineData("", Themes.System)]
+    [InlineData("gone", Themes.System)]
+    [InlineData("light", "light")]
+    [InlineData("solarized-light", "solarized-light")]
+    public void An_unknown_theme_falls_back_to_system(string? stored, string expected) =>
+        Assert.Equal(expected, Themes.Resolve(stored));
 }

@@ -96,6 +96,29 @@
                     </div>
                     break;
 
+                case "appearance":
+                    <header class="settings-section-head">
+                        <h2>Appearance</h2>
+                        <p class="muted">How the dashboard looks.</p>
+                    </header>
+
+                    <div class="card">
+                        <div class="row setting-row">
+                            <div class="stack" style="flex: 1;">
+                                <strong>Theme</strong>
+                                <span class="faint">
+                                    The colours of the whole window, the editor and diffs included. A diff already
+                                    coloured keeps its syntax colours until it is reopened.
+                                </span>
+                            </div>
+                            <Picker AriaLabel="Theme" Class="setting-picker"
+                                    Value="@Themes.Resolve(_settings.Theme)"
+                                    Options="@ThemeChoices"
+                                    ValueChanged="SetTheme" />
+                        </div>
+                    </div>
+                    break;
+
                 case "notifications":
                     <header class="settings-section-head">
                         <h2>Notifications</h2>
@@ -242,6 +265,7 @@
     [
         new("repos", "Repositories", "M3 2.5h7l3 3v8H3zM6 7.5h4M6 10h4", _settings.RepoRoots.Count),
         new("agents", "New agents", "M8 2.5v3M5.5 5.5h5a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2zM6.5 9.5h0M9.5 9.5h0"),
+        new("appearance", "Appearance", "M8 2.5a5.5 5.5 0 1 0 0 11a5.5 5.5 0 0 0 0-11zM8 2.5v11M8 5h3.5M8 8h5M8 11h3.5"),
         new("notifications", "Notifications", "M4 11V7.5a4 4 0 0 1 8 0V11l1 1.5H3zM6.5 14h3"),
         new("extensions", "Extensions", "M6 2.5h4v3h3v4h-3v4H6v-4H3v-4h3z"),
     ];
@@ -293,6 +317,28 @@
         new("", "Leave to the agent", "Its own default applies"),
         .. StartChoices.For(id, Host.KnownOptions).Select(c => new PickerOption(c.Value, c.Name)),
     ];
+    private static readonly IReadOnlyList<PickerOption> ThemeChoices =
+        Themes.All.Select(t => new PickerOption(t.Id, t.Name, t.Description)).ToList();
+
+    /// <summary>
+    /// Saves the choice and repaints this window straight away. The page only
+    /// reads the stored theme when it loads, so another window open at the time
+    /// changes on its next start.
+    /// </summary>
+    private async Task SetTheme(string? value)
+    {
+        var id = Themes.Resolve(value);
+        Set(_settings with { Theme = id == Themes.System ? null : id });
+
+        try
+        {
+            await Js.InvokeVoidAsync("agentsTheme.set", id);
+        }
+        catch (Exception e) when (e is JSException or JSDisconnectedException or TaskCanceledException)
+        {
+        }
+    }
+
     private string _newRoot = "";
     private string? _error;
 

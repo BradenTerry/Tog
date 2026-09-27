@@ -86,12 +86,8 @@ function ensureLoaded() {
     return loading;
 }
 
-function prefersDark() {
-    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-}
-
 function themeName() {
-    return prefersDark() ? 'agents-dark' : 'agents-light';
+    return window.agentsTheme?.isDark() !== false ? 'agents-dark' : 'agents-light';
 }
 
 // Monaco's own themes with VS Code's Dark+ and Light+ colours for two kinds of
@@ -179,18 +175,25 @@ function defineThemes(monaco) {
         attribute: 'E50000', selector: '800000', heading: '800000',
     };
 
+    // Only the background follows the app's theme, and only for a theme that
+    // sets --editor-bg: the token colours stay Dark+ and Light+, and Dark and
+    // Light keep Monaco's own background as they always have. Redefined on every
+    // theme change, which is why this reads the page rather than a constant.
+    const background = window.agentsTheme?.variable('--editor-bg');
+    const colors = background ? { 'editor.background': background, 'minimap.background': background } : {};
+
     monaco.editor.defineTheme('agents-dark', {
         base: 'vs-dark',
         inherit: true,
         rules: [...scopes(dark), ...rules(dark)],
-        colors: {},
+        colors,
     });
 
     monaco.editor.defineTheme('agents-light', {
         base: 'vs',
         inherit: true,
         rules: [...scopes(light), ...rules(light)],
-        colors: {},
+        colors,
     });
 }
 
@@ -992,9 +995,11 @@ window.agentsEditor = {
     },
 };
 
-// The app has no theme switch of its own: it follows the OS, and so does Monaco.
-if (window.matchMedia) {
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-        window.monaco?.editor.setTheme(themeName());
-    });
-}
+// theme.js raises this when the palette changes, from Settings or, on System,
+// from the OS.
+window.addEventListener('agents-theme-change', () => {
+    if (window.monaco) {
+        defineThemes(window.monaco);
+        window.monaco.editor.setTheme(themeName());
+    }
+});

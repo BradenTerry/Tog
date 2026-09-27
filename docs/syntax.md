@@ -79,8 +79,8 @@ too much:
   having no language, and the newer answer replaces it.
 
 The classes index the theme's colour map, which differs between the light and
-dark themes. A diff coloured before the OS switches theme keeps the old indices
-until it is reloaded.
+dark themes. A diff coloured before the theme switches between a dark and a
+light one keeps the old indices until it is reopened.
 
 ## The server highlighter is the fallback
 
