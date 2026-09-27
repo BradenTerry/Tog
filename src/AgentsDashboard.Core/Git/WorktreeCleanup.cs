@@ -255,9 +255,14 @@ public sealed class WorktreeCleanup(IGitCli git, StatusReader status)
             return [];
         }
 
+        // Worktree paths are native, and git answers relative to the worktree in
+        // its own form, so the prefix is cut either way and the rest folded to '/'.
+        var root = path.TrimEnd('/', '\\');
         var inside = others
-            .Where(o => o.StartsWith(path.TrimEnd('/') + "/", StringComparison.Ordinal))
-            .Select(o => o[(path.TrimEnd('/').Length + 1)..].TrimEnd('/') + "/")
+            .Where(o => o.Length > root.Length + 1
+                && o[root.Length] is '/' or '\\'
+                && o.StartsWith(root, Repos.RealPaths.Comparison))
+            .Select(o => o[(root.Length + 1)..].Replace('\\', '/').TrimEnd('/') + "/")
             .ToList();
 
         return result.StdOut

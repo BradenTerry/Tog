@@ -7,8 +7,12 @@ namespace AgentsDashboard.Extensions.CSharpCode.Tests;
 
 public class CodeQueriesTests
 {
-    /// <summary>A fake worktree root, so relative paths are exercised as well.</summary>
-    private const string Worktree = "/repo";
+    /// <summary>
+    /// A fake worktree root, so relative paths are exercised as well. Full, as a
+    /// loaded solution's paths are: on Windows "/repo" is only rooted, and gains
+    /// a drive when the queries look a document up.
+    /// </summary>
+    private static readonly string Worktree = Path.GetFullPath("/repo");
 
     private const string ACs = """
         namespace Repo;
@@ -60,7 +64,7 @@ public class CodeQueriesTests
             DocumentId.CreateNewId(projectId),
             name,
             SourceText.From(text),
-            filePath: $"{Worktree}/src/{name}");
+            filePath: Absolute(name));
 
     /// <summary>Enough of the framework for the compiler to bind int and object.</summary>
     private static IEnumerable<MetadataReference> Framework() =>
@@ -84,7 +88,7 @@ public class CodeQueriesTests
         return (line, index - lastBreak);
     }
 
-    private static string Absolute(string name) => $"{Worktree}/src/{name}";
+    private static string Absolute(string name) => Path.Combine(Worktree, "src", name);
 
     [Fact]
     public void The_position_helper_agrees_with_hand_counting()
