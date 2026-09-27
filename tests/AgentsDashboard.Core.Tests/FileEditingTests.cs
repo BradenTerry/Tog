@@ -186,6 +186,74 @@ public class WorktreeFileEditingTests
         Assert.True(file.IsBinary);
         Assert.False(file.Editable);
     }
+
+    [Fact]
+    public void A_file_outside_any_worktree_reads_and_saves_by_its_absolute_path()
+    {
+        using var dir = new TempDir();
+        var path = dir.File("settings.json", "{}\n");
+        var files = Files();
+
+        var file = files.ReadTextOutside(path);
+        Assert.True(file.Editable);
+        Assert.Equal(path, file.Path);
+
+        var saved = files.WriteOutside(path, "{ \"a\": 1 }\n", file.Stamp);
+
+        Assert.True(saved.Ok);
+        Assert.Equal("{ \"a\": 1 }\n", File.ReadAllText(path));
+        Assert.Equal(files.ReadTextOutside(path).Stamp, saved.Stamp);
+    }
+
+    [Fact]
+    public void A_file_outside_a_worktree_still_refuses_a_save_over_a_change_made_since()
+    {
+        using var dir = new TempDir();
+        var path = dir.File("settings.json", "{}\n");
+        var files = Files();
+        var stamp = files.ReadTextOutside(path).Stamp;
+
+        File.WriteAllText(path, "{ \"changed\": true }\n");
+        var result = files.WriteOutside(path, "{ \"mine\": true }\n", stamp);
+
+        Assert.False(result.Ok);
+        Assert.True(result.Conflict);
+        Assert.Equal("{ \"changed\": true }\n", File.ReadAllText(path));
+    }
+
+    [Fact]
+    public void A_relative_path_is_not_taken_as_outside_the_worktree()
+    {
+        Assert.NotNull(Files().ReadTextOutside("settings.json").Error);
+        Assert.False(Files().WriteOutside("settings.json", "x", null).Ok);
+    }
+
+    [Fact]
+    public void Saving_through_a_link_writes_the_file_it_points_at_and_keeps_the_link()
+    {
+        using var dir = new TempDir();
+        var target = dir.File("dotfiles/CLAUDE.md", "one\n");
+        var link = Path.Combine(dir.Path, "CLAUDE.md");
+        File.CreateSymbolicLink(link, target);
+        var files = Files();
+
+        var result = files.WriteOutside(link, "two\n", files.ReadTextOutside(link).Stamp);
+
+        Assert.True(result.Ok, result.Message);
+        Assert.Equal("two\n", File.ReadAllText(target));
+        Assert.NotNull(new FileInfo(link).LinkTarget);
+    }
+
+    [Fact]
+    public void A_linked_file_is_read_whole_rather_than_as_long_as_the_link()
+    {
+        using var dir = new TempDir();
+        var target = dir.File("dotfiles/CLAUDE.md", "a line well past the length of the link's own path\n");
+        File.CreateSymbolicLink(Path.Combine(dir.Path, "CLAUDE.md"), target);
+
+        Assert.Equal("a line well past the length of the link's own path\n", Files().ReadText(dir.Path, "CLAUDE.md").Text);
+        Assert.Equal("a line well past the length of the link's own path", Assert.Single(Files().Read(dir.Path, "CLAUDE.md").Lines, l => l.Length > 0));
+    }
 }
 
 public class FileReferenceTests

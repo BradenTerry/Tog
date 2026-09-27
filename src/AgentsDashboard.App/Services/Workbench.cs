@@ -386,10 +386,11 @@ public sealed class Workbench : IDisposable
     /// <summary>
     /// Opens a file by its absolute path, for a request from outside the app.
     /// Inside the worktree in view it opens as that worktree's file, editable as
-    /// any other; anywhere else, a screenshot in a temp folder say, it opens
-    /// read-only among the worktree's tabs. Always kept rather than previewed:
-    /// somebody asked for it by name. Asking again for a file already open
-    /// brings it to the front and reads it again.
+    /// any other; anywhere else, a screenshot in a temp folder say, it opens as
+    /// an external document among the worktree's tabs, which the user can still
+    /// edit and save. Always kept rather than previewed: somebody asked for it by
+    /// name. Asking again for a file already open brings it to the front and
+    /// reads it again, unless it has unsaved changes.
     /// </summary>
     public void OpenExternal(string worktreePath, string absolutePath, int? line = null)
     {

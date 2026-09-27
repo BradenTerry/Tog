@@ -179,9 +179,23 @@ to every open window. A request older than two minutes is dropped, so one left
 while the app was closed does not surface the next day, and one that beats the
 first window is held for it. Each window opens the file among the tabs of what
 it is looking at (`Workbench.OpenExternal`): a file inside that worktree opens
-as the worktree's own, editable; anywhere else it opens read-only as an
-`External` document, a picture if it is an image and its text otherwise. The
-editor never saves outside a worktree.
+as the worktree's own; anywhere else it opens as an `External` document, a
+picture if it is an image and text otherwise.
+
+An external text file is edited like any other, in Monaco, and saved the same
+way (`WorktreeFiles.WriteOutside`): only on the user's own Save, with the stamp
+check that refuses to overwrite a change made since it was read, and the same
+Reload and Overwrite when it does. This is how you edit your own
+`~/.claude/settings.json` or `CLAUDE.md` from the dashboard. It has no code
+intelligence, whose providers answer for a worktree's files, and a file too
+large or binary is shown read-only as in a worktree. Asking for the file again
+while it has unsaved changes brings the tab forward without reading it again.
+
+Both readers and the writer follow a symbolic link to the file it points at.
+A `CLAUDE.md` kept in a dotfiles repository and linked into `~/.claude` is read
+whole (a `FileInfo` on the link reports the link's own length, which cut the
+read short) and saved into the repository, with the link left in place rather
+than replaced by the temp file moved over it.
 
 ## Change marks
 

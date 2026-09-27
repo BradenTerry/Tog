@@ -78,9 +78,9 @@ manifest; one built against 1.0 still loads and lands on the right. Views are
 written against `AgentViewBase` and nothing about where they are drawn, so
 moving one to another panel needs no change to it.
 
-`IEditorTabs` (API 1.3) opens a file as a tab in the window's editor, read-only
-when it is outside the worktree, such as a report the extension wrote to its
-data folder. It is scoped to the window, so a view `@inject`s it; the
+`IEditorTabs` (API 1.3) opens a file as a tab in the window's editor, including
+one outside the worktree, such as a report the extension wrote to its data
+folder, which the user can then edit and save like any other. It is scoped to the window, so a view `@inject`s it; the
 extension's own services are shared by every window and cannot. It shipped in
 the app's 1.2 at first and moved to 1.3, since a 1.2 app without it accepted
 extensions that injected it; declare `"apiVersion": "1.3"` to use it.
