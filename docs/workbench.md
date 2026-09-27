@@ -94,6 +94,27 @@ text. A `display: none` box would lose Monaco's size.
 - **Closing a tab with unsaved changes asks first.** The question appears inline,
   never as a JS `confirm()`, because a confirm dialog blocks the circuit for as
   long as it is up. Middle-click closes a tab.
+- **Right-clicking a tab** offers Close, Close others, Close to the right,
+  Close saved and Close all, as VS Code does, along with pin, keep, split and
+  copying the path. The bulk closes pass over pinned tabs, since a pinned tab
+  cannot be closed until it is unpinned. Saved tabs close at once and the
+  unsaved ones wait on one question for all of them.
+- **The editor splits left and right.** Dragging a tab onto the right half of
+  the editor moves it to a second side with its own strip; split, dragging it
+  onto the other side's documents or strip moves it across. The tab's menu does
+  the same, for the keyboard. Files open on the side last clicked in. The
+  border between the sides drags like a panel's, in `app.js`, and sets
+  `--wb-split`: a share of the editor's width rather than pixels, so the sides
+  keep their proportion as the panels around them move. It is kept per machine,
+  and double-clicking evens it. The drop
+  target is a layer drawn only during a drag, over the documents, since Monaco
+  would otherwise take the drop as text, and so `dragover` never has a handler
+  on the circuit. A document is only ever on one side, so the menu moves tabs rather than
+  copying them: two editors on one file would want two Monaco models with one
+  URI, which Monaco does not allow (see `editor.md`), and two sets of unsaved
+  text. Both sides are drawn from one keyed list of documents, placed by a
+  class, so a tab moved across keeps its editor, undo stack and unsaved work. A side whose last tab closes goes, and the other
+  takes the width. Opening a file already open on the other side goes to it.
 - **Tabs belong to a worktree.** Switching agents swaps the whole strip, and
   switching back finds it as it was. This lives in memory for the life of the
   window, like `WorktreeViews`. A new window starts empty.

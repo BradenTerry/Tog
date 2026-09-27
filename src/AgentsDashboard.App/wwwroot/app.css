@@ -1868,13 +1868,19 @@ button.icon-btn:hover:where(:not(:disabled)) { background: var(--surface-2); }
 
 /* ---------- editor ---------- */
 
-.editor-area { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--bg); }
+.editor-area { position: relative; display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--bg); }
 .editor-empty { margin: auto; }
+
+/* Split, each side has its own strip, as wide as the side it heads. --wb-split
+   is the left side's share, set by dragging the border between them. */
+.editor-strips { display: flex; flex: none; }
+.editor-strips .editor-tabs:first-child:not(:last-child) { flex: none; width: var(--wb-split, 50%); }
 
 .editor-tabs {
     display: flex;
     height: 35px;
-    flex: none;
+    flex: 1 1 0;
+    min-width: 0;
     background: var(--surface);
     border-bottom: 1px solid var(--border);
     overflow-x: auto;
@@ -1898,6 +1904,9 @@ button.icon-btn:hover:where(:not(:disabled)) { background: var(--surface-2); }
 .etab.active { background: var(--bg); color: var(--text); }
 .etab.active::after { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: var(--accent); }
 .etab:focus-visible { outline-offset: -2px; }
+.editor-tabs + .editor-tabs { border-left: 1px solid var(--border); }
+/* The side that is not focused keeps its tab in front, marked more quietly. */
+.editor-tabs.unfocused .etab.active::after { background: var(--border); }
 .etab.preview .etab-label { font-style: italic; }
 .etab-hint { color: var(--text-faint); font-size: 11.5px; }
 .etab-divider { width: 1px; margin: 7px 2px; background: var(--border); flex: none; }
@@ -1933,6 +1942,20 @@ button.icon-btn:hover:where(:not(:disabled)) { background: var(--surface-2); }
 
 .editor-docs { position: relative; flex: 1; min-height: 0; }
 .doc-layer { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; }
+.editor-docs.split .doc-layer.pane-0 { right: calc(100% - var(--wb-split, 50%)); }
+.editor-docs.split .doc-layer.pane-1 { left: var(--wb-split, 50%); border-left: 1px solid var(--border); }
+
+/* The border between the sides: wider than the line it draws, so it is easy to catch. */
+.editor-sash { position: absolute; top: 0; bottom: 0; left: var(--wb-split, 50%); width: 6px; margin-left: -3px; background: transparent; z-index: 6; }
+.editor-sash::after { left: 2px; right: 2px; }
+
+/* Where a dragged tab can land: half the editor, tinted while the tab is over it. */
+.drop-zone { position: absolute; top: 0; bottom: 0; z-index: 5; display: grid; place-items: center; }
+.drop-zone.side-0 { left: 0; width: var(--wb-split, 50%); }
+.drop-zone.side-1 { right: 0; left: var(--wb-split, 50%); }
+.drop-zone.over { background: var(--accent-bg); box-shadow: inset 0 0 0 2px var(--accent); }
+.drop-label { pointer-events: none; padding: 4px 10px; border-radius: 4px; background: var(--surface); color: var(--text-dim); font-size: 12px; visibility: hidden; }
+.drop-zone.over .drop-label { visibility: visible; }
 .doc-banner { margin: 8px 12px 0; }
 
 .doc-file { display: flex; flex-direction: column; height: 100%; min-height: 0; }
