@@ -33,8 +33,9 @@ Add `"line": N` to land on a line of a text file.
 
 - Every open dashboard window opens the file as a tab among the documents of
   the agent it is looking at.
-- A file inside that agent's worktree opens as the worktree's own, editable.
-  Anything else opens read-only.
+- A file inside that agent's worktree opens as the worktree's own. Anything
+  else opens as an outside file. The user can edit and save either one; opening
+  a file never writes it.
 - Asking again for a file already open brings it forward and reads it again,
   so after you retake a screenshot, send the same path again.
 

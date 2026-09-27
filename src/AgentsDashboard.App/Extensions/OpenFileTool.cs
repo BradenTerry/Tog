@@ -20,7 +20,7 @@ public sealed class OpenFileTool(OpenRequests requests) : IAgentTool
 
     public string Description =>
         "Shows a file to the user as a tab in the Agents Dashboard editor. Images (png, jpeg, gif, webp, svg) open as "
-        + "pictures, text files as text. A file in your worktree opens editable, anything else read-only. Use it for "
+        + "pictures, text files as text, which the user can edit and save. Use it for "
         + "whatever the user should look at, above all screenshots. Opening the same path again brings it forward and "
         + "reads it again, so after retaking a screenshot, open it again.";
 

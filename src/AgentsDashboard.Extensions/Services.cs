@@ -24,9 +24,10 @@ public interface IDashboardView
 public interface IEditorTabs
 {
     /// <summary>
-    /// Opens a file as a tab beside the agent's files. Inside the worktree in view
-    /// it opens as that file, editable; anywhere else, such as a report the
-    /// extension wrote to its data folder, read-only.
+    /// Opens a file as a tab beside the agent's files: inside the worktree in view
+    /// as that file, anywhere else (a report the extension wrote to its data
+    /// folder) as an outside file. Either way the user can edit and save it;
+    /// the extension itself never saves through this.
     /// </summary>
     void OpenFile(string absolutePath, int? line = null);
 }

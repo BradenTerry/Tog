@@ -158,6 +158,8 @@ services are registered there. An extension's own services come from
 - Spaces, not tabs. No em dashes or emojis in UI copy or comments.
 - Comments explain why, not what. Prefer a short paragraph on the non-obvious
   decision over a line-by-line narration.
-- Nothing is ever written into `~/.claude`. The dashboard only reads it.
+- Nothing the dashboard or an agent does on its own writes into `~/.claude`;
+  the app only reads it. You can still open and edit a file there yourself,
+  and it is saved when you press Save, like any file.
 - Anything that edits the user's repository is offered, never done on its own.
 - Don't commit unless asked.

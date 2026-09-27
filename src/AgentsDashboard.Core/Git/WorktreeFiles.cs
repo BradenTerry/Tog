@@ -136,6 +136,9 @@ public sealed class WorktreeFiles(IGitCli git)
             return new FileContent { Path = relativePath, Error = "That path is not inside this worktree." };
         }
 
+        // At the file a link points to, for the same reason as ReadTextAt.
+        full = LinkTarget(full);
+
         try
         {
             var info = new FileInfo(full);
@@ -193,6 +196,25 @@ public sealed class WorktreeFiles(IGitCli git)
         {
             return new TextFile { Path = relativePath, Error = "That path is not inside this worktree." };
         }
+
+        return ReadTextAt(full, relativePath);
+    }
+
+    /// <summary>
+    /// Reads a file by its absolute path, for one opened from outside any
+    /// worktree, with the same size and binary rules. Its <see cref="TextFile.Path"/>
+    /// is the absolute path.
+    /// </summary>
+    public TextFile ReadTextOutside(string absolutePath) =>
+        Path.IsPathRooted(absolutePath)
+            ? ReadTextAt(Path.GetFullPath(absolutePath), absolutePath)
+            : new TextFile { Path = absolutePath, Error = "That is not an absolute path." };
+
+    private static TextFile ReadTextAt(string full, string relativePath)
+    {
+        // Measured and read at the file a link points to: a FileInfo on the link
+        // itself reports the link's own few bytes, and the read would stop there.
+        full = LinkTarget(full);
 
         try
         {
@@ -273,6 +295,33 @@ public sealed class WorktreeFiles(IGitCli git)
             return new WriteResult(false, "That path is not inside this worktree.");
         }
 
+        return WriteAt(full, text, expectedStamp, eol, bom, force);
+    }
+
+    /// <summary>
+    /// Saves a file by its absolute path, one the user opened from outside any
+    /// worktree and edited, with the same check against a change made since.
+    /// Only ever called from the user's own Save; nothing the app does on its own
+    /// writes outside a worktree.
+    /// </summary>
+    public WriteResult WriteOutside(
+        string absolutePath,
+        string text,
+        string? expectedStamp,
+        string eol = "\n",
+        bool bom = false,
+        bool force = false) =>
+        Path.IsPathRooted(absolutePath)
+            ? WriteAt(Path.GetFullPath(absolutePath), text, expectedStamp, eol, bom, force)
+            : new WriteResult(false, "That is not an absolute path.");
+
+    private static WriteResult WriteAt(string full, string text, string? expectedStamp, string eol, bool bom, bool force)
+    {
+        // A link is written through to the file it points at. Moving the temp
+        // file over the link itself would replace it with a copy, and a CLAUDE.md
+        // kept in a dotfiles repository would quietly stop being kept there.
+        full = LinkTarget(full);
+
         try
         {
             var exists = System.IO.File.Exists(full);
@@ -324,6 +373,18 @@ public sealed class WorktreeFiles(IGitCli git)
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             return new WriteResult(false, e.Message);
+        }
+    }
+
+    private static string LinkTarget(string path)
+    {
+        try
+        {
+            return new FileInfo(path).ResolveLinkTarget(returnFinalTarget: true)?.FullName ?? path;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return path;
         }
     }
 
