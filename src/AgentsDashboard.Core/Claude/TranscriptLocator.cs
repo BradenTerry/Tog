@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+
 namespace AgentsDashboard.Core.Claude;
 
 /// <summary>
@@ -5,14 +7,21 @@ namespace AgentsDashboard.Core.Claude;
 /// project, named by a slug it derives from the working directory.
 /// </summary>
 /// <remarks>
+/// <para>
 /// The slug is Claude's private convention, so it is used as a fast path only.
 /// When it misses, the projects directory is scanned. A transcript we cannot
 /// find costs a work summary, never an agent: the caller falls back to the
 /// session's own name.
+/// </para>
+/// <para>
+/// One is shared by the monitor thread and every window's circuit, so the map
+/// is concurrent. Two threads writing a plain Dictionary at once can corrupt
+/// it into a lookup that never returns, which froze the window.
+/// </para>
 /// </remarks>
 public sealed class TranscriptLocator(ClaudePaths paths)
 {
-    private readonly Dictionary<string, string> _found = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, string> _found = new(StringComparer.Ordinal);
 
     /// <summary>Path of <c>&lt;sessionId&gt;.jsonl</c>, or null when there is none.</summary>
     public string? Locate(string sessionId, string cwd)
@@ -97,7 +106,7 @@ public sealed class TranscriptLocator(ClaudePaths paths)
     {
         foreach (var gone in _found.Keys.Where(k => !liveSessionIds.Contains(k)).ToList())
         {
-            _found.Remove(gone);
+            _found.TryRemove(gone, out _);
         }
     }
 }

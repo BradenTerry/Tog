@@ -250,7 +250,7 @@
     [JSInvokable]
     public async Task<object?> Hover(int line, int column)
     {
-        var info = await Query(i => i.HoverAsync(WorktreePath, Path, line, column, _queries.Token), null);
+        var info = await Query((i, w, p, t) => i.HoverAsync(w, p, line, column, t), null);
 
         return info is null ? null : new { signature = info.Signature, summary = info.Summary };
     }
@@ -269,7 +269,7 @@
             return null;
         }
 
-        var runs = await Query(i => i.ClassifyAsync(WorktreePath, Path, _queries.Token), []);
+        var runs = await Query((i, w, p, t) => i.ClassifyAsync(w, p, t), []);
         var kinds = new List<string>();
         var data = new int[runs.Count * 4];
         for (var i = 0; i < runs.Count; i++)
@@ -298,7 +298,7 @@
     public async Task<object[]> Definition(int line, int column)
     {
         var found = await Query(
-            i => i.DefinitionAsync(WorktreePath, Path, line, column, _queries.Token),
+            (i, w, p, t) => i.DefinitionAsync(w, p, line, column, t),
             (IReadOnlyList<CodeLocation>)[]);
 
         return found
@@ -332,7 +332,7 @@
         }
 
         var found = await Query(
-            i => i.ReferencesAsync(WorktreePath, Path, line, column, _queries.Token),
+            (i, w, p, t) => i.ReferencesAsync(w, p, line, column, t),
             (IReadOnlyList<CodeLocation>)[]);
 
         await OnReferences.InvokeAsync(found);
@@ -347,7 +347,7 @@
         }
 
         var hierarchy = await Query(
-            i => i.CallHierarchyAsync(WorktreePath, Path, line, column, _queries.Token),
+            (i, w, p, t) => i.CallHierarchyAsync(w, p, line, column, t),
             null);
 
         await OnCallHierarchy.InvokeAsync(hierarchy);
@@ -363,21 +363,24 @@
     /// nothing. The provider is extension code, so any exception is caught: one
     /// out of a JSInvokable takes the circuit down with it.
     /// </summary>
-    private async Task<T> Query<T>(Func<ICodeIntelligence, Task<T>> query, T fallback)
+    /// <remarks>
+    /// The provider runs on the thread pool with a deadline, never on this
+    /// component's thread, which is the window's only dispatcher (see
+    /// <see cref="CodeNavigation.Run{T}"/>). The worktree and path are read here
+    /// and handed in, because the parameters may change before the pool gets to
+    /// it; the await brings the answer back to the circuit.
+    /// </remarks>
+    private async Task<T> Query<T>(Func<ICodeIntelligence, string, string, CancellationToken, Task<T>> query, T fallback)
     {
         if (_queries.IsCancellationRequested || WorktreePath.Length == 0 || Code.For(Path) is not { } intelligence)
         {
             return fallback;
         }
 
-        try
-        {
-            return await query(intelligence);
-        }
-        catch (Exception)
-        {
-            return fallback;
-        }
+        var worktree = WorktreePath;
+        var path = Path;
+
+        return await CodeNavigation.Run(intelligence, (i, t) => query(i, worktree, path, t), fallback, _queries.Token);
     }
 
     public async ValueTask DisposeAsync()

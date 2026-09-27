@@ -5,6 +5,11 @@ description: Show a file to the user inside the running Agents Dashboard app, as
 
 # Open a file in the dashboard
 
+If you have the `mcp__agents-dashboard__dashboard_open_file` tool (you do when
+the dashboard runs you), call it with the path, and a `line` if you like,
+instead of everything below. It tells you whether the file opened. The folder
+below is for agents running in a terminal.
+
 The dashboard watches `~/.agents-dashboard/open/` for requests. Each one is a
 small JSON file naming an absolute path. Write it under a temporary name and
 rename it to `.json`, so the app never reads a half-written request:

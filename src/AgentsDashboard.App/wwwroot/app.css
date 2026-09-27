@@ -469,6 +469,25 @@ input[type="checkbox"].switch:checked::after { transform: translateX(14px); back
 .banner.info { border-left-color: var(--accent); }
 .banner.danger { border-left-color: var(--danger); }
 
+/* Blazor sets display: block on this when the circuit dies. Pinned over
+   everything, since whatever the window was showing no longer works. */
+#blazor-error-ui {
+    display: none;
+    position: fixed;
+    left: 50%;
+    bottom: 16px;
+    transform: translateX(-50%);
+    z-index: 10000;
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--danger);
+    background: var(--surface);
+    border-radius: var(--radius);
+    padding: 10px 14px;
+    box-shadow: 0 6px 24px rgb(0 0 0 / 0.35);
+}
+
+#blazor-error-ui .reload { margin-left: 10px; font-weight: 600; }
+
 /* ---------- diff ---------- */
 
 /* One row shape for files and folders alike, so a folder and the files under it

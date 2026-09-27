@@ -31,8 +31,9 @@ function followThread(thread) {
     thread.dataset.following = 'true';
     thread.dataset.pinned = 'true';
 
+    // Not while the scrollbar is held: the drag decides where the thread is.
     const stick = () => {
-        if (thread.dataset.pinned === 'true') {
+        if (thread.dataset.pinned === 'true' && !held) {
             thread.scrollTop = thread.scrollHeight;
         }
     };
@@ -46,9 +47,33 @@ function followThread(thread) {
     let touchedAt = 0;
     let held = false;
     const touched = () => { touchedAt = performance.now(); };
-    for (const type of ['wheel', 'touchmove', 'keydown']) {
-        thread.addEventListener(type, touched, { passive: true });
-    }
+    thread.addEventListener('touchmove', touched, { passive: true });
+
+    // Heading up unpins at once, on the input itself. The browser moves the
+    // thread first and reports the scroll a frame later, and while a reply is
+    // streaming in, the observers below fire in that gap: waiting for the scroll
+    // event let them put a still-pinned thread back at the bottom, throwing
+    // away your scroll before it ever counted.
+    const leave = () => {
+        touched();
+        if (thread.scrollHeight > thread.clientHeight) {
+            thread.dataset.pinned = 'false';
+        }
+    };
+    thread.addEventListener('wheel', (e) => {
+        if (e.deltaY < 0) {
+            leave();
+        } else {
+            touched();
+        }
+    }, { passive: true });
+    thread.addEventListener('keydown', (e) => {
+        if (['ArrowUp', 'PageUp', 'Home'].includes(e.key)) {
+            leave();
+        } else {
+            touched();
+        }
+    }, { passive: true });
 
     // Dragging the scrollbar can go on for longer than the window above, so a
     // press counts for as long as the button is down.

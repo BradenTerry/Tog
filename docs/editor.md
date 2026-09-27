@@ -166,6 +166,14 @@ and because a route on the loopback host is reachable from any page open in
 any browser, where a file in the user's home can only come from the user's own
 processes.
 
+An agent the dashboard runs has a better route: the `dashboard_open_file` tool
+on the dashboard's own MCP server (`OpenFileTool`). It takes a path relative to
+the agent's folder as well as an absolute one, refuses a file that is not
+there, and answers whether a window took it or it is held for the first,
+where a dropped request can only be checked by watching the folder empty. It
+hands the request to `OpenRequests.Open`, the same delivery as the folder's,
+minus the folder.
+
 `OpenRequests` watches the folder, reads each request, deletes it, and hands it
 to every open window. A request older than two minutes is dropped, so one left
 while the app was closed does not surface the next day, and one that beats the

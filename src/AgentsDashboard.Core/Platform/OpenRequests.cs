@@ -91,6 +91,13 @@ public sealed class OpenRequests : IDisposable
     }
 
     /// <summary>
+    /// Opens a file for a caller inside the app, such as an agent's tool call,
+    /// without going through the folder. True when a window took it, false when
+    /// none is open yet and it is held for the first.
+    /// </summary>
+    public bool Open(OpenRequest request) => Deliver(request);
+
+    /// <summary>
     /// A request's contents, or null when they are not one. The path has to be
     /// absolute: the writer's working folder means nothing to this process.
     /// </summary>
@@ -185,7 +192,7 @@ public sealed class OpenRequests : IDisposable
         }
     }
 
-    private void Deliver(OpenRequest request)
+    private bool Deliver(OpenRequest request)
     {
         Action<OpenRequest>[] listeners;
         lock (_gate)
@@ -193,7 +200,7 @@ public sealed class OpenRequests : IDisposable
             if (_listeners.Count == 0)
             {
                 _held.Add(request);
-                return;
+                return false;
             }
 
             listeners = [.. _listeners];
@@ -203,6 +210,8 @@ public sealed class OpenRequests : IDisposable
         {
             listener(request);
         }
+
+        return true;
     }
 
     public void Dispose() => _watcher?.Dispose();

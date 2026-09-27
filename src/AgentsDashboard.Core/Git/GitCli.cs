@@ -66,8 +66,12 @@ public sealed class GitCli(TimeSpan? timeout = null) : IGitCli
                 return new GitResult(-1, "", "git could not be started");
             }
         }
-        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException)
+        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException or IOException)
         {
+            // IOException covers a working folder that has been deleted, the
+            // app's or this call's: .NET reads it while resolving "git" and
+            // throws FileNotFoundException, which would otherwise reach
+            // whichever component asked and take its window down.
             return new GitResult(-1, "", $"git could not be started: {e.Message}");
         }
 

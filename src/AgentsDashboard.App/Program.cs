@@ -11,6 +11,7 @@ using AgentsDashboard.Core.Platform;
 using AgentsDashboard.Core.Repos;
 using AgentsDashboard.Core.Review;
 using AgentsDashboard.App.Extensions;
+using AgentsDashboard.Extensions;
 
 // The dashboard is a local web app in a native window. Blazor Server rather than
 // a hybrid webview because its circuit is exactly the push channel this needs:
@@ -20,6 +21,13 @@ using AgentsDashboard.App.Extensions;
 var options = CliOptions.Parse(args);
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Every process the app starts (git above all, many times a second) resolves
+// its program with the working folder in hand, and once that folder is gone
+// every start throws. The app is often started from inside a worktree, and
+// worktrees get removed, so the working folder moves somewhere that stays.
+// The content root and the options were made absolute before this.
+Directory.SetCurrentDirectory(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
 
 // Makes the framework's own web assets (blazor.web.js above all) resolvable when
 // the app is run from its build output rather than a publish. CreateBuilder only
@@ -69,8 +77,9 @@ builder.Services.AddSingleton(_ => AgentBackends.Claude(builder.Environment.Cont
 builder.Services.AddSingleton<IAgentLauncher, ProcessAgentLauncher>();
 builder.Services.AddSingleton<HostedAgentStore>();
 builder.Services.AddSingleton<PlanUsageStore>();
-// The extensions' agent tools, served as an MCP server on this host and handed
-// to every session the agent host starts or resumes.
+// The app's and the extensions' agent tools, served as an MCP server on this
+// host and handed to every session the agent host starts or resumes.
+builder.Services.AddSingleton<IAgentTool, OpenFileTool>();
 builder.Services.AddSingleton(new AgentToolServer.Endpoint(port));
 builder.Services.AddSingleton<AgentToolServer>();
 builder.Services.AddSingleton<IAgentMcpServers>(sp => sp.GetRequiredService<AgentToolServer>());

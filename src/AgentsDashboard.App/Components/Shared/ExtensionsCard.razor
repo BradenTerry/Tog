@@ -79,17 +79,17 @@
                 @switch (entry.Status)
                 {
                     case ExtensionStatus.Loaded:
-                        <button class="ghost small" @onclick="() => Extensions.Reload(found.Id)">Reload</button>
+                        <button class="ghost small" @onclick="() => OffWindow(() => Extensions.Reload(found.Id))">Reload</button>
                         @if (found.Source != ExtensionSource.CommandLine)
                         {
-                            <button class="ghost small" @onclick="() => Extensions.Disable(found.Id)">Disable</button>
+                            <button class="ghost small" @onclick="() => OffWindow(() => Extensions.Disable(found.Id))">Disable</button>
                         }
                         break;
                     case ExtensionStatus.Failed:
-                        <button class="ghost small" @onclick="() => Extensions.Reload(found.Id)">Retry</button>
+                        <button class="ghost small" @onclick="() => OffWindow(() => Extensions.Reload(found.Id))">Retry</button>
                         @if (found.Source != ExtensionSource.CommandLine)
                         {
-                            <button class="ghost small" @onclick="() => Extensions.Disable(found.Id)">Disable</button>
+                            <button class="ghost small" @onclick="() => OffWindow(() => Extensions.Disable(found.Id))">Disable</button>
                         }
                         break;
                     case ExtensionStatus.Disabled or ExtensionStatus.NeedsConsent when manifest is not null:
@@ -98,7 +98,7 @@
                 }
                 @if (found.Source == ExtensionSource.Linked)
                 {
-                    <button class="ghost small" @onclick="() => Extensions.Unlink(found.Directory)">Unlink</button>
+                    <button class="ghost small" @onclick="() => OffWindow(() => Extensions.Unlink(found.Directory))">Unlink</button>
                 }
             </div>
         </div>
@@ -189,11 +189,11 @@
     /// A folder you linked is code you are writing, so it is turned on as it is.
     /// An installed copy is asked about first.
     /// </summary>
-    private void AskOrEnable(FoundExtension found)
+    private async Task AskOrEnable(FoundExtension found)
     {
         if (found.IsDev)
         {
-            Enable(found.Id);
+            await Enable(found.Id);
         }
         else
         {
@@ -201,25 +201,33 @@
         }
     }
 
-    private void Enable(string id)
+    private Task Enable(string id)
     {
         _confirming = null;
-        Extensions.Enable(id);
+        return OffWindow(() => Extensions.Enable(id));
     }
 
-    private void Rescan() => Extensions.Rescan();
+    private Task Rescan() => OffWindow(Extensions.Rescan);
 
-    private void OnLinkKey(KeyboardEventArgs e)
+    /// <summary>
+    /// Runs a host action on the pool. Loading an extension copies its files,
+    /// loads its assemblies and runs its Configure, all extension-sized work
+    /// that on this window's thread freezes the window until it is done.
+    /// </summary>
+    private static Task OffWindow(Action action) => Task.Run(action);
+
+    private async Task OnLinkKey(KeyboardEventArgs e)
     {
         if (e.Key == "Enter")
         {
-            Link();
+            await Link();
         }
     }
 
-    private void Link()
+    private async Task Link()
     {
-        _linkError = Extensions.Link(_linkPath);
+        var path = _linkPath;
+        _linkError = await Task.Run(() => Extensions.Link(path));
         if (_linkError is null)
         {
             _linkPath = "";
@@ -231,7 +239,7 @@
         if (await Pick("Choose an extension folder", _linkPath) is { } chosen)
         {
             _linkPath = chosen;
-            Link();
+            await Link();
         }
     }
 
@@ -275,7 +283,7 @@
         }
     }
 
-    private void RemoveFolder(string folder) => Extensions.RemoveFolder(folder);
+    private Task RemoveFolder(string folder) => OffWindow(() => Extensions.RemoveFolder(folder));
 
     private static string SourceName(ExtensionSource source) => source switch
     {
