@@ -60,8 +60,9 @@ picked. See [docs/workbench.md](docs/workbench.md).
 A file path an agent mentions in a reply is a link: it opens the file in the editor at that line, with
 a second link beside it that opens the same place in VS Code.
 
-Images open as pictures. An agent can show you a file, a screenshot say, by
-dropping a request in `~/.agents-dashboard/open/`: see
+Images open as pictures. An agent can show you a file, a screenshot say, with
+the `dashboard_open_file` tool, or from a terminal by dropping a request in
+`~/.agents-dashboard/open/`: see
 [docs/editor.md](docs/editor.md#opening-a-file-from-outside).
 
 ## How it finds things

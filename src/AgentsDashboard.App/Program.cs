@@ -11,6 +11,7 @@ using AgentsDashboard.Core.Platform;
 using AgentsDashboard.Core.Repos;
 using AgentsDashboard.Core.Review;
 using AgentsDashboard.App.Extensions;
+using AgentsDashboard.Extensions;
 
 // The dashboard is a local web app in a native window. Blazor Server rather than
 // a hybrid webview because its circuit is exactly the push channel this needs:
@@ -69,8 +70,9 @@ builder.Services.AddSingleton(_ => AgentBackends.Claude(builder.Environment.Cont
 builder.Services.AddSingleton<IAgentLauncher, ProcessAgentLauncher>();
 builder.Services.AddSingleton<HostedAgentStore>();
 builder.Services.AddSingleton<PlanUsageStore>();
-// The extensions' agent tools, served as an MCP server on this host and handed
-// to every session the agent host starts or resumes.
+// The app's and the extensions' agent tools, served as an MCP server on this
+// host and handed to every session the agent host starts or resumes.
+builder.Services.AddSingleton<IAgentTool, OpenFileTool>();
 builder.Services.AddSingleton(new AgentToolServer.Endpoint(port));
 builder.Services.AddSingleton<AgentToolServer>();
 builder.Services.AddSingleton<IAgentMcpServers>(sp => sp.GetRequiredService<AgentToolServer>());

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
@@ -9,8 +10,8 @@ using AgentsDashboard.Extensions;
 namespace AgentsDashboard.App.Extensions;
 
 /// <summary>
-/// Serves the loaded extensions' agent tools as one MCP server, and tells the
-/// agent host to hand it to every session.
+/// Serves the app's own agent tools and the loaded extensions' as one MCP
+/// server, and tells the agent host to hand it to every session.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -43,7 +44,11 @@ namespace AgentsDashboard.App.Extensions;
 /// nothing else to tell one session's calls from another's.
 /// </para>
 /// </remarks>
-public sealed class AgentToolServer(AgentToolServer.Endpoint endpoint, ExtensionHost extensions, ILogger<AgentToolServer> log)
+public sealed class AgentToolServer(
+    AgentToolServer.Endpoint endpoint,
+    IEnumerable<IAgentTool> builtIn,
+    ExtensionHost extensions,
+    ILogger<AgentToolServer> log)
     : IAgentMcpServers
 {
     /// <summary>Where the app listens.</summary>
@@ -61,6 +66,11 @@ public sealed class AgentToolServer(AgentToolServer.Endpoint endpoint, Extension
     private static readonly string[] Versions = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
     private readonly string _key = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+
+    private readonly IReadOnlyList<IAgentTool> _builtIn = [.. builtIn];
+
+    /// <summary>Clashes already logged: the list is read on every request.</summary>
+    private readonly ConcurrentDictionary<(string, string), bool> _clashes = new();
 
     public IReadOnlyList<McpServer> For(string cwd) =>
         [new McpServer(
@@ -176,7 +186,7 @@ public sealed class AgentToolServer(AgentToolServer.Endpoint endpoint, Extension
     private JsonArray ListTools()
     {
         var list = new JsonArray();
-        foreach (var (name, (_, tool)) in extensions.AgentTools().OrderBy(t => t.Key, StringComparer.Ordinal))
+        foreach (var (name, (_, tool)) in Tools().OrderBy(t => t.Key, StringComparer.Ordinal))
         {
             JsonNode schema;
             try
@@ -198,7 +208,7 @@ public sealed class AgentToolServer(AgentToolServer.Endpoint endpoint, Extension
     private async Task<JsonObject> CallAsync(JsonNode id, JsonObject? parameters, string? cwd, CancellationToken ct)
     {
         var name = Str(parameters?["name"]);
-        if (name is null || !extensions.AgentTools().TryGetValue(name, out var found))
+        if (name is null || !Tools().TryGetValue(name, out var found))
         {
             return Error(id, -32602, $"There is no tool called {name}.");
         }
@@ -222,6 +232,25 @@ public sealed class AgentToolServer(AgentToolServer.Endpoint endpoint, Extension
             ["content"] = new JsonArray(new JsonObject { ["type"] = "text", ["text"] = result.Text }),
             ["isError"] = result.IsError,
         });
+    }
+
+    /// <summary>
+    /// The app's tools, then every loaded extension's. An extension that picks
+    /// a name the app uses loses it, so an extension cannot stand in for the
+    /// app's own tool.
+    /// </summary>
+    private Dictionary<string, (string ExtensionId, IAgentTool Tool)> Tools()
+    {
+        var tools = _builtIn.ToDictionary(t => t.Name, t => (ExtensionId: "app", Tool: t), StringComparer.Ordinal);
+        foreach (var (name, found) in extensions.AgentTools())
+        {
+            if (!tools.TryAdd(name, found) && _clashes.TryAdd((found.ExtensionId, name), true))
+            {
+                log.LogWarning("{Extension} adds the agent tool {Tool}, which the app already has", found.ExtensionId, name);
+            }
+        }
+
+        return tools;
     }
 
     /// <summary>A string, or null for anything else: a caller's JSON can hold a number where a name belongs.</summary>

@@ -103,6 +103,23 @@ public class OpenRequestsTests
         Assert.Empty(got);
     }
 
+    [Fact]
+    public void Opening_from_inside_the_app_says_whether_a_window_took_it()
+    {
+        using var dir = new TempDir();
+        using var requests = new OpenRequests(new AppPaths(dir.Path), new FakeClock(DateTimeOffset.UtcNow));
+        var target = new OpenRequest(Path.Combine(dir.Path, "shot.png"), 3);
+
+        Assert.False(requests.Open(target));
+
+        var got = new List<OpenRequest>();
+        using var _ = requests.Subscribe(got.Add);
+        Assert.Equal([target], got);
+
+        Assert.True(requests.Open(target));
+        Assert.Equal([target, target], got);
+    }
+
     [Theory]
     [InlineData("shot.PNG", "image/png")]
     [InlineData("a/b/photo.jpeg", "image/jpeg")]

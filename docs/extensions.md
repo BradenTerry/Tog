@@ -126,6 +126,9 @@ sequenceDiagram
 - **Which agent.** ACP gives an MCP server nothing to tell sessions apart, so
   the agent's folder rides in the address and reaches the tool as
   `AgentToolCall.Cwd`.
+- **The app's own tools** are served beside them, prefixed `dashboard_`
+  (`dashboard_open_file`, see `docs/editor.md`). An extension tool with the
+  same name as one of the app's is dropped and logged.
 - **Names** are lower case, prefixed with what the extension is about
   (`tests_run`), and unique across extensions; a clash keeps the one loaded
   first and logs the other.
