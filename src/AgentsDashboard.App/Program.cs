@@ -56,6 +56,7 @@ builder.Services.AddSingleton<IClipboard, Clipboard>();
 builder.Services.AddSingleton(new AppPaths(options.DataDir));
 builder.Services.AddSingleton<SettingsStore>();
 builder.Services.AddSingleton<ReviewDraftStore>();
+builder.Services.AddSingleton<LastViewStore>();
 
 // Claude
 builder.Services.AddSingleton(new ClaudePaths());

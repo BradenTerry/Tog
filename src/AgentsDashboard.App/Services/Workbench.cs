@@ -1,5 +1,6 @@
 using AgentsDashboard.Core.Git;
 using AgentsDashboard.Core.Model;
+using AgentsDashboard.Core.Repos;
 using AgentsDashboard.Extensions;
 
 namespace AgentsDashboard.App.Services;
@@ -23,11 +24,43 @@ public enum PanelSide
 /// title bar folds the panels away. Documents are kept per worktree, so switching
 /// agents swaps the editor's tabs and switching back finds them as they were.
 /// Memory only, like <see cref="WorktreeViews"/>: where you were looking, not a
-/// preference. The panels' layout is the exception, kept in the browser by the
-/// layout component, because it is how you like the window.
+/// preference. Two exceptions: the panels' layout, kept in the browser by the
+/// layout component because it is how you like the window, and the agent and
+/// worktree in view, kept in <see cref="LastViewStore"/> so the app reopens on
+/// them.
 /// </remarks>
-public sealed class Workbench(IServiceProvider services, AgentDirectory directory) : IDisposable
+public sealed class Workbench : IDisposable
 {
+    private readonly IServiceProvider _services;
+    private readonly AgentDirectory _directory;
+    private readonly LastViewStore _lastViewStore;
+    private LastView? _lastView;
+
+    /// <summary>The agent open when the app was last used, until a page has had the chance to reopen it.</summary>
+    private string? _reopen;
+
+    public Workbench(IServiceProvider services, AgentDirectory directory, LastViewStore lastViewStore)
+    {
+        _services = services;
+        _directory = directory;
+        _lastViewStore = lastViewStore;
+        _lastView = lastViewStore.Load();
+
+        if (_lastView is { WorktreePath: { } path, RepoRoot: { } root } saved)
+        {
+            if (saved.Pinned)
+            {
+                _pinned = (path, root);
+            }
+            else
+            {
+                _lastWorktree = (path, root);
+            }
+        }
+
+        _reopen = _lastView?.SessionId;
+    }
+
     public const string FilesTab = "files";
     public const string SourceControlTab = "scm";
     public const string ChatTab = "chat";
@@ -73,7 +106,7 @@ public sealed class Workbench(IServiceProvider services, AgentDirectory director
 
     /// <summary>The agent every panel follows, when it is still in the list.</summary>
     public ChatTarget? Agent(DashboardSnapshot snapshot) =>
-        SessionId is { } id ? directory.Targets(snapshot).FirstOrDefault(t => t.SessionId == id) : null;
+        SessionId is { } id ? _directory.Targets(snapshot).FirstOrDefault(t => t.SessionId == id) : null;
 
     /// <summary>Whether the worktree was picked by hand, rather than following the agent.</summary>
     public bool Pinned => _pinned is not null;
@@ -104,6 +137,7 @@ public sealed class Workbench(IServiceProvider services, AgentDirectory director
             if (agent.WorktreePath is { } path && Find(snapshot, path) is { } seen)
             {
                 _lastWorktree = (path, seen.Worktree.RepoRoot);
+                SaveLastView();
             }
 
             return agent.WorktreePath;
@@ -293,7 +327,7 @@ public sealed class Workbench(IServiceProvider services, AgentDirectory director
     {
         if (!_changes.TryGetValue(worktreePath, out var model))
         {
-            model = ActivatorUtilities.CreateInstance<ChangesModel>(services, worktreePath);
+            model = ActivatorUtilities.CreateInstance<ChangesModel>(_services, worktreePath);
             _changes[worktreePath] = model;
         }
 
@@ -577,7 +611,45 @@ public sealed class Workbench(IServiceProvider services, AgentDirectory director
         Raise();
     }
 
-    private void Raise() => Changed?.Invoke();
+    private void Raise()
+    {
+        SaveLastView();
+        Changed?.Invoke();
+    }
+
+    /// <summary>
+    /// The agent to open in place of an empty window, once: the one open when the
+    /// app was last used, if it is still in the list. Asked for by the page that
+    /// would otherwise say "Pick an agent", so a link to another agent, or
+    /// having picked one already, wins.
+    /// </summary>
+    public string? TakeAgentToReopen(DashboardSnapshot snapshot)
+    {
+        var id = _reopen;
+        _reopen = null;
+        return id is not null && SessionId is null && _directory.Targets(snapshot).Any(t => t.SessionId == id) ? id : null;
+    }
+
+    /// <summary>
+    /// Writes down the agent and worktree in view when either moved. The agent is
+    /// kept after it is closed, since reopening on an empty window helps nobody,
+    /// and the worktree is whichever one is showing.
+    /// </summary>
+    private void SaveLastView()
+    {
+        var worktree = _pinned ?? _lastWorktree;
+        var view = new LastView(
+            SessionId ?? _reopen ?? _lastView?.SessionId,
+            worktree?.Path,
+            worktree?.RepoRoot,
+            _pinned is not null);
+
+        if (view != _lastView)
+        {
+            _lastView = view;
+            _lastViewStore.Save(view);
+        }
+    }
 
     private void RaiseLayout()
     {

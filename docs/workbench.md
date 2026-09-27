@@ -196,6 +196,18 @@ so nothing carries one agent's state into another.
   the grid does not shift and its contents survive. It also gets
   `visibility: hidden`, so nothing inside it can take keyboard focus.
 
+## Reopening where it was left
+
+The agent and the worktree in view are written to `last-view.json` in the
+app's data folder (`LastViewStore`) whenever either moves, and a new window
+starts on them: `Workbench` restores the worktree, picked by hand or not, as
+it was, and `ChatPage`, opened on no agent, goes to the saved one if it is
+still in the list. This is a file rather than `localStorage` because the
+window is served from a port picked on every start, and the browser keeps its
+storage per origin. The agent is kept after it is closed, so a restart from an
+empty window still finds the last one. A link to another agent wins, and the
+reopening is tried once per window.
+
 ## Deep links
 
 `chat/<session>/<tab>?file=<rel>&line=N` still works. `ChatPage` carries it out
