@@ -358,15 +358,15 @@ public sealed class Workbench : IDisposable
 
         if (doc is null)
         {
-            doc = new EditorDoc(key, kind, path) { Preview = !keep };
-            int? preview = keep ? null : group.Docs.FindIndex(d => d.Preview);
+            doc = new EditorDoc(key, kind, path) { Preview = !keep, Pane = group.Focused };
+            int? preview = keep ? null : group.Docs.FindIndex(d => d.Preview && d.Pane == group.Focused);
             if (preview is >= 0)
             {
                 group.Docs[preview.Value] = doc;
             }
             else
             {
-                group.Docs.Insert(group.InsertAt(), doc);
+                group.Add(doc);
             }
         }
         else if (keep)
@@ -411,7 +411,7 @@ public sealed class Workbench : IDisposable
         if (group.Find(key) is not { } doc)
         {
             doc = new EditorDoc(key, DocKind.External, absolutePath);
-            group.Docs.Insert(group.InsertAt(), doc);
+            group.Add(doc);
         }
 
         doc.Line = line;
@@ -426,7 +426,7 @@ public sealed class Workbench : IDisposable
         var group = Editors(worktreePath);
         if (group.Find(EditorDoc.ChangesKey) is null)
         {
-            group.Docs.Insert(group.InsertAt(), new EditorDoc(EditorDoc.ChangesKey, DocKind.Changes, null));
+            group.Add(new EditorDoc(EditorDoc.ChangesKey, DocKind.Changes, null));
         }
 
         group.ActiveKey = EditorDoc.ChangesKey;
@@ -464,7 +464,7 @@ public sealed class Workbench : IDisposable
         var group = Editors(worktreePath ?? "");
         if (group.Find(key) is null)
         {
-            group.Docs.Insert(group.InsertAt(), new EditorDoc(key, kind, null));
+            group.Add(new EditorDoc(key, kind, null));
         }
 
         group.ActiveKey = key;
@@ -526,7 +526,7 @@ public sealed class Workbench : IDisposable
                 return;
             }
 
-            group.Docs.Insert(group.InsertAt(), doc);
+            group.Add(doc);
         }
 
         group.ActiveKey = doc.Key;
@@ -552,24 +552,53 @@ public sealed class Workbench : IDisposable
     }
 
     /// <summary>Closes a tab. Asking about unsaved work is the editor area's job, before this.</summary>
-    public void Close(string worktreePath, string key)
+    public void Close(string worktreePath, string key) => Close(worktreePath, [key]);
+
+    /// <summary>
+    /// Closes several tabs at once, for Close Others, Close All and the rest of
+    /// the tab menu, so the strip redraws once rather than once a tab.
+    /// </summary>
+    public void Close(string worktreePath, IReadOnlyCollection<string> keys)
     {
         var group = Editors(worktreePath);
-        var order = group.InTabOrder.ToList();
-        var at = order.FindIndex(d => d.Key == key);
-        if (at < 0)
+        if (!group.Docs.Any(d => keys.Contains(d.Key)))
         {
             return;
         }
 
-        group.Docs.Remove(order[at]);
-        order.RemoveAt(at);
-        if (group.ActiveKey == key)
+        group.Remove(keys.ToHashSet(StringComparer.Ordinal));
+        Raise();
+    }
+
+    /// <summary>
+    /// Moves a tab to the other side of the editor, splitting it when it is not
+    /// split yet. A document is only ever open on one side: two editors on one
+    /// file would be two Monaco models with one URI, and two sets of unsaved text
+    /// to reconcile. The tab's component is kept, so its undo stack, scroll and
+    /// unsaved work go with it.
+    /// </summary>
+    public void MoveToOtherSide(string worktreePath, string key)
+    {
+        var group = Editors(worktreePath);
+        if (group.Find(key) is not { } doc)
         {
-            // The neighbour in the strip, the way closing a tab does everywhere.
-            group.ActiveKey = order.Count == 0 ? null : order[Math.Min(at, order.Count - 1)].Key;
+            return;
         }
 
+        group.Move(doc, 1 - doc.Pane);
+        Raise();
+    }
+
+    /// <summary>The side of a split editor that was last clicked in, where files open next.</summary>
+    public void FocusPane(string worktreePath, int pane)
+    {
+        var group = Editors(worktreePath);
+        if (group.Focused == pane || !group.Docs.Any(d => d.Pane == pane))
+        {
+            return;
+        }
+
+        group.Focused = pane;
         Raise();
     }
 
@@ -695,14 +724,51 @@ public enum DocKind
     External,
 }
 
-/// <summary>A worktree's open documents, in the order they were opened.</summary>
+/// <summary>
+/// A worktree's open documents, in the order they were opened, on one side of
+/// the editor or split across two.
+/// </summary>
+/// <remarks>
+/// One list for both sides rather than a list each, so the editor area can draw
+/// every document in one keyed list and moving a tab across only changes where
+/// it is drawn, never rebuilds it. A side is never left empty: when its last tab
+/// goes, the other side takes the whole width.
+/// </remarks>
 public sealed class EditorGroup
 {
     public List<EditorDoc> Docs { get; } = [];
 
-    public string? ActiveKey { get; set; }
+    /// <summary>The tab in front on each side.</summary>
+    private readonly string?[] _active = new string?[2];
+
+    /// <summary>The side new documents open on and <see cref="ActiveKey"/> speaks for: 0 left, 1 right.</summary>
+    public int Focused { get; set; }
+
+    public bool Split => Docs.Any(d => d.Pane == 1);
+
+    /// <summary>
+    /// The tab in front on the focused side. Setting it to a document on the
+    /// other side focuses that side, so opening a file already open over there
+    /// goes to it rather than opening it twice.
+    /// </summary>
+    public string? ActiveKey
+    {
+        get => _active[Focused];
+        set
+        {
+            if (value is not null && Find(value) is { } doc)
+            {
+                Focused = doc.Pane;
+            }
+
+            _active[Focused] = value;
+        }
+    }
 
     public EditorDoc? Active => ActiveKey is null ? null : Find(ActiveKey);
+
+    /// <summary>The tab in front on one side, whether or not that side is focused.</summary>
+    public string? ActiveIn(int pane) => _active[pane];
 
     public EditorDoc? Find(string key) => Docs.FirstOrDefault(d => d.Key == key);
 
@@ -715,14 +781,95 @@ public sealed class EditorGroup
     /// <summary>Where going back left from, for going forward again.</summary>
     internal List<NavPoint> Forward { get; } = [];
 
-    /// <summary>Pinned tabs first, then the rest, each in the order opened.</summary>
-    public IEnumerable<EditorDoc> InTabOrder => Docs.Where(d => d.Pinned).Concat(Docs.Where(d => !d.Pinned));
+    /// <summary>One side's tabs: pinned first, then the rest, each in the order opened.</summary>
+    public IEnumerable<EditorDoc> TabsIn(int pane)
+    {
+        var tabs = Docs.Where(d => d.Pane == pane);
+        return tabs.Where(d => d.Pinned).Concat(tabs.Where(d => !d.Pinned));
+    }
+
+    /// <summary>Opens a document on the focused side, after the tab in front there.</summary>
+    internal void Add(EditorDoc doc)
+    {
+        doc.Pane = Focused;
+        Docs.Insert(InsertAt(), doc);
+    }
 
     /// <summary>A new tab goes after the one in front, where you are looking.</summary>
-    internal int InsertAt()
+    private int InsertAt()
     {
         var active = ActiveKey is null ? -1 : Docs.FindIndex(d => d.Key == ActiveKey);
         return active < 0 ? Docs.Count : active + 1;
+    }
+
+    /// <summary>
+    /// Takes documents away. A side whose tab in front went shows its neighbour
+    /// in the strip, the one to the right if there is one, the way closing a tab
+    /// does everywhere.
+    /// </summary>
+    internal void Remove(IReadOnlySet<string> keys)
+    {
+        for (var pane = 0; pane < 2; pane++)
+        {
+            if (_active[pane] is { } active && keys.Contains(active))
+            {
+                _active[pane] = Neighbour(pane, active, keys);
+            }
+        }
+
+        Docs.RemoveAll(d => keys.Contains(d.Key));
+        Collapse();
+    }
+
+    /// <summary>Moves a document to a side, after the tab in front there, and puts it in front.</summary>
+    internal void Move(EditorDoc doc, int pane)
+    {
+        if (doc.Pane == pane)
+        {
+            return;
+        }
+
+        if (_active[doc.Pane] == doc.Key)
+        {
+            _active[doc.Pane] = Neighbour(doc.Pane, doc.Key, new HashSet<string>(StringComparer.Ordinal) { doc.Key });
+        }
+
+        Docs.Remove(doc);
+        doc.Pane = pane;
+        doc.Preview = false;
+        var after = _active[pane] is { } front ? Docs.FindIndex(d => d.Key == front) : -1;
+        Docs.Insert(after < 0 ? Docs.Count : after + 1, doc);
+        _active[pane] = doc.Key;
+        Focused = pane;
+        Collapse();
+    }
+
+    private string? Neighbour(int pane, string key, IReadOnlySet<string> going)
+    {
+        var order = TabsIn(pane).ToList();
+        var at = order.FindIndex(d => d.Key == key);
+        return (order.Skip(at).FirstOrDefault(d => !going.Contains(d.Key))
+            ?? order.Take(at).LastOrDefault(d => !going.Contains(d.Key)))?.Key;
+    }
+
+    /// <summary>An empty side goes, and the other takes the width.</summary>
+    private void Collapse()
+    {
+        if (Docs.Count > 0 && Docs.All(d => d.Pane == 1))
+        {
+            foreach (var doc in Docs)
+            {
+                doc.Pane = 0;
+            }
+
+            _active[0] = _active[1];
+        }
+
+        if (!Split)
+        {
+            _active[1] = null;
+            Focused = 0;
+        }
     }
 }
 
@@ -747,6 +894,9 @@ public sealed class EditorDoc(string key, DocKind kind, string? path)
     public string? Path { get; } = path;
 
     public bool Pinned { get; set; }
+
+    /// <summary>The side of the editor the tab is on: 0 left, or 1 right when split.</summary>
+    public int Pane { get; set; }
 
     /// <summary>Opened by a single click, and replaced by the next one until kept.</summary>
     public bool Preview { get; set; }

@@ -1140,3 +1140,98 @@ function bindPicker(trigger) {
         }
     });
 })();
+
+// A dragged editor tab carries nothing the page reads: the server knows which
+// tab it is. WebKit will not start a drag with no data, though, and left to
+// guess, the drag would carry the tab's text for Monaco to paste if dropped on
+// an editor. An empty string and a move is all it needs.
+document.addEventListener('dragstart', (event) => {
+    if (event.target.closest?.('.etab') && event.dataTransfer) {
+        event.dataTransfer.setData('text/plain', '');
+        event.dataTransfer.effectAllowed = 'move';
+    }
+});
+
+// The border between the two sides of a split editor. A share of the editor's
+// width rather than pixels, unlike the panel borders, so the sides keep their
+// proportion as the window or the panels around them change size. Kept per
+// machine; double-click evens it, and the arrow keys move it when focused.
+(() => {
+    const name = '--wb-split';
+    const storageKey = 'agentsDashboard.wb-split';
+    const root = document.documentElement;
+    // Neither side is squeezed below this, so its tab strip and editor stay usable.
+    const minSide = 200;
+
+    function clamp(percent, width) {
+        const floor = width > 0 ? Math.min(50, (minSide / width) * 100) : 15;
+        return Math.min(100 - floor, Math.max(floor, percent));
+    }
+
+    function current() {
+        return parseFloat(getComputedStyle(root).getPropertyValue(name)) || 50;
+    }
+
+    function apply(percent, width, save) {
+        const share = Math.round(clamp(percent, width) * 10) / 10;
+        root.style.setProperty(name, share + '%');
+        if (save) {
+            try {
+                localStorage.setItem(storageKey, String(share));
+            } catch {
+            }
+        }
+    }
+
+    try {
+        const saved = parseFloat(localStorage.getItem(storageKey) ?? '');
+        if (Number.isFinite(saved)) {
+            apply(saved, 0, false);
+        }
+    } catch {
+    }
+
+    document.addEventListener('pointerdown', (event) => {
+        const handle = event.target.closest?.('[data-editor-split]');
+        if (!handle || event.button !== 0) {
+            return;
+        }
+
+        event.preventDefault();
+        const area = handle.parentElement.getBoundingClientRect();
+        handle.setPointerCapture(event.pointerId);
+        handle.classList.add('dragging');
+        document.body.classList.add('resizing-col');
+
+        const move = (e) => apply(((e.clientX - area.left) / area.width) * 100, area.width, false);
+        const up = () => {
+            handle.removeEventListener('pointermove', move);
+            handle.removeEventListener('pointerup', up);
+            handle.removeEventListener('pointercancel', up);
+            handle.classList.remove('dragging');
+            document.body.classList.remove('resizing-col');
+            apply(current(), area.width, true);
+        };
+
+        handle.addEventListener('pointermove', move);
+        handle.addEventListener('pointerup', up);
+        handle.addEventListener('pointercancel', up);
+    });
+
+    document.addEventListener('dblclick', (event) => {
+        if (event.target.closest?.('[data-editor-split]')) {
+            apply(50, 0, true);
+        }
+    });
+
+    document.addEventListener('keydown', (event) => {
+        const handle = event.target.closest?.('[data-editor-split]');
+        if (!handle || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) {
+            return;
+        }
+
+        event.preventDefault();
+        const step = (event.shiftKey ? 8 : 2) * (event.key === 'ArrowRight' ? 1 : -1);
+        apply(current() + step, handle.parentElement.getBoundingClientRect().width, true);
+    });
+})();
