@@ -288,7 +288,7 @@ async function enhanceMarkdown(element, reference) {
     if (diagrams.length > 0) {
         try {
             const mermaid = await loadMermaid();
-            const dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+            const dark = window.agentsTheme?.isDark() !== false;
             mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: dark ? 'dark' : 'default' });
             await mermaid.run({ nodes: diagrams, suppressErrors: true });
         } catch {

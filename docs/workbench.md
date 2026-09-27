@@ -34,6 +34,13 @@ to open:
 - **Settings** is a tab, opened from the gear, closed like any other, and the
   agent stays selected under it. With no agent picked its tab is kept under the
   empty worktree.
+- **The theme** is chosen under Settings, Appearance: System, which follows the
+  OS between Dark and Light, or a named theme. The server writes the choice on
+  `<html>` as `data-theme-choice`, and `theme.js`, a blocking script in the head
+  so the first paint is already in the right colours, turns it into `data-theme`,
+  which `app.css` keys each palette on. Monaco and Mermaid read the palette's
+  `color-scheme` to pick their dark or light colours. A theme is a block of
+  variables in `app.css` and a line in `Themes.cs`.
 - **The agent picker** in the title bar shows the agent in view. A click lists
   every agent, waiting ones first, with New agent at the top and the offer to
   remove a merged, stopped agent's worktree under it. It was once a column down

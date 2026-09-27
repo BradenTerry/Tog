@@ -52,8 +52,8 @@ picked. See [docs/workbench.md](docs/workbench.md).
 - Extensions add tabs to any of the three panels, the right one by default.
 - **New agent** starts one in a repository from Settings, in a new worktree or an
   existing one.
-- **Settings** holds the repositories New agent offers, the preferences, and the
-  extensions.
+- **Settings** holds the repositories New agent offers, the preferences (the
+  colour theme among them), and the extensions.
 - The mouse's back and forward buttons (or Ctrl+- and Ctrl+Shift+-) walk back and
   forth through the jumps go to definition and references have made.
 

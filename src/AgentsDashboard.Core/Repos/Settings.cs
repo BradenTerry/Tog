@@ -16,6 +16,12 @@ public sealed record Settings
     /// <summary>Raise an OS notification when an agent starts waiting.</summary>
     public bool NotifyOnWaiting { get; init; } = true;
 
+    /// <summary>
+    /// The colour theme, by id from <c>Themes.All</c>. Null follows the OS
+    /// between Dark and Light.
+    /// </summary>
+    public string? Theme { get; init; }
+
     /// <summary>Model to preselect when starting an agent. Null leaves it to the CLI.</summary>
     public string? DefaultModel { get; init; }
 

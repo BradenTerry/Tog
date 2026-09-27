@@ -1,5 +1,7 @@
+@inject SettingsStore Store
+
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme-choice="@Themes.Resolve(Store.Load().Theme)">
 
 <head>
     <meta charset="utf-8" />
@@ -8,6 +10,7 @@
     <title>Agents Dashboard</title>
     <link rel="stylesheet" href="app.css" />
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <script src="theme.js"></script>
     <HeadOutlet @rendermode="Interactive" />
 </head>
 

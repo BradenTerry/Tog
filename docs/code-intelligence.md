@@ -198,7 +198,9 @@ with the grammar, so they are coloured at once and never wait on the server.
 
 - The colours are Dark+ and Light+, in two themes `monaco.js` defines over
   Monaco's own (`agents-dark`, `agents-light`). The built-in themes have no rules
-  for semantic token types, so without them nothing would change colour.
+  for semantic token types, so without them nothing would change colour. The
+  app's theme picks between the two by its `color-scheme`, and one that sets
+  `--editor-bg` also gives the editor that background.
 - An edit still waiting on the typing pause is pushed to the solution before
   asking, so the answer is for the text on screen. An answer that comes back
   after another edit is dropped rather than painted onto moved lines.
