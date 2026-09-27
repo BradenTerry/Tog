@@ -1,4 +1,8 @@
 @inject WorktreeFiles Files
+@inject WorktreeViews Views
+@inject Workbench Bench
+@inject IJSRuntime Js
+@implements IDisposable
 
 @* A file outside the worktree that something asked the dashboard to show.
    Read-only: the editor saves into worktrees, whose files it can check a save
@@ -16,6 +20,15 @@ else
             <span class="mono truncate faint" title="@Doc.Path">@Doc.Path</span>
             <span class="spacer"></span>
             <span class="chip">read-only</span>
+            @if (CanPreview)
+            {
+                <div class="segmented" role="group" aria-label="View">
+                    <button class="small @(_preview ? "" : "on")" aria-pressed="@((!_preview).ToString().ToLowerInvariant())"
+                            @onclick="() => SetPreview(false)" title="Show the file as it is written">Code</button>
+                    <button class="small @(_preview ? "on" : "")" aria-pressed="@(_preview.ToString().ToLowerInvariant())"
+                            @onclick="() => SetPreview(true)" title="Show the file as it reads">Preview</button>
+                </div>
+            }
             <span class="faint nums">@(_file is { Bytes: > 0 } f ? Fmt.Bytes(f.Bytes) : "")</span>
         </div>
 
@@ -30,6 +43,12 @@ else
         else if (_file.IsBinary)
         {
             <div class="empty"><p>Binary file, not shown.</p></div>
+        }
+        else if (_preview && CanPreview)
+        {
+            <div class="doc-scroll">
+                <div class="md-preview" @ref="_previewElement">@((MarkupString)_previewHtml)</div>
+            </div>
         }
         else
         {
@@ -56,8 +75,28 @@ else
     [Parameter, EditorRequired]
     public EditorDoc Doc { get; set; } = default!;
 
+    /// <summary>The worktree whose tabs this is among, where a link in the preview opens.</summary>
+    [Parameter, EditorRequired]
+    public string WorktreePath { get; set; } = "";
+
     private FileContent? _file;
     private int _readAt = -1;
+
+    /// <summary>
+    /// Markdown shows as it reads, the same switch as a worktree file's and the
+    /// same remembered choice, since an agent handing over a report or a plan
+    /// usually means it to be read rather than looked at as source.
+    /// </summary>
+    private bool _preview;
+    private string _previewHtml = "";
+    private ElementReference _previewElement;
+    private bool _enhance;
+    private DotNetObjectReference<ExternalDocument>? _self;
+
+    private bool CanPreview =>
+        _file is { IsBinary: false, Truncated: false, Error: null } file
+        && (file.Path.EndsWith(".md", StringComparison.OrdinalIgnoreCase)
+            || file.Path.EndsWith(".markdown", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Drawn once per request rather than with the layout's every-second
@@ -91,6 +130,64 @@ else
             // binary rules as a worktree file, with no second reader to keep level.
             var path = Doc.Path!;
             _file = Files.Read(System.IO.Path.GetDirectoryName(path) ?? "/", System.IO.Path.GetFileName(path));
+            _preview = Views.For(WorktreePath).MarkdownPreview;
+            if (_preview && CanPreview)
+            {
+                Render();
+            }
         }
     }
+
+    private void SetPreview(bool preview)
+    {
+        if (preview == _preview)
+        {
+            return;
+        }
+
+        _render = true;
+        _preview = preview;
+        Views.For(WorktreePath).MarkdownPreview = preview;
+        if (preview)
+        {
+            Render();
+        }
+    }
+
+    /// <summary>Rendered by file name alone, so its relative links resolve from its own folder.</summary>
+    private void Render()
+    {
+        _previewHtml = MarkdownRenderer.Render(string.Join('\n', _file!.Lines), System.IO.Path.GetFileName(_file.Path));
+        _enhance = true;
+    }
+
+    /// <summary>A link in the preview to a file beside this one, opened read-only the same way.</summary>
+    [JSInvokable]
+    public Task OpenLinked(string path) => InvokeAsync(() =>
+    {
+        var folder = System.IO.Path.GetDirectoryName(Doc.Path!) ?? "/";
+        var target = System.IO.Path.GetFullPath(path, folder);
+        if (File.Exists(target))
+        {
+            Bench.OpenExternal(WorktreePath, target);
+        }
+    });
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_enhance && _preview && _previewElement.Id is not null)
+        {
+            _enhance = false;
+            _self ??= DotNetObjectReference.Create(this);
+            try
+            {
+                await Js.InvokeVoidAsync("agentsDashboard.enhanceMarkdown", _previewElement, _self);
+            }
+            catch (Exception e) when (e is JSException or InvalidOperationException or TaskCanceledException)
+            {
+            }
+        }
+    }
+
+    public void Dispose() => _self?.Dispose();
 }

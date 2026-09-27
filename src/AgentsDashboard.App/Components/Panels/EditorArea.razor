@@ -141,7 +141,7 @@
                 }
                 else if (doc.Kind == DocKind.External)
                 {
-                    <ExternalDocument Doc="doc" />
+                    <ExternalDocument Doc="doc" WorktreePath="@WorktreePath" />
                 }
                 else if (ImageTypes.IsImage(doc.Path))
                 {
