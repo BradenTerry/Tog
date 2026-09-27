@@ -106,6 +106,13 @@ public sealed class JsonRpcConnection : IAsyncDisposable
             await _output.WriteAsync(bytes, ct).ConfigureAwait(false);
             await _output.FlushAsync(ct).ConfigureAwait(false);
         }
+        catch (ObjectDisposedException e)
+        {
+            // The process's stream was closed under the write, which is how a
+            // dying agent looks on Windows as often as a broken pipe does. Either
+            // way the other side is gone, and callers handle that as IOException.
+            throw new IOException("The connection is closed.", e);
+        }
         finally
         {
             _writeGate.Release();
