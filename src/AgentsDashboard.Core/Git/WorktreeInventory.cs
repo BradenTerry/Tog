@@ -38,6 +38,9 @@ public sealed class WorktreeInventory(WorktreeCleanup cleanup, IClock clock)
     private readonly Lock _gate = new();
     private bool _running;
     private string? _measuring;
+    private IReadOnlyList<LeftoverFolder> _leftovers = [];
+    private bool _scanning;
+    private IReadOnlyList<RepoView>? _scanAgain;
 
     /// <summary>A measurement finished or started. Raised off the circuit.</summary>
     public event Action? Changed;
@@ -48,6 +51,84 @@ public sealed class WorktreeInventory(WorktreeCleanup cleanup, IClock clock)
         {
             return _facts.GetValueOrDefault(worktreePath);
         }
+    }
+
+    /// <summary>
+    /// Folders where worktrees were that git no longer lists, as of the last
+    /// <see cref="ScanLeftovers"/>. See <see cref="LeftoverFolders"/>.
+    /// </summary>
+    public IReadOnlyList<LeftoverFolder> Leftovers
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _leftovers;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Looks for leftover folders in these repos, in the background. Listing a
+    /// folder is cheap and a leftover is usually small, but one can hold a
+    /// whole node_modules, so it is measured off the circuit like a worktree.
+    /// A scan asked for while one runs is run once more after it, with the
+    /// latest repos, rather than started alongside.
+    /// </summary>
+    public void ScanLeftovers(IReadOnlyList<RepoView> repos)
+    {
+        lock (_gate)
+        {
+            if (_scanning)
+            {
+                _scanAgain = repos;
+                return;
+            }
+
+            _scanning = true;
+        }
+
+        _ = Task.Run(() =>
+        {
+            var next = repos;
+            while (true)
+            {
+                IReadOnlyList<LeftoverFolder>? found;
+                try
+                {
+                    found = next
+                        .SelectMany(r => LeftoverFolders.Find(r.Root, r.Worktrees.Select(w => w.Worktree.Path)))
+                        .ToList();
+                }
+                catch (Exception)
+                {
+                    // Whatever went wrong, the scan must end and let the next one
+                    // run; the last list stands until then.
+                    found = null;
+                }
+
+                lock (_gate)
+                {
+                    _leftovers = found ?? _leftovers;
+                    if (_scanAgain is { } again)
+                    {
+                        _scanAgain = null;
+                        next = again;
+                    }
+                    else
+                    {
+                        _scanning = false;
+                        next = null;
+                    }
+                }
+
+                Changed?.Invoke();
+                if (next is null)
+                {
+                    return;
+                }
+            }
+        });
     }
 
     /// <summary>The worktree being measured now, if any.</summary>

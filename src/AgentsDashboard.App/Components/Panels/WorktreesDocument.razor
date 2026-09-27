@@ -95,6 +95,28 @@
         </button>
     </div>
 
+    @if (Inventory.Leftovers is { Count: > 0 } leftovers)
+    {
+        <section class="card wt-repo wt-leftovers">
+            <div class="card-head">
+                <strong>Leftover folders</strong>
+                <span class="faint spacer nums">@Fmt.Count(leftovers.Count, "folder") &middot; @Fmt.Bytes(leftovers.Sum(l => l.Bytes))</span>
+            </div>
+            <p class="wt-leftover-note">
+                Folders where a worktree was that git no longer lists. Usually a removal that could not finish because
+                another program had something in the folder open. Nothing deletes them on its own.
+            </p>
+            @foreach (var leftover in leftovers)
+            {
+                <div class="wt-leftover">
+                    <span class="mono truncate" title="@leftover.Path">@leftover.Path</span>
+                    <span class="faint nums">@Fmt.Count(leftover.Files, "file") &middot; @Fmt.Bytes(leftover.Bytes)</span>
+                    <button class="small" @onclick="() => OpenLeftover(leftover)">Delete...</button>
+                </div>
+            }
+        </section>
+    }
+
     @if (Snapshot.Repos.Count == 0)
     {
         <div class="empty">
@@ -149,6 +171,9 @@
                 case DialogKind.Agents:
                     @AgentsDialog(dialog)
                     break;
+                case DialogKind.Leftover:
+                    @LeftoverDialog(dialog)
+                    break;
             }
         </div>
     </div>
@@ -181,12 +206,13 @@
         DateTimeOffset? LastActive,
         IReadOnlyList<HostedAgent> Parked);
 
-    private enum DialogKind { Remove, Bulk, Prune, Agents }
+    private enum DialogKind { Remove, Bulk, Prune, Agents, Leftover }
 
     private sealed class Dialog(DialogKind kind)
     {
         public DialogKind Kind { get; } = kind;
         public Row? Target { get; init; }
+        public LeftoverFolder? Leftover { get; init; }
         public List<Row> Rows { get; init; } = [];
         public HashSet<string> Picked { get; init; } = new(StringComparer.Ordinal);
         public bool DeleteBranch { get; set; }
@@ -208,6 +234,7 @@
         // Opening the view is when stale sizes are worth measuring again. After
         // that only worktrees never measured are, as they appear.
         Inventory.Refresh(Snapshot.Repos, Remeasure.Stale);
+        ScanLeftovers(force: true);
         _ = TakeRemoveRequest();
     }
 
@@ -257,9 +284,36 @@
 
     private void OnInventoryChanged() => _ = InvokeAsync(StateHasChanged);
 
-    private void OnSnapshot() => Inventory.Refresh(State.Snapshot.Repos, Remeasure.Missing);
+    private void OnSnapshot()
+    {
+        Inventory.Refresh(State.Snapshot.Repos, Remeasure.Missing);
+        ScanLeftovers(force: false);
+    }
 
-    private void RemeasureAll() => Inventory.Refresh(Snapshot.Repos, Remeasure.All);
+    private void RemeasureAll()
+    {
+        Inventory.Refresh(Snapshot.Repos, Remeasure.All);
+        ScanLeftovers(force: true);
+    }
+
+    private string? _scannedFor;
+
+    /// <summary>
+    /// Looks for leftover folders when the page opens, when asked to measure
+    /// again, and whenever the worktrees git lists change: a removal that left a
+    /// folder shows it on the snapshot after git stopped listing the worktree,
+    /// not on the one before, which still has it.
+    /// </summary>
+    private void ScanLeftovers(bool force)
+    {
+        var repos = State.Snapshot.Repos;
+        var worktrees = string.Join('\n', repos.SelectMany(r => r.Worktrees).Select(w => w.Worktree.Path).Order(StringComparer.Ordinal));
+        if (force || worktrees != _scannedFor)
+        {
+            _scannedFor = worktrees;
+            Inventory.ScanLeftovers(repos);
+        }
+    }
 
     private string? MeasuringNow => Inventory.Measuring;
 
@@ -745,14 +799,13 @@
         || dialog.LostFiles is { Count: > 0 }
         || dialog.LostCommits is { Count: > 0 };
 
-    private async Task Run(Dialog dialog, Func<Task<string>> work)
+    private async Task Run(Dialog dialog, Func<Task<Notice>> work)
     {
         dialog.Busy = true;
         dialog.Error = null;
         try
         {
-            var message = await work();
-            _notice = new Notice(true, message);
+            _notice = await work();
             _dialog = null;
         }
         catch (Exception e)
@@ -774,26 +827,39 @@
             throw new InvalidOperationException(result.Message);
         }
 
-        return result.Message;
+        // Removed, but with a folder left on disk: said as a problem, not a success.
+        return new Notice(result.Leftover is null, result.Message);
     });
 
     private Task ConfirmBulk(Dialog dialog) => Run(dialog, async () =>
     {
-        var lines = new List<string>();
+        var done = new List<string>();
+        var problems = new List<string>();
         long freed = 0;
         foreach (var row in dialog.Rows.Where(r => dialog.Picked.Contains(r.View.Worktree.Path)))
         {
             var result = await Remove(row, force: false, dialog.DeleteBranch, dialog.ForgetAgents);
             if (result.Ok)
             {
-                freed += row.Facts?.TotalBytes ?? 0;
+                freed += (row.Facts?.TotalBytes ?? 0) - (result.Leftover?.Bytes ?? 0);
             }
 
-            lines.Add(result.Ok ? result.Message : $"{row.View.Worktree.Name}: {result.Message}");
+            if (result.Ok && result.Leftover is null)
+            {
+                done.Add(result.Message);
+            }
+            else
+            {
+                problems.Add(result.Ok ? result.Message : $"{row.View.Worktree.Name}: {result.Message}");
+            }
         }
 
-        lines.Insert(0, $"Freed about {Fmt.Bytes(freed)}.");
-        return string.Join('\n', lines);
+        // Anything that went wrong comes first, where it is read: a summary that
+        // opens with the space freed reads as a success.
+        List<string> lines = problems.Count == 0
+            ? [$"Freed about {Fmt.Bytes(freed)}.", .. done]
+            : [$"{Fmt.Count(problems.Count, "worktree")} did not come off cleanly:", .. problems, "", $"Freed about {Fmt.Bytes(freed)}.", .. done];
+        return new Notice(problems.Count == 0, string.Join('\n', lines));
     });
 
     private Task ConfirmPrune(Dialog dialog) => Run(dialog, async () =>
@@ -810,7 +876,21 @@
             Inventory.Forget(row.View.Worktree.Path);
         }
 
-        return string.Join('\n', lines);
+        return new Notice(true, string.Join('\n', lines));
+    });
+
+    private void OpenLeftover(LeftoverFolder leftover) => Show(new Dialog(DialogKind.Leftover) { Leftover = leftover });
+
+    private Task ConfirmLeftover(Dialog dialog) => Run(dialog, async () =>
+    {
+        var result = await Cleanup.DeleteLeftoverAsync(dialog.Leftover!);
+        ScanLeftovers(force: true);
+        if (!result.Ok)
+        {
+            throw new InvalidOperationException(result.Message);
+        }
+
+        return new Notice(true, result.Message);
     });
 
     private RenderFragment DialogHead(string title) => __builder =>
@@ -1067,6 +1147,38 @@
         <footer class="wt-dialog-foot">
             <button class="ghost" @onclick="CloseDialog" disabled="@dialog.Busy">Cancel</button>
             <button class="primary" disabled="@dialog.Busy" @onclick="() => ConfirmPrune(dialog)">Prune</button>
+        </footer>
+    };
+
+    private RenderFragment LeftoverDialog(Dialog dialog) => __builder =>
+    {
+        var leftover = dialog.Leftover!;
+        @DialogHead("Delete leftover folder")
+        @DialogError(dialog)
+        <div class="wt-dialog-body">
+            <p>
+                A worktree was here, and git no longer lists it. Deleting the folder removes everything still in it, and
+                git has no copy to bring any of it back from.
+            </p>
+            <div class="wt-cmd mono">@leftover.Path</div>
+            <p>@Fmt.Count(leftover.Files, "file"), @Fmt.Bytes(leftover.Bytes)@(leftover.Files > 0 ? ", including:" : ".")</p>
+            @if (leftover.Sample.Count > 0)
+            {
+                <ul class="wt-leftover-files mono">
+                    @foreach (var file in leftover.Sample)
+                    {
+                        <li>@file</li>
+                    }
+                    @if (leftover.Files > leftover.Sample.Count)
+                    {
+                        <li class="faint">and @Fmt.Count(leftover.Files - leftover.Sample.Count, "more file")</li>
+                    }
+                </ul>
+            }
+        </div>
+        <footer class="wt-dialog-foot">
+            <button class="ghost" @onclick="CloseDialog" disabled="@dialog.Busy">Cancel</button>
+            <button class="wt-danger" disabled="@dialog.Busy" @onclick="() => ConfirmLeftover(dialog)">Delete folder</button>
         </footer>
     };
 
