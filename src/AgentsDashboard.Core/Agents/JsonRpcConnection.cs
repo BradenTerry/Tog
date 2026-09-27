@@ -40,6 +40,7 @@ public sealed class JsonRpcConnection : IAsyncDisposable
     private long _nextId;
     private Task? _loop;
     private int _closed;
+    private int _disposed;
 
     public JsonRpcConnection(Stream input, Stream output)
     {
@@ -104,6 +105,13 @@ public sealed class JsonRpcConnection : IAsyncDisposable
         {
             await _output.WriteAsync(bytes, ct).ConfigureAwait(false);
             await _output.FlushAsync(ct).ConfigureAwait(false);
+        }
+        catch (ObjectDisposedException e)
+        {
+            // The process's stream was closed under the write, which is how a
+            // dying agent looks on Windows as often as a broken pipe does. Either
+            // way the other side is gone, and callers handle that as IOException.
+            throw new IOException("The connection is closed.", e);
         }
         finally
         {
@@ -247,6 +255,13 @@ public sealed class JsonRpcConnection : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        // Disposed both by whoever notices the process die and by the host when
+        // it shuts down, and those can race. The second must not touch _stop.
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
         await _stop.CancelAsync().ConfigureAwait(false);
         Close(null);
         if (_loop is not null)

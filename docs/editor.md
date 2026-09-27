@@ -15,8 +15,8 @@ buys real syntax colouring for every language this repository contains, plus
 find, multi-cursor and a minimap, for no code here.
 
 The cost is size: the AMD build is 24 MB across 150 files. It is a dependency
-rather than source, so it is not in the repository. `tools/vendor-monaco.sh`
-fetches it with `npm pack`, copies `package/min/vs` into
+rather than source, so it is not in the repository. `tools/vendor-monaco.mjs`
+fetches it with `npm install` into a scratch folder, copies `min/vs` into
 `wwwroot/monaco/vs`, and writes a `VERSION` marker beside it. An MSBuild target
 in the App project runs the script when `wwwroot/monaco/vs/loader.js` is
 missing, so a fresh clone needs nothing but `dotnet build`.

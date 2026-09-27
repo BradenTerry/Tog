@@ -72,7 +72,13 @@ public sealed class OsNotifier(ILogger<OsNotifier> log) : INotifier
         }
 
         using var process = Process.Start(psi);
-        process?.WaitForExit(8000);
+
+        // The Windows balloon's script sleeps while it is on screen, and waiting
+        // for it would hold up the monitor tick that raised it.
+        if (!OperatingSystem.IsWindows())
+        {
+            process?.WaitForExit(8000);
+        }
     }
 
     /// <summary>AppleScript string literal: only backslash and quote need escaping.</summary>

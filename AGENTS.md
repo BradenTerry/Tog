@@ -68,7 +68,7 @@ handshake. They are pinned level in `Directory.Packages.props`.
 
 **Agents run over ACP, inside this process.** `AgentHost` launches the Claude
 ACP bridge (`node acp/.../claude-agent-acp/dist/index.js`, installed by
-`tools/vendor-acp.sh`) and every agent is a session on that one process. Closing
+`tools/vendor-acp.mjs`) and every agent is a session on that one process. Closing
 the app ends the agents; `agents.json` brings them back as stopped, and a message
 resumes them. The bridge logs to stderr constantly, so its error stream must
 always be drained, or the pipe fills and it blocks. See `docs/agent-control.md`.

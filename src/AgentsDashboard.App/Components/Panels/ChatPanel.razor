@@ -425,8 +425,12 @@ else
     /// <summary>A changed file's path relative to the agent's worktree, or as given when it is outside it.</summary>
     private static string RelativeTo(ChatTarget agent, string path)
     {
-        var root = agent.WorktreePath ?? agent.Cwd;
-        return path.StartsWith(root + "/", StringComparison.Ordinal) ? path[(root.Length + 1)..] : path;
+        var root = (agent.WorktreePath ?? agent.Cwd).TrimEnd('/', '\\');
+        return path.Length > root.Length + 1
+            && path[root.Length] is '/' or '\\'
+            && path.StartsWith(root, AgentsDashboard.Core.Repos.RealPaths.Comparison)
+            ? path[(root.Length + 1)..]
+            : path;
     }
 
     /// <summary>Where a file's first change starts, to open the editor there.</summary>

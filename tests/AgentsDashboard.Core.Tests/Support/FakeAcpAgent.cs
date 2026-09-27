@@ -41,7 +41,7 @@ public sealed class FakeAcpAgent : IAgentLauncher
         var hostReads = new AnonymousPipeClientStream(PipeDirection.In, toHost.ClientSafePipeHandle);
 
         var rpc = new JsonRpcConnection(agentReads, toHost);
-        var running = new Running(this, rpc, hostReads, toAgent);
+        var running = new Running(this, rpc, hostReads, toAgent, agentReads, toHost);
         rpc.RequestHandler = running.HandleAsync;
         rpc.Notified += (method, p) => Calls.Enqueue(method + ":" + Text(p, "sessionId"));
         rpc.Start();
@@ -173,7 +173,13 @@ public sealed class FakeAcpAgent : IAgentLauncher
         }
     }
 
-    private sealed class Running(FakeAcpAgent owner, JsonRpcConnection rpc, Stream input, Stream output) : IAgentProcess
+    private sealed class Running(
+        FakeAcpAgent owner,
+        JsonRpcConnection rpc,
+        Stream input,
+        Stream output,
+        Stream agentReads,
+        Stream agentWrites) : IAgentProcess
     {
         private int _sessions;
 
@@ -229,11 +235,20 @@ public sealed class FakeAcpAgent : IAgentLauncher
             }
         }
 
+        /// <remarks>
+        /// Ends the way a process does: the writing ends close first, which is
+        /// what ends a read blocked on the other side. On Windows an anonymous
+        /// pipe is synchronous, and closing the end a read is blocked on does not
+        /// wake it, so a crash made by closing the host's read end is never seen
+        /// and the host waits for ever. Unix wakes the read either way.
+        /// </remarks>
         public async ValueTask DisposeAsync()
         {
+            await agentWrites.DisposeAsync();
+            await Output.DisposeAsync();
             await rpc.DisposeAsync();
             await Input.DisposeAsync();
-            await Output.DisposeAsync();
+            await agentReads.DisposeAsync();
         }
     }
 }

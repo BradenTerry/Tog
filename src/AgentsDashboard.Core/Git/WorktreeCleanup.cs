@@ -1,10 +1,15 @@
 using System.Globalization;
 using AgentsDashboard.Core.Model;
+using AgentsDashboard.Core.Presentation;
 
 namespace AgentsDashboard.Core.Git;
 
 /// <summary>The outcome of a cleanup action, in words for the UI.</summary>
-public sealed record CleanupResult(bool Ok, string Message);
+/// <param name="Leftover">
+/// Set when git removed the worktree but its folder could not be deleted: the
+/// removal happened, and something is still on disk that the user has to hear about.
+/// </param>
+public sealed record CleanupResult(bool Ok, string Message, LeftoverFolder? Leftover = null);
 
 /// <summary>
 /// Finds out whether a worktree can go, and takes it away when asked.
@@ -255,9 +260,14 @@ public sealed class WorktreeCleanup(IGitCli git, StatusReader status)
             return [];
         }
 
+        // Worktree paths are native, and git answers relative to the worktree in
+        // its own form, so the prefix is cut either way and the rest folded to '/'.
+        var root = path.TrimEnd('/', '\\');
         var inside = others
-            .Where(o => o.StartsWith(path.TrimEnd('/') + "/", StringComparison.Ordinal))
-            .Select(o => o[(path.TrimEnd('/').Length + 1)..].TrimEnd('/') + "/")
+            .Where(o => o.Length > root.Length + 1
+                && o[root.Length] is '/' or '\\'
+                && o.StartsWith(root, Repos.RealPaths.Comparison))
+            .Select(o => o[(root.Length + 1)..].Replace('\\', '/').TrimEnd('/') + "/")
             .ToList();
 
         return result.StdOut
@@ -306,7 +316,18 @@ public sealed class WorktreeCleanup(IGitCli git, StatusReader status)
 
         args.Add(worktree.Path);
         var removed = await git.RunAsync(repoRoot, args, ct).ConfigureAwait(false);
-        if (!removed.Ok)
+        LeftoverFolder? leftover = null;
+        if (!removed.Ok && !await ListedAsync(repoRoot, worktree.Path, ct).ConfigureAwait(false))
+        {
+            // Git unregisters the worktree even when it cannot delete the folder,
+            // which on Windows is what a program holding a file in it causes. The
+            // removal happened; what is left is finished here, or reported.
+            if (!await LeftoverFolders.DeleteAsync(worktree.Path, ct).ConfigureAwait(false))
+            {
+                leftover = LeftoverFolders.Measure(repoRoot, worktree.Path);
+            }
+        }
+        else if (!removed.Ok)
         {
             // Put the lock back: it was not ours to take off for nothing.
             if (worktree.Locked)
@@ -324,9 +345,10 @@ public sealed class WorktreeCleanup(IGitCli git, StatusReader status)
             return new CleanupResult(false, removed.Message);
         }
 
+        var left = leftover is null ? "" : "\n" + LeftBehind(worktree.Name, leftover, removed.Message);
         if (!deleteBranch || worktree.Branch is null)
         {
-            return new CleanupResult(true, $"Removed {worktree.Name}.");
+            return new CleanupResult(true, $"Removed {worktree.Name}.{left}", leftover);
         }
 
         var branch = await git
@@ -334,8 +356,52 @@ public sealed class WorktreeCleanup(IGitCli git, StatusReader status)
             .ConfigureAwait(false);
 
         return branch.Ok
-            ? new CleanupResult(true, $"Removed {worktree.Name} and branch {worktree.Branch}.")
-            : new CleanupResult(true, $"Removed {worktree.Name}. Kept branch {worktree.Branch}: {branch.Message}");
+            ? new CleanupResult(true, $"Removed {worktree.Name} and branch {worktree.Branch}.{left}", leftover)
+            : new CleanupResult(true, $"Removed {worktree.Name}. Kept branch {worktree.Branch}: {branch.Message}{left}", leftover);
+    }
+
+    /// <summary>
+    /// Deletes a folder the Worktrees view found where a worktree used to be,
+    /// after checking that git has not taken it back as a worktree since.
+    /// </summary>
+    public async Task<CleanupResult> DeleteLeftoverAsync(LeftoverFolder leftover, CancellationToken ct = default)
+    {
+        if (await ListedAsync(leftover.RepoRoot, leftover.Path, ct).ConfigureAwait(false))
+        {
+            return new CleanupResult(false, $"Git lists {leftover.Path} as a worktree again, so it was left alone.");
+        }
+
+        if (await LeftoverFolders.DeleteAsync(leftover.Path, ct).ConfigureAwait(false))
+        {
+            return new CleanupResult(true, $"Deleted {leftover.Path}.");
+        }
+
+        var now = LeftoverFolders.Measure(leftover.RepoRoot, leftover.Path);
+        return new CleanupResult(
+            false,
+            $"Could not delete {now.Path}: another program still has something in it open, often a build server or an editor. "
+                + $"{Fmt.Count(now.Files, "file")} ({Fmt.Bytes(now.Bytes)}) left. Close that program and try again.",
+            now);
+    }
+
+    private static string LeftBehind(string name, LeftoverFolder leftover, string gitMessage) =>
+        $"Its folder could not be deleted, because another program still has something in it open, often a build server "
+            + $"or an editor ({gitMessage.Trim()}). Left on disk: {leftover.Path}, {Fmt.Count(leftover.Files, "file")} "
+            + $"({Fmt.Bytes(leftover.Bytes)}). It is listed under Leftover folders, to delete once that program has closed.";
+
+    /// <summary>Whether git still lists a path as one of the repository's worktrees.</summary>
+    private async Task<bool> ListedAsync(string repoRoot, string path, CancellationToken ct)
+    {
+        var list = await git.RunAsync(repoRoot, ["worktree", "list", "--porcelain"], ct).ConfigureAwait(false);
+        if (!list.Ok)
+        {
+            // Unsure means listed: nothing is deleted on a guess.
+            return true;
+        }
+
+        var target = Repos.RealPaths.Resolve(Path.GetFullPath(path));
+        return WorktreeLister.Parse(list.StdOut)
+            .Any(w => string.Equals(Repos.RealPaths.Resolve(Path.GetFullPath(w.Path)), target, Repos.RealPaths.Comparison));
     }
 
     /// <summary>
@@ -458,7 +524,11 @@ public static class DiskUsage
         }
 
         var sizes = new long[ignored.Count];
-        var skipped = new HashSet<string>(skip.Select(s => s.TrimEnd('/')), StringComparer.Ordinal);
+        // Compared with DirectoryInfo.FullName, so in the same form: native
+        // separators, and case folded where the filesystem folds it.
+        var skipped = new HashSet<string>(
+            skip.Select(s => Path.GetFullPath(s).TrimEnd(Path.DirectorySeparatorChar, '/')),
+            Repos.RepoDiscovery.PathComparer);
         var options = new EnumerationOptions
         {
             IgnoreInaccessible = true,

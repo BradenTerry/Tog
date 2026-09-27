@@ -50,7 +50,7 @@ public sealed class ClaudePaths
         for (var i = 0; i < cwd.Length; i++)
         {
             var c = cwd[i];
-            chars[i] = c is '/' or '\\' or '.' or ' ' or ':' ? '-' : c;
+            chars[i] = char.IsAsciiLetterOrDigit(c) ? c : '-';
         }
 
         return new string(chars);

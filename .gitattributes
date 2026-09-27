@@ -1,0 +1,4 @@
+# The repository is LF. Without this, Git for Windows checks text out as CRLF
+# (core.autocrlf defaults to true there), so raw string literals in the tests
+# and the vendored tools read differently on Windows than everywhere else.
+* text=auto eol=lf

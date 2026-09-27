@@ -53,5 +53,5 @@ publishes the right code.
 ## When it fails
 
 - "The ACP bridge is not installed": run `dotnet build` in the main checkout
-  once, which runs `tools/vendor-acp.sh`, then publish again.
+  once, which runs `tools/vendor-acp.mjs`, then publish again.
 - The app opens and closes at once: read `~/Library/Logs/AgentsDashboard/app.log`.

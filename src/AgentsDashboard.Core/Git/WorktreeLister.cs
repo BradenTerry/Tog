@@ -26,7 +26,7 @@ public sealed class WorktreeLister(IGitCli git)
         }
 
         var result = await git.RunAsync(directory, ["rev-parse", "--show-toplevel"], ct).ConfigureAwait(false);
-        return result.Ok && result.StdOut.Length > 0 ? result.StdOut.Trim() : null;
+        return result.Ok && result.StdOut.Length > 0 ? Native(result.StdOut.Trim()) : null;
     }
 
     /// <summary>
@@ -52,7 +52,7 @@ public sealed class WorktreeLister(IGitCli git)
             return null;
         }
 
-        var commonDir = result.StdOut.Trim();
+        var commonDir = Native(result.StdOut.Trim());
 
         // The common dir is <primary>/.git for a normal repo, and the repo itself
         // for a bare one.
@@ -61,6 +61,15 @@ public sealed class WorktreeLister(IGitCli git)
             ? Path.GetDirectoryName(commonDir.TrimEnd(Path.DirectorySeparatorChar, '/'))
             : commonDir;
     }
+
+    /// <summary>
+    /// A path git printed, in this platform's form. Git for Windows writes
+    /// <c>C:/x/wt</c>, while everything else the app compares a worktree with
+    /// (a file watcher, the folder picker, an agent's folder) says <c>C:\x\wt</c>,
+    /// and the two never compare equal.
+    /// </summary>
+    public static string Native(string path) =>
+        Path.DirectorySeparatorChar == '/' ? path : path.Replace('/', Path.DirectorySeparatorChar);
 
     /// <summary>
     /// Parses <c>git worktree list --porcelain</c>: blank-line separated records
@@ -119,7 +128,7 @@ public sealed class WorktreeLister(IGitCli git)
             if (line.StartsWith("worktree ", StringComparison.Ordinal))
             {
                 Flush();
-                path = line["worktree ".Length..];
+                path = Native(line["worktree ".Length..]);
             }
             else if (line.StartsWith("branch ", StringComparison.Ordinal))
             {

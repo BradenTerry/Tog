@@ -158,8 +158,10 @@ WebKitGTK), with native binaries for Windows, macOS and Linux on both x64 and
 arm64. If the window cannot be created the app does not die with it: the host is
 already serving, so it prints the URL and carries on.
 
-Requirements: the .NET 10 SDK, `git` on `PATH`, and Claude Code if you want any
-agents to look at.
+Requirements: the .NET 10 SDK, `git` and Node 22 or newer on `PATH`, and Claude
+Code if you want any agents to look at. The first build fetches Monaco, Mermaid,
+the TextMate grammars and the Claude ACP bridge with the Node scripts in
+`tools/`, so it needs no shell and builds the same on Windows.
 
 ## Tests
 
@@ -172,6 +174,9 @@ it is a parser over git's own output and a faked process would only prove the
 parser agrees with the fake. The Tests extension's TRX reader is tested against
 reports that are half-written, since that is the state it spends most of a run
 reading.
+
+CI (`.github/workflows/ci.yml`) builds and runs the tests on Windows, macOS and
+Linux for every pull request and every push to `main`.
 
 To watch the Tests extension follow its own suite: start the dashboard with
 `--extension` pointing at `extensions/DotnetTests`, open **Tests** for this

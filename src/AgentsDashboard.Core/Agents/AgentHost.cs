@@ -141,6 +141,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
     private readonly PlanUsageStore? _planStore;
     private readonly Dictionary<string, PlanLimit> _plan = new(StringComparer.Ordinal);
     private readonly Timer _flush;
+    private readonly Lock _flushGate = new();
     private readonly IAgentMcpServers? _mcpServers;
 
     private IAgentProcess? _process;
@@ -1109,43 +1110,60 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
 
     private void Flush()
     {
-        bool save;
-        List<PlanLimit>? plan = null;
-        lock (_gate)
+        if (FlushOnce())
         {
-            if (!_dirty)
-            {
-                return;
-            }
-
-            _dirty = false;
-            save = _recordChanged;
-            _recordChanged = false;
-            if (_planChanged)
-            {
-                plan = [.. _plan.Values];
-                _planChanged = false;
-            }
+            Changed?.Invoke();
         }
+    }
 
-        if (save)
+    /// <summary>
+    /// Takes what changed and writes it, one caller at a time. Touch flushes on
+    /// whichever thread noticed the change, so without the gate a second caller
+    /// could find nothing left to take and return while the first was still
+    /// writing, and the flush in DisposeAsync would then not mean it was written.
+    /// </summary>
+    private bool FlushOnce()
+    {
+        lock (_flushGate)
         {
-            Save();
-        }
-
-        if (plan is not null)
-        {
-            try
+            bool save;
+            List<PlanLimit>? plan = null;
+            lock (_gate)
             {
-                _planStore?.Save(plan);
-            }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-            {
-                // Only costs the figures showing before the next turn after a restart.
-            }
-        }
+                if (!_dirty)
+                {
+                    return false;
+                }
 
-        Changed?.Invoke();
+                _dirty = false;
+                save = _recordChanged;
+                _recordChanged = false;
+                if (_planChanged)
+                {
+                    plan = [.. _plan.Values];
+                    _planChanged = false;
+                }
+            }
+
+            if (save)
+            {
+                Save();
+            }
+
+            if (plan is not null)
+            {
+                try
+                {
+                    _planStore?.Save(plan);
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                {
+                    // Only costs the figures showing before the next turn after a restart.
+                }
+            }
+
+            return true;
+        }
     }
 
     private static bool IsAgentFailure(Exception e) =>
