@@ -458,7 +458,11 @@ public static class DiskUsage
         }
 
         var sizes = new long[ignored.Count];
-        var skipped = new HashSet<string>(skip.Select(s => s.TrimEnd('/')), StringComparer.Ordinal);
+        // Compared with DirectoryInfo.FullName, so in the same form: native
+        // separators, and case folded where the filesystem folds it.
+        var skipped = new HashSet<string>(
+            skip.Select(s => Path.GetFullPath(s).TrimEnd(Path.DirectorySeparatorChar, '/')),
+            Repos.RepoDiscovery.PathComparer);
         var options = new EnumerationOptions
         {
             IgnoreInaccessible = true,

@@ -52,9 +52,17 @@ public static class RealPaths
         path = Resolve(path).TrimEnd(Path.DirectorySeparatorChar);
         root = Resolve(root).TrimEnd(Path.DirectorySeparatorChar);
         return root.Length > 0
-            && (string.Equals(path, root, StringComparison.Ordinal)
-                || path.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal));
+            && (string.Equals(path, root, Comparison)
+                || path.StartsWith(root + Path.DirectorySeparatorChar, Comparison));
     }
+
+    /// <summary>
+    /// Case-insensitive on Windows and macOS, where the filesystem is, so a
+    /// drive letter written <c>c:</c> by one tool and <c>C:</c> by another still
+    /// matches; ordinal on Linux. See <see cref="RepoDiscovery.PathComparer"/>.
+    /// </summary>
+    public static StringComparison Comparison =>
+        OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
 
     /// <summary>
     /// Rebuilds the path a component at a time, replacing each link with where it

@@ -1,3 +1,4 @@
+using AgentsDashboard.Core.Repos;
 using System.Text.RegularExpressions;
 
 namespace AgentsDashboard.Core.Presentation;
@@ -31,8 +32,12 @@ public static class FileReferences
 {
     private static readonly TimeSpan Timeout = TimeSpan.FromMilliseconds(250);
 
-    /// <summary>The path part of a candidate: no whitespace, no quotes, no brackets.</summary>
-    private const string PathChars = @"[^\s""'`<>|*?:()\[\],;]+";
+    /// <summary>
+    /// The path part of a candidate: no whitespace, no quotes, no brackets. A
+    /// colon only as a Windows drive (<c>C:\</c>), since everywhere else it is what
+    /// separates a path from its line.
+    /// </summary>
+    private const string PathChars = @"(?:\b[A-Za-z]:(?=[\\/]))?[^\s""'`<>|*?:()\[\],;]+";
 
     /// <summary>A .NET stack trace frame: "in /abs/path/File.cs:line 42".</summary>
     private static readonly Regex StackFrame = new(
@@ -210,7 +215,7 @@ public static class FileReferences
         }
 
         var root = Path.GetFullPath(worktreePath).Replace('\\', '/').TrimEnd('/');
-        if (!path.StartsWith(root + "/", StringComparison.Ordinal))
+        if (!path.StartsWith(root + "/", RealPaths.Comparison))
         {
             return null;
         }

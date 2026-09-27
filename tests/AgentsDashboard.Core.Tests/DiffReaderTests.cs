@@ -222,7 +222,7 @@ public class WorktreeListerIntegrationTests
         // idea of the toplevel, because macOS resolves /var to /private/var and
         // the two spellings are the same directory.
         var root = await lister.FindPrimaryRootAsync(linked, Ct);
-        var expected = repo.Git("rev-parse", "--show-toplevel");
+        var expected = WorktreeLister.Native(repo.Git("rev-parse", "--show-toplevel"));
 
         Assert.Equal(
             expected.TrimEnd(Path.DirectorySeparatorChar),

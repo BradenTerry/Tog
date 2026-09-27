@@ -47,7 +47,9 @@ public sealed class OpenFileTool(OpenRequests requests) : IAgentTool
             return Task.FromResult(AgentToolResult.Error($"{given} is relative and your working folder is not known; pass an absolute path."));
         }
 
-        var path = Path.GetFullPath(given, call.Cwd ?? "/");
+        // No "/" fallback for a missing folder: on Windows it is not a full path,
+        // and GetFullPath throws even when the path given is absolute.
+        var path = Path.IsPathFullyQualified(given) ? Path.GetFullPath(given) : Path.GetFullPath(given, call.Cwd!);
         if (Directory.Exists(path))
         {
             return Task.FromResult(AgentToolResult.Error($"{path} is a folder; name a file."));

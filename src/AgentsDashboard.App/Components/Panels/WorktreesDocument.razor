@@ -319,9 +319,8 @@
     /// <summary>The worktree a directory belongs to: the deepest one it is under, as the monitor places agents.</summary>
     private static string? Owner(string directory, IReadOnlyList<string> worktrees)
     {
-        var dir = directory.TrimEnd('/', Path.DirectorySeparatorChar);
         return worktrees
-            .Where(w => dir == w.TrimEnd('/') || dir.StartsWith(w.TrimEnd('/') + "/", StringComparison.Ordinal))
+            .Where(w => AgentsDashboard.Core.Repos.RealPaths.IsUnder(directory, w))
             .MaxBy(w => w.Length);
     }
 

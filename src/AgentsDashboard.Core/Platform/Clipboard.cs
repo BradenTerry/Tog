@@ -42,6 +42,7 @@ public sealed class Clipboard : IClipboard
 
         if (OperatingSystem.IsWindows())
         {
+            // Fed UTF-16 with a byte order mark; see Run.
             yield return ("clip", []);
             yield break;
         }
@@ -65,6 +66,16 @@ public sealed class Clipboard : IClipboard
                 CreateNoWindow = true,
             };
 
+            // clip.exe reads its input in the console's code page unless it
+            // starts with a UTF-16 byte order mark, and the code page mangles
+            // anything outside ASCII. Process drops an encoding's preamble, so the
+            // mark is written by hand below.
+            var unicode = file == "clip";
+            if (unicode)
+            {
+                psi.StandardInputEncoding = new System.Text.UnicodeEncoding(bigEndian: false, byteOrderMark: false);
+            }
+
             foreach (var a in args)
             {
                 psi.ArgumentList.Add(a);
@@ -74,6 +85,11 @@ public sealed class Clipboard : IClipboard
             if (process is null)
             {
                 return false;
+            }
+
+            if (unicode)
+            {
+                process.StandardInput.Write('\uFEFF');
             }
 
             process.StandardInput.Write(text);

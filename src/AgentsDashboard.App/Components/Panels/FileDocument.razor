@@ -787,7 +787,8 @@
         var root = System.IO.Path.GetFullPath(WorktreePath).TrimEnd(separator) + separator;
         var full = System.IO.Path.GetFullPath(absolutePath);
 
-        return full.StartsWith(root, StringComparison.Ordinal)
+        // Monaco's fsPath lowercases a drive letter, so c:\x and C:\x meet here.
+        return full.StartsWith(root, AgentsDashboard.Core.Repos.RealPaths.Comparison)
             ? full[root.Length..].Replace(separator, '/')
             : null;
     }

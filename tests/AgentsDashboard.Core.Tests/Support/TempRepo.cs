@@ -20,6 +20,10 @@ public sealed class TempRepo : IDisposable
         Git("config", "user.email", "test@example.com");
         Git("config", "user.name", "Test");
         Git("config", "commit.gpgsign", "false");
+
+        // Git for Windows defaults to autocrlf=true, which would check files out
+        // with CRLF and make every assertion on file text depend on the machine.
+        Git("config", "core.autocrlf", "false");
     }
 
     public string Path => _dir.Path;

@@ -13,7 +13,7 @@ running the TextMate grammars VS Code runs, with Oniguruma (as WASM) for the
 regular expressions they are written in. Razor's grammar embeds the C#, HTML,
 CSS and JavaScript ones, so a `.razor` file reads as it does in VS Code.
 
-- **Vendored, not committed.** `tools/vendor-textmate.sh` fetches the tokenizer,
+- **Vendored, not committed.** `tools/vendor-textmate.mjs` fetches the tokenizer,
   the regex engine and the `tm-grammars` collection (about 260 grammars, 13 MB)
   into `wwwroot/textmate` on the first build, with an index of grammar by scope
   name. Without them the editor keeps Monaco's grammars and still colours.

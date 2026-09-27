@@ -34,6 +34,16 @@ public sealed class TempDir : IDisposable
     {
         try
         {
+            // Git writes its objects read-only, and on Windows a read-only file
+            // stops Directory.Delete.
+            if (OperatingSystem.IsWindows())
+            {
+                foreach (var file in Directory.EnumerateFiles(Path, "*", SearchOption.AllDirectories))
+                {
+                    System.IO.File.SetAttributes(file, FileAttributes.Normal);
+                }
+            }
+
             Directory.Delete(Path, recursive: true);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
