@@ -91,6 +91,30 @@ public static class ExtensionCatalog
     /// Anything else in there is not an extension and is not listed: the folder
     /// may well hold other projects too.
     /// </summary>
+    /// <summary>
+    /// Splits a path typed in Settings: one ending in <c>/*</c> is a folder of
+    /// extensions, every folder directly inside it with a manifest; anything
+    /// else is one extension. The wildcard is only ever that last segment.
+    /// </summary>
+    public static (string Folder, bool Everything) SplitWildcard(string path)
+    {
+        var trimmed = path.Trim();
+        if (trimmed == "*")
+        {
+            return ("", true);
+        }
+
+        foreach (var separator in new[] { "/*", "\\*" })
+        {
+            if (trimmed.EndsWith(separator, StringComparison.Ordinal))
+            {
+                return (trimmed[..^separator.Length], true);
+            }
+        }
+
+        return (trimmed, false);
+    }
+
     public static IEnumerable<string> InFolder(string folder)
     {
         if (!System.IO.Directory.Exists(folder))

@@ -117,10 +117,11 @@ It must build with no errors and put `<Name>.dll` in `bin/dashboard/`, matching
 `entry` and `output` in the manifest. Then tell the user how to load it; do not
 change their settings yourself:
 
-- If it was created inside one of the user's extension folders (Settings,
+- If it was created inside a folder the user added with `/*` (Settings,
   Extensions, Extension folders), it is already found and loads on this build.
-- Otherwise Settings, Extensions, Choose folder... beside Link folder. Every
-  later build reloads the tab in the open window.
+- Otherwise Settings, Extensions, Extension folders, Choose folder... and pick
+  it, or type its path and Add. Every later build reloads the tab in the open
+  window.
 - Or start the app with `dotnet run --project src/AgentsDashboard.App -- --extension <path>/<Name>`.
 
 If the user wants to see it running, use the `run` skill with `--extension`.

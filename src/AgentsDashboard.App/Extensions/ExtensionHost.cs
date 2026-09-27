@@ -49,7 +49,7 @@ public sealed class ExtensionHost : IDisposable
     private readonly Dictionary<string, FileSystemWatcher> _folderWatchers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Timer> _debounce = new(StringComparer.Ordinal);
     private IReadOnlyList<FoundExtension> _found = [];
-    private IReadOnlyList<string> _folders = [];
+    private IReadOnlyList<ExtensionPath> _settingsPaths = [];
     private int _generation;
 
     public ExtensionHost(
@@ -109,7 +109,10 @@ public sealed class ExtensionHost : IDisposable
         lock (_gate)
         {
             _found = found;
-            _folders = settings.ExtensionFolders;
+            _settingsPaths = [
+                .. settings.LinkedExtensions.Select(p => new ExtensionPath(p, Everything: false)),
+                .. settings.ExtensionFolders.Select(p => new ExtensionPath(p, Everything: true)),
+            ];
             foreach (var gone in _watchers.Keys.Where(id => found.All(f => f.Id != id)).ToList())
             {
                 _watchers.Remove(gone, out var watcher);
@@ -134,15 +137,44 @@ public sealed class ExtensionHost : IDisposable
         Raise();
     }
 
-    /// <summary>The extension folders, as of the last scan.</summary>
-    public IReadOnlyList<string> Folders
+    /// <summary>The folders in Settings, linked extensions and folders of them, as of the last scan.</summary>
+    public IReadOnlyList<ExtensionPath> Paths
     {
         get
         {
             lock (_gate)
             {
-                return _folders;
+                return _settingsPaths;
             }
+        }
+    }
+
+    /// <summary>
+    /// Adds a path typed or picked in Settings: a folder ending in <c>/*</c> is
+    /// a folder of extensions, anything else is one extension, linked. Kept as
+    /// the two lists in <c>settings.json</c> they always were, so a settings
+    /// file from before still reads the same.
+    /// </summary>
+    public string? Add(string path)
+    {
+        var (folder, everything) = ExtensionCatalog.SplitWildcard(path);
+        if (folder.Length == 0)
+        {
+            return "Name the folder before the *.";
+        }
+
+        return everything ? AddFolder(folder) : Link(folder);
+    }
+
+    public void Remove(ExtensionPath path)
+    {
+        if (path.Everything)
+        {
+            RemoveFolder(path.Folder);
+        }
+        else
+        {
+            Unlink(path.Folder);
         }
     }
 
@@ -381,7 +413,10 @@ public sealed class ExtensionHost : IDisposable
         var found = ExtensionCatalog.Read(full, ExtensionSource.Linked);
         if (found.Manifest is null)
         {
-            return found.Error;
+            // The usual slip: a folder that holds extensions rather than being one.
+            return ExtensionCatalog.InFolder(full).Any()
+                ? $"{full} holds extensions rather than being one. Add {Path.Combine(full, "*")} to include every one in it."
+                : found.Error;
         }
 
         var settings = _settings.Load();
@@ -422,7 +457,7 @@ public sealed class ExtensionHost : IDisposable
 
         if (File.Exists(Path.Combine(full, ExtensionManifests.FileName)))
         {
-            return $"{full} is an extension itself. Link it instead, or add the folder it is in.";
+            return $"{full} is an extension itself. Leave off the * to add it on its own.";
         }
 
         var settings = _settings.Load();
@@ -1042,4 +1077,13 @@ public sealed class ExtensionHost : IDisposable
             _debounce.Clear();
         }
     }
+}
+
+/// <summary>
+/// A folder in Settings: one extension, or with <see cref="Everything"/> every
+/// extension directly inside it, shown with a trailing <c>*</c>.
+/// </summary>
+public sealed record ExtensionPath(string Folder, bool Everything)
+{
+    public string Display => Everything ? Path.Combine(Folder, "*") : Folder;
 }
