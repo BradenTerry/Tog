@@ -37,7 +37,7 @@ public static partial class ExtensionManifests
     public const string FileName = "extension.json";
 
     /// <summary>The API version this app provides.</summary>
-    public static readonly Version Api = new(1, 2);
+    public static readonly Version Api = new(1, 3);
 
     private static readonly JsonSerializerOptions Options = new() { PropertyNameCaseInsensitive = true };
 

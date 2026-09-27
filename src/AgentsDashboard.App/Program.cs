@@ -22,6 +22,13 @@ var options = CliOptions.Parse(args);
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Every process the app starts (git above all, many times a second) resolves
+// its program with the working folder in hand, and once that folder is gone
+// every start throws. The app is often started from inside a worktree, and
+// worktrees get removed, so the working folder moves somewhere that stays.
+// The content root and the options were made absolute before this.
+Directory.SetCurrentDirectory(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+
 // Makes the framework's own web assets (blazor.web.js above all) resolvable when
 // the app is run from its build output rather than a publish. CreateBuilder only
 // does this for itself in the Development environment, and this app is normally

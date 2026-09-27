@@ -78,10 +78,12 @@ manifest; one built against 1.0 still loads and lands on the right. Views are
 written against `AgentViewBase` and nothing about where they are drawn, so
 moving one to another panel needs no change to it.
 
-`IEditorTabs` (API 1.2) opens a file as a tab in the window's editor, read-only
+`IEditorTabs` (API 1.3) opens a file as a tab in the window's editor, read-only
 when it is outside the worktree, such as a report the extension wrote to its
 data folder. It is scoped to the window, so a view `@inject`s it; the
-extension's own services are shared by every window and cannot.
+extension's own services are shared by every window and cannot. It shipped in
+the app's 1.2 at first and moved to 1.3, since a 1.2 app without it accepted
+extensions that injected it; declare `"apiVersion": "1.3"` to use it.
 
 ## Agent tools
 
@@ -206,6 +208,29 @@ everything. What no boundary catches: an exception on a thread the extension
 started itself, which ends the process. Workers run under a supervisor for that
 reason.
 
+**Every type resolves at load.** Before `Configure` runs, the host resolves
+the type of every property and field in the extension's assembly. One the
+app does not have (an extension built against a newer API that still declared
+an older `apiVersion`) fails the load with a message in Settings. Left to the
+renderer, the missing type of an `@inject` property throws while the view is
+being created, outside its error boundary, and ends the window's circuit.
+
+**Extension code stays off the window's thread where the app calls it.** Each
+window runs every render and every click on one thread, so anything slow there
+freezes the window. A view is a component and has to run there; everything the
+app calls into does not:
+
+- Indicators are asked on the pool and shown from the last answer, at most a
+  second old. A slow indicator is late and a hung one stale.
+- Code intelligence queries run on the pool with a timeout, see
+  `docs/code-intelligence.md`.
+- Enable, Disable, Reload and Link in Settings load on the pool: copying the
+  build, loading assemblies and running `Configure`.
+- Agent tools already run on the MCP request's thread, and workers on their own.
+
+A view that blocks in its own handler or render still freezes its window. The
+app cannot prevent that short of running extensions in another process.
+
 **Two containers.** The app's container is fixed once it starts, so each load
 builds the extension its own, holding what it registered plus the API services
 (`IDashboardView`, `INavigation`, `ITextLinker`, `IExtensionStorage`,
@@ -216,8 +241,11 @@ with `Context.Get<T>()`.
 ## Reloading
 
 A linked or command-line extension is watched. When its entry assembly changes,
-the app waits for half a second of quiet, then stops the old copy's workers,
-disposes its services, asks its load context to unload, and loads the new one.
+the app waits for half a second of quiet, cancels the old copy's workers and
+loads the new one. The old copy's services are disposed and its load context
+unloaded ten seconds later, on the pool: every open window still holds the old
+views until its next render swaps them, and a view whose `Dispose` reaches for
+a service already disposed throws out of the renderer and ends the circuit.
 File events come more than once per build on macOS, and for files that did not
 change, so a reload only happens when the assembly's write time or size differ
 from the copy that is running.

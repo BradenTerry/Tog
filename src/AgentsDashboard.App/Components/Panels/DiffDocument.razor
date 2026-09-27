@@ -716,6 +716,12 @@
                 return;
             }
 
+            if (answer is { Length: 0 } && blocks.Count > 0)
+            {
+                // A newer call for this file took over; it answers instead.
+                continue;
+            }
+
             if (answer is null || answer.Length != blocks.Count || answer.All(a => a is null))
             {
                 ColourOnServer(file);

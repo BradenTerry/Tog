@@ -48,7 +48,8 @@
 
     // A line longer than this is left to finish on the next line's state rather
     // than hold up the editor: minified files have lines of megabytes.
-    const timeLimitMs = 500;
+    const editorTimeLimitMs = 500;
+    let timeLimitMs = editorTimeLimitMs;
 
     function asset(path) {
         return new URL(path, document.baseURI).toString();
@@ -148,6 +149,20 @@
     }
 
     window.agentsTextmate = {
+        // Runs fn with a tighter per-line limit. The diff colours thousands of
+        // lines in slices on the page's main thread, where one line at 500 ms
+        // would blow every slice's budget; the editor keeps the generous limit.
+        // Monaco calls the tokenizer synchronously inside fn, and fn does not
+        // await, so nothing else can tokenize while the limit is lowered.
+        withTimeLimit: (ms, fn) => {
+            timeLimitMs = ms;
+            try {
+                return fn();
+            } finally {
+                timeLimitMs = editorTimeLimitMs;
+            }
+        },
+
         // Puts a grammar-backed tokenizer behind every listed language Monaco
         // knows and the index has a grammar for. A factory rather than a provider,
         // so the grammar is fetched when a model in that language first needs

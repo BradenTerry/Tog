@@ -52,6 +52,32 @@ answer well inside the circuit's message size. Two details are easy to break:
 - **A stray `\r` inside a line is a line break to Monaco.** It would shift every
   later answer by one line, so it is replaced with a space of the same length.
 
+### Slices and caps
+
+Tokenizing runs on the WebView's main thread, the one that handles input and
+paints the page, and a file of thousands of lines through a TextMate grammar
+takes seconds. So `colourLines` tokenizes one line at a time and yields to the
+event loop (through a `MessageChannel`, which is not clamped like
+`setTimeout(0)`) whenever about 10 ms of work has gone by. The page keeps
+answering while a big file colours. A few limits keep any one file from costing
+too much:
+
+- **Long lines are left plain.** A line over 4000 characters goes into the
+  model empty, so the lines around it keep their numbers, and comes back with no
+  runs. Minified files have lines of megabytes.
+- **A tighter per-line limit.** The editor lets the TextMate tokenizer spend
+  500 ms on a line. `agentsTextmate.withTimeLimit` lowers that to 20 ms for the
+  diff's synchronous slices only; a line that hits it finishes on the next
+  line's state.
+- **The reply is capped at about 1 MB.** The answer goes up the circuit, and a
+  message over `MaximumReceiveMessageSize` (4 MB) drops the circuit without an
+  error. Past the estimate the remaining lines get no runs and stay plain; the
+  server reads a short array as exactly that.
+- **A newer call wins.** A second call for the same path, as happens when an
+  agent edits the file mid-colouring, makes the older one give up at its next
+  yield. It answers `null` for every block, which the server treats as Monaco
+  having no language, and the newer answer replaces it.
+
 The classes index the theme's colour map, which differs between the light and
 dark themes. A diff coloured before the OS switches theme keeps the old indices
 until it is reloaded.

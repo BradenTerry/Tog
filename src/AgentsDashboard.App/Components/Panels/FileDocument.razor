@@ -426,7 +426,7 @@
 
         if (paths.Contains(Path) && Files.ReadText(WorktreePath, Path) is { } disk && disk.Stamp != _stamp)
         {
-            Intelligence?.RefreshDocumentFromDisk(WorktreePath, Path);
+            RefreshCode(Path);
             Read();
             StateHasChanged();
         }
@@ -525,7 +525,7 @@
             // The solution was holding the buffer as it was typed. What is on disk
             // now is the same text, but reading it back is what the rest of the
             // solution's view of this file is rebuilt from.
-            Intelligence?.RefreshDocumentFromDisk(WorktreePath, _file.Path);
+            RefreshCode(_file.Path);
             MarkSaved();
             _ = ReadMarks();
             return;
@@ -539,7 +539,7 @@
     {
         // The conflict means someone else wrote the file, so the solution is
         // holding text that no longer exists anywhere.
-        Intelligence?.RefreshDocumentFromDisk(WorktreePath, Path);
+        RefreshCode(Path);
         Read();
         Bench.SetDirty(WorktreePath, Doc.Key, false);
     }
@@ -610,7 +610,8 @@
         Touch();
         if (Intelligence is { } intelligence)
         {
-            _ = intelligence.LoadAsync(WorktreePath, CancellationToken.None);
+            var worktree = WorktreePath;
+            Code.Start(() => intelligence.LoadAsync(worktree, CancellationToken.None));
         }
     }
 
@@ -619,14 +620,33 @@
         Touch();
         if (Intelligence is { } intelligence)
         {
-            _ = intelligence.ReloadAsync(WorktreePath, CancellationToken.None);
+            var worktree = WorktreePath;
+            Code.Start(() => intelligence.ReloadAsync(worktree, CancellationToken.None));
         }
     }
 
     private void UnloadCode()
     {
         Touch();
-        Intelligence?.Unload(WorktreePath);
+        if (Intelligence is { } intelligence)
+        {
+            var worktree = WorktreePath;
+            Code.Post(() => intelligence.Unload(worktree));
+        }
+    }
+
+    /// <summary>
+    /// Every call into the provider goes to the thread pool through
+    /// <see cref="CodeNavigation"/>: this component's thread is the window's
+    /// only dispatcher, and the provider is extension code.
+    /// </summary>
+    private void RefreshCode(string relativeFile)
+    {
+        if (Intelligence is { } intelligence)
+        {
+            var worktree = WorktreePath;
+            Code.Post(() => intelligence.RefreshDocumentFromDisk(worktree, relativeFile));
+        }
     }
 
     private void OnCodeStatusChanged(string worktreePath)
@@ -682,9 +702,11 @@
     /// <summary>The buffer after a pause in typing, so references answer for it.</summary>
     private void PushText(string text)
     {
-        if (_file is not null)
+        if (_file is not null && Intelligence is { } intelligence)
         {
-            Intelligence?.UpdateDocument(WorktreePath, _file.Path, text);
+            var worktree = WorktreePath;
+            var file = _file.Path;
+            Code.Post(() => intelligence.UpdateDocument(worktree, file, text));
         }
     }
 

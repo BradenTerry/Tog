@@ -17,7 +17,7 @@ public interface IDashboardView
 }
 
 /// <summary>
-/// The editor of the window a view is drawn in. Since API 1.2. Scoped to the
+/// The editor of the window a view is drawn in. Since API 1.3. Scoped to the
 /// window, so it is only there for a component's <c>@inject</c>, not for the
 /// extension's own services, which are shared by every window.
 /// </summary>

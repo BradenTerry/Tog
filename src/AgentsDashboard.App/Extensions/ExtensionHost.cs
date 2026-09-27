@@ -254,9 +254,18 @@ public sealed class ExtensionHost : IDisposable
     }
 
     /// <summary>
-    /// The indicator on a view for an agent. An indicator that throws shows
-    /// nothing rather than breaking the tab strip.
+    /// The indicator on a view for an agent, as it was last worked out. An
+    /// indicator that throws shows nothing rather than breaking the tab strip.
     /// </summary>
+    /// <remarks>
+    /// The tab strip asks for this while it renders, several times a render and
+    /// at least once a second, on the window's thread. The provider is extension
+    /// code, so it never runs there: this answers from what the last run found
+    /// and starts another on the pool when that is stale or the agent has moved
+    /// on. The layout re-renders every second, which is what shows the new
+    /// value, so a slow provider costs a late count and a hung one a stale
+    /// count, never the window.
+    /// </remarks>
     public Indicator? IndicatorFor(ExtensionView view, AgentContext agent)
     {
         IAgentIndicator? provider;
@@ -265,15 +274,64 @@ public sealed class ExtensionHost : IDisposable
             provider = _loaded.GetValueOrDefault(view.ExtensionId)?.Indicators.GetValueOrDefault(view.ViewId);
         }
 
-        try
+        if (provider is null)
         {
-            return provider?.For(agent);
-        }
-        catch (Exception e)
-        {
-            _log.LogWarning(e, "Indicator for {View} threw", view.Key);
             return null;
         }
+
+        var key = (view.Key, agent.AgentId);
+        var now = DateTime.UtcNow;
+        IndicatorCache cached;
+        lock (_indicators)
+        {
+            cached = _indicators.GetValueOrDefault(key) ?? new IndicatorCache();
+            _indicators[key] = cached;
+            if (cached.Running
+                || (ReferenceEquals(cached.Provider, provider) && cached.Agent == agent && now - cached.At < IndicatorAge))
+            {
+                return ReferenceEquals(cached.Provider, provider) ? cached.Value : null;
+            }
+
+            cached.Running = true;
+        }
+
+        _ = Task.Run(() =>
+        {
+            Indicator? value = null;
+            try
+            {
+                value = provider.For(agent);
+            }
+            catch (Exception e)
+            {
+                _log.LogWarning(e, "Indicator for {View} threw", view.Key);
+            }
+
+            lock (_indicators)
+            {
+                cached.Provider = provider;
+                cached.Agent = agent;
+                cached.Value = value;
+                cached.At = DateTime.UtcNow;
+                cached.Running = false;
+            }
+        });
+
+        return ReferenceEquals(cached.Provider, provider) ? cached.Value : null;
+    }
+
+    /// <summary>How long a worked-out indicator is shown before it is asked again.</summary>
+    private static readonly TimeSpan IndicatorAge = TimeSpan.FromSeconds(1);
+
+    private readonly Dictionary<(string View, string Agent), IndicatorCache> _indicators = [];
+
+    private sealed class IndicatorCache
+    {
+        public IAgentIndicator? Provider { get; set; }
+        public AgentContext? Agent { get; set; }
+        public Indicator? Value { get; set; }
+        public DateTime At { get; set; }
+        public bool Running { get; set; }
     }
 
     /// <summary>
@@ -459,6 +517,12 @@ public sealed class ExtensionHost : IDisposable
 
             context = new ExtensionLoadContext(copiedEntry, $"extension:{found.Id}:{generation}");
             var assembly = context.LoadFromAssemblyPath(copiedEntry);
+            if (MissingType(assembly) is { } missing)
+            {
+                throw new InvalidOperationException(
+                    $"It uses something this app does not have ({missing}). It was likely built against a newer "
+                    + "version of the app: update the app, or rebuild it against this one.");
+            }
 
             var entryTypes = assembly.GetExportedTypes()
                 .Where(t => t is { IsClass: true, IsAbstract: false } && typeof(IDashboardExtension).IsAssignableFrom(t))
@@ -519,6 +583,50 @@ public sealed class ExtensionHost : IDisposable
             SetState(found.Id, ExtensionStatus.Failed, cause.Message);
             services?.Dispose();
             context?.Unload();
+        }
+    }
+
+    /// <summary>
+    /// Why the extension's types cannot all be resolved, or null when they can.
+    /// </summary>
+    /// <remarks>
+    /// An extension built against a newer API than this app has, but declaring
+    /// an apiVersion this app accepts, passes the manifest check and then fails
+    /// the first time a window creates its view: the renderer resolves an
+    /// <c>@inject</c> property's type, throws TypeLoadException from outside any
+    /// error boundary, and ends the window's circuit. Resolving every type,
+    /// property and field here turns that into a failed load, shown in Settings.
+    /// Methods are left alone: a missing type in a signature fails when it is
+    /// called, inside the view's error boundary.
+    /// </remarks>
+    private static string? MissingType(Assembly assembly)
+    {
+        const BindingFlags all = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
+            | BindingFlags.Static | BindingFlags.DeclaredOnly;
+        try
+        {
+            foreach (var type in assembly.GetTypes())
+            {
+                foreach (var property in type.GetProperties(all))
+                {
+                    _ = property.PropertyType;
+                }
+
+                foreach (var field in type.GetFields(all))
+                {
+                    _ = field.FieldType;
+                }
+            }
+
+            return null;
+        }
+        catch (ReflectionTypeLoadException e)
+        {
+            return e.LoaderExceptions.FirstOrDefault(x => x is not null)?.Message ?? e.Message;
+        }
+        catch (Exception e) when (e is TypeLoadException or FileNotFoundException or FileLoadException or BadImageFormatException)
+        {
+            return e.Message;
         }
     }
 
@@ -588,16 +696,42 @@ public sealed class ExtensionHost : IDisposable
         }
 
         loaded.Stopping.Cancel();
+        _ = Task.Run(() => RetireAsync(id, loaded));
+    }
+
+    /// <summary>How long an unloaded generation's services outlive it.</summary>
+    private static readonly TimeSpan Retirement = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// Disposes an unloaded generation once nothing can still be using it. Off
+    /// the caller's thread and late on purpose. The caller is often a click in
+    /// Settings, which would wait out the workers on the window's thread. And
+    /// every open window still holds the old generation's views until its next
+    /// render swaps them, and a view's Dispose that reaches for its services
+    /// finds them disposed, throws, and ends that window's circuit.
+    /// </summary>
+    private async Task RetireAsync(string id, Loaded loaded)
+    {
         try
         {
-            Task.WaitAll([.. loaded.Workers], TimeSpan.FromSeconds(5));
+            await Task.WhenAll(loaded.Workers).WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
         }
-        catch (AggregateException)
+        catch (Exception)
         {
-            // Already logged by the supervisor.
+            // A worker that failed is already logged by the supervisor; one that
+            // will not stop is abandoned with its generation.
         }
 
-        loaded.Services.Dispose();
+        await Task.Delay(Retirement).ConfigureAwait(false);
+        try
+        {
+            await loaded.Services.DisposeAsync().ConfigureAwait(false);
+        }
+        catch (Exception e)
+        {
+            _log.LogWarning(e, "Disposing extension {Id} generation {Generation} threw", id, loaded.Generation);
+        }
+
         loaded.Stopping.Dispose();
         loaded.LoadContext.Unload();
         _log.LogInformation("Unloaded extension {Id} generation {Generation}", id, loaded.Generation);

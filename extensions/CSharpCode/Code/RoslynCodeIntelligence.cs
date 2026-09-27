@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Text;
 
@@ -96,7 +97,12 @@ public sealed class RoslynCodeIntelligence(SolutionLoader loader) : ICodeIntelli
             var lifetime = new CancellationTokenSource();
             entry.Lifetime = lifetime;
             entry.Status = new CodeLoadStatus(CodeLoadState.Loading, "Loading...", 0, 0);
-            entry.Loading = task = RunLoadAsync(key, entry, lifetime);
+            // Task.Run, not an await of Task.Yield inside: under the Blazor
+            // circuit's synchronization context a yield posts straight back to
+            // the window's one dispatcher, and MSBuild registration, workspace
+            // creation and the solution search would all run there. Starting on
+            // the pool also means the Progress below captures no context.
+            entry.Loading = task = Task.Run(() => RunLoadAsync(key, entry, lifetime));
         }
 
         StatusChanged?.Invoke(key);
@@ -198,6 +204,7 @@ public sealed class RoslynCodeIntelligence(SolutionLoader loader) : ICodeIntelli
         int column,
         CancellationToken cancellationToken)
     {
+        await OffCaller();
         var (solution, key) = await SolutionForAsync(worktreePath, cancellationToken).ConfigureAwait(false);
 
         return solution is null
@@ -216,6 +223,7 @@ public sealed class RoslynCodeIntelligence(SolutionLoader loader) : ICodeIntelli
         string relativeFile,
         CancellationToken cancellationToken)
     {
+        await OffCaller();
         var (solution, key) = await SolutionForAsync(worktreePath, cancellationToken).ConfigureAwait(false);
 
         return solution is null
@@ -233,6 +241,7 @@ public sealed class RoslynCodeIntelligence(SolutionLoader loader) : ICodeIntelli
         int column,
         CancellationToken cancellationToken)
     {
+        await OffCaller();
         var (solution, key) = await SolutionForAsync(worktreePath, cancellationToken).ConfigureAwait(false);
 
         return solution is null
@@ -250,6 +259,7 @@ public sealed class RoslynCodeIntelligence(SolutionLoader loader) : ICodeIntelli
         int column,
         CancellationToken cancellationToken)
     {
+        await OffCaller();
         var (solution, key) = await SolutionForAsync(worktreePath, cancellationToken).ConfigureAwait(false);
 
         return solution is null
@@ -267,6 +277,7 @@ public sealed class RoslynCodeIntelligence(SolutionLoader loader) : ICodeIntelli
         int column,
         CancellationToken cancellationToken)
     {
+        await OffCaller();
         var (solution, key) = await SolutionForAsync(worktreePath, cancellationToken).ConfigureAwait(false);
 
         return solution is null
@@ -319,13 +330,22 @@ public sealed class RoslynCodeIntelligence(SolutionLoader loader) : ICodeIntelli
         }
     }
 
+    /// <summary>
+    /// Leaves the caller's thread before a query does any work. Every await
+    /// below is ConfigureAwait(false), but that only helps once something
+    /// actually yields: with the solution ready, SolutionForAsync and a cached
+    /// document text complete synchronously, and classifying a whole file would
+    /// then run on whatever thread asked, which in the app is the window's.
+    /// Task.Yield would not do it either, since it posts back to the caller's
+    /// synchronization context. ForceYielding without the captured context always
+    /// queues the rest to the thread pool.
+    /// </summary>
+    private static ConfiguredTaskAwaitable OffCaller() =>
+        Task.CompletedTask.ConfigureAwait(ConfigureAwaitOptions.ForceYielding);
+
     private async Task RunLoadAsync(string key, Entry entry, CancellationTokenSource lifetime)
     {
         var token = lifetime.Token;
-
-        // Off the caller's thread: the click that asked for it should not wait on
-        // MSBuild before it can even report that loading started.
-        await Task.Yield();
 
         var progress = new Progress<string>(message => SetStatus(key, entry, lifetime, s =>
             s.State == CodeLoadState.Loading ? s with { Message = message } : s));

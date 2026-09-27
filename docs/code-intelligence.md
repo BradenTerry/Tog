@@ -63,6 +63,27 @@ conversion lives in the extension's `CodeQueries` in exactly one place, because
 an off-by-one here shows up as "go to definition lands on the line above" and
 nowhere else.
 
+### Off the window's thread
+
+A component's thread is the Blazor circuit's synchronization context, and a
+desktop window has exactly one circuit, so anything synchronous a provider does
+on it freezes every panel. The host therefore never calls a provider there.
+`CodeNavigation.Run` hands each query to the thread pool with a 10 second
+deadline linked to the editor's token, and a timeout or an exception answers
+with nothing rather than leaving Monaco waiting or ending the circuit.
+`Start` and `Post` do the same for loads, reloads, unloads and document
+updates, queued in order so a buffer pushed while typing cannot land after the
+re-read that follows its save. `For` caches `Handles` per path because it is
+asked on every render. `Status` and `Name` stay synchronous: the contract says
+to answer them from memory. `StatusChanged` fires on pool threads, so its
+handlers reach the UI through `InvokeAsync`.
+
+Inside a provider, `await Task.Yield()` does not leave the caller's thread: it
+posts the continuation back to the captured context, which is the circuit. The
+C# extension starts its load with `Task.Run` and begins each query with
+`ConfigureAwaitOptions.ForceYielding`, since with a ready solution every await
+in a query can complete synchronously.
+
 ## Loading a solution
 
 ```mermaid

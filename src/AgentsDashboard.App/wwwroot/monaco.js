@@ -555,6 +555,43 @@ async function flushSync(state) {
     await state.dotnet.invokeMethodAsync('TextChanged', state.editor.getValue());
 }
 
+// Colouring a diff runs on the page's main thread, which is also where input is
+// handled and the page painted. A big file through the TextMate grammar takes
+// seconds, so it is done in slices of about this much work with a yield between
+// them, and the page keeps answering while it goes.
+const colourSliceMs = 10;
+
+// A line longer than this is left plain rather than tokenized. Minified files
+// have lines of megabytes, and one of them costs more than the rest of the diff.
+const colourMaxLineLength = 4000;
+
+// The per-line limit the TextMate tokenizer gets for the diff, in place of the
+// editor's 500 ms. A line that hits it finishes on the next line's state.
+const colourLineLimitMs = 20;
+
+// The answer goes back up the Blazor circuit, which drops the whole circuit
+// without an error when a message passes 4 MB (MaximumReceiveMessageSize). The
+// estimate of the serialized size stops colouring well short of that; the rest
+// of the file stays plain.
+const colourMaxReplyBytes = 1_000_000;
+
+// The call colouring each path now. A newer call for the same path replaces the
+// entry, and the older one notices at its next yield and gives up.
+const colouring = new Map();
+
+// Yields to the event loop. A MessageChannel rather than setTimeout(0), which
+// browsers clamp to 4 ms once it nests, and that would be most of the time.
+function yieldToPage() {
+    return new Promise((resolve) => {
+        const channel = new MessageChannel();
+        channel.port1.onmessage = () => {
+            channel.port1.close();
+            resolve();
+        };
+        channel.port2.postMessage(null);
+    });
+}
+
 window.agentsEditor = {
     create: async (element, dotnetRef, options) => {
         const monaco = await ensureLoaded();
@@ -766,47 +803,119 @@ window.agentsEditor = {
     // the next. Returns null for a block when Monaco has no language for the
     // file, which leaves the server's own highlighter to it.
     colourLines: async (path, blocks) => {
-        const monaco = await ensureLoaded();
+        const ticket = {};
+        colouring.set(path, ticket);
+        const superseded = () => colouring.get(path) !== ticket;
+        // An empty answer, not a null per block: the caller reads nulls as "no
+        // language here" and falls back to the server's colouring, where this
+        // only means a newer call for the same file is on its way.
+        const abandoned = () => [];
 
-        // Initialises the theme service, which is what injects the mtkN rules,
-        // when no editor has been created yet.
-        monaco.editor.setTheme(themeName());
+        try {
+            const monaco = await ensureLoaded();
 
-        const language = languageFor(monaco, path);
-        if (language === 'plaintext') {
-            return blocks.map(() => null);
-        }
+            // Initialises the theme service, which is what injects the mtkN rules,
+            // when no editor has been created yet.
+            monaco.editor.setTheme(themeName());
 
-        // Languages load lazily. colorize waits for the tokenizer to arrive,
-        // where tokenizing a model straight away would read every line as plain.
-        await monaco.editor.colorize('', language, {});
+            const language = languageFor(monaco, path);
+            if (language === 'plaintext') {
+                return blocks.map(() => null);
+            }
 
-        return blocks.map((lines) => {
-            // A stray carriage return inside a line would read to Monaco as a line
-            // break and shift every answer after it by one. Same length, so the
-            // offsets still line up with the server's text.
-            const text = lines.map((line) => line.replace(/\r/g, ' ')).join('\n');
-            const model = monaco.editor.createModel(text, language);
-            try {
-                model.tokenization.forceTokenization(model.getLineCount());
+            // Languages load lazily. colorize waits for the tokenizer to arrive,
+            // where tokenizing a model straight away would read every line as plain.
+            await monaco.editor.colorize('', language, {});
+
+            // Tightens the TextMate limit for the slice only; languages Monaco
+            // colours itself have no such limit and run as they are.
+            const limited = (fn) => window.agentsTextmate
+                ? window.agentsTextmate.withTimeLimit(colourLineLimitMs, fn)
+                : fn();
+
+            const answer = [];
+            let bytes = 2;
+            let full = false;
+            let sliceStart = performance.now();
+
+            for (const lines of blocks) {
+                if (superseded()) {
+                    return abandoned();
+                }
+
                 const ends = [];
                 const classes = [];
-                for (let n = 1; n <= lines.length; n++) {
-                    const tokens = model.tokenization.getLineTokens(n);
-                    const lineEnds = [];
-                    const lineClasses = [];
-                    for (let i = 0; i < tokens.getCount(); i++) {
-                        lineEnds.push(tokens.getEndOffset(i));
-                        lineClasses.push(tokens.getClassName(i));
-                    }
-                    ends.push(lineEnds);
-                    classes.push(lineClasses);
+                answer.push({ ends, classes });
+                bytes += 32;
+                if (full) {
+                    continue;
                 }
-                return { ends, classes };
-            } finally {
-                model.dispose();
+
+                // A stray carriage return inside a line would read to Monaco as a
+                // line break and shift every answer after it by one. Same length,
+                // so the offsets still line up with the server's text. A line too
+                // long to tokenize goes in empty, so the lines around it keep
+                // their numbers.
+                const text = lines
+                    .map((line) => line.length > colourMaxLineLength ? '' : line.replace(/\r/g, ' '))
+                    .join('\n');
+                const model = monaco.editor.createModel(text, language);
+                try {
+                    for (let n = 1; n <= lines.length; n++) {
+                        if (performance.now() - sliceStart >= colourSliceMs) {
+                            await yieldToPage();
+                            if (superseded() || model.isDisposed()) {
+                                return abandoned();
+                            }
+
+                            sliceStart = performance.now();
+                        }
+
+                        if (lines[n - 1].length > colourMaxLineLength) {
+                            ends.push([]);
+                            classes.push([]);
+                            bytes += 6;
+                            continue;
+                        }
+
+                        // Tokenizes up to this line only; the model keeps the state
+                        // from the lines before it, so each call costs one line.
+                        const tokens = limited(() => {
+                            model.tokenization.forceTokenization(n);
+                            return model.tokenization.getLineTokens(n);
+                        });
+
+                        const lineEnds = [];
+                        const lineClasses = [];
+                        let lineBytes = 6;
+                        for (let i = 0; i < tokens.getCount(); i++) {
+                            const end = tokens.getEndOffset(i);
+                            const name = tokens.getClassName(i);
+                            lineEnds.push(end);
+                            lineClasses.push(name);
+                            lineBytes += String(end).length + name.length + 4;
+                        }
+
+                        if (bytes + lineBytes > colourMaxReplyBytes) {
+                            full = true;
+                            break;
+                        }
+
+                        ends.push(lineEnds);
+                        classes.push(lineClasses);
+                        bytes += lineBytes;
+                    }
+                } finally {
+                    model.dispose();
+                }
             }
-        });
+
+            return superseded() ? abandoned() : answer;
+        } finally {
+            if (colouring.get(path) === ticket) {
+                colouring.delete(path);
+            }
+        }
     },
 
     // A fenced code block from the Markdown preview, coloured the way the editor

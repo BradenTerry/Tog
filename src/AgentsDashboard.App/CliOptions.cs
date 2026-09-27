@@ -70,6 +70,14 @@ public sealed record CliOptions(
             }
         }
 
-        return new CliOptions(browser, port, verbose, dataDir, extensions, noExtensions);
+        // Made absolute here, against the folder the app was started from:
+        // Program moves the working folder away from it straight after.
+        return new CliOptions(
+            browser,
+            port,
+            verbose,
+            dataDir is null ? null : Path.GetFullPath(dataDir),
+            [.. extensions.Select(e => Path.GetFullPath(e))],
+            noExtensions);
     }
 }

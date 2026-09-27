@@ -13,6 +13,13 @@
 
 <body>
     <Routes @rendermode="Interactive" />
+    <!-- Shown by blazor.web.js when the circuit ends on an unhandled error. The
+         page stays drawn but nothing on it answers any more, which without this
+         looks exactly like a freeze. The reload class is Blazor's own hook. -->
+    <div id="blazor-error-ui" role="alert">
+        This window lost its connection to the app and will not respond until it reloads.
+        <a href="" class="reload">Reload</a>
+    </div>
     <script src="_framework/blazor.web.js"></script>
     <script src="app.js"></script>
     <!-- Register window.agentsTextmate and window.agentsEditor. Monaco itself is
