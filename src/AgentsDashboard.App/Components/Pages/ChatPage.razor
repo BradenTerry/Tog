@@ -69,6 +69,13 @@
 
     protected override void OnParametersSet()
     {
+        // A window opened on no agent picks up where the app was left.
+        if (SessionId is null && Bench.TakeAgentToReopen(Snapshot.Value) is { } reopen)
+        {
+            Nav.NavigateTo(Urls.Chat(reopen), replace: true);
+            return;
+        }
+
         Bench.Select(SessionId);
         Apply();
     }

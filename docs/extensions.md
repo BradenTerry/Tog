@@ -14,7 +14,7 @@ This file is what exists and what is easy to get wrong.
 
 ```mermaid
 flowchart TD
-    A["dotnet new agents-dashboard-extension -n BuildStatus<br/>(install once: dotnet new install templates/extension)"] --> B["Settings, Extensions, Link folder<br/>or --extension path"]
+    A["dotnet new agents-dashboard-extension -n BuildStatus<br/>(install once: dotnet new install templates/extension)"] --> B["Settings, Extensions, Extension folders, Add<br/>or --extension path"]
     B --> C["dotnet build, or dotnet watch build"]
     C --> D["the app sees a new entry assembly<br/>and reloads it"]
     D --> E["the tab rebuilds in the open window"]
@@ -144,16 +144,23 @@ sequenceDiagram
 | Source | Where | Runs when |
 | --- | --- | --- |
 | Installed | `~/.agents-dashboard/extensions/<id>/` | Enabled, and its code unchanged since |
-| In a folder | A folder directly inside one of the extension folders in `settings.json` | Unless disabled. Reloaded on every build |
-| Linked | Any folder, listed in `settings.json` | Enabled. Reloaded on every build |
+| In a folder | A folder directly inside a folder added as `<folder>/*` (`ExtensionFolders` in `settings.json`) | Unless disabled. Reloaded on every build |
+| Linked | Any folder, added without the `*` (`LinkedExtensions` in `settings.json`) | Enabled. Reloaded on every build |
 | This run | `--extension <path>` | Always, not saved |
 
 An id in more than one place: this run wins over linked, which wins over a
 folder, which wins over installed. `--no-extensions` loads none, for when one
 breaks startup.
 
-Both Link folder and Extension folders in Settings open the system's folder
-chooser, with a typed path as the fallback in `--browser` mode.
+Settings has one list, Extension folders, for both. A path is one extension;
+the same path ending in `/*` is every extension directly inside it. They are
+still saved as the two lists in `settings.json` they always were, so a
+settings file from before reads the same, and `ExtensionHost.Add` sends a path
+to one or the other (`ExtensionCatalog.SplitWildcard`). Choose folder... opens
+the system's folder chooser, with a typed path as the fallback in `--browser`
+mode. A picked folder that is not an extension but holds some gets the `/*`
+added for you, and typing one without it says so rather than failing on the
+missing manifest.
 
 An extension folder is for keeping several projects side by side. The app
 watches it, not recursively deep: a folder appearing or going directly inside,

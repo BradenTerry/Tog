@@ -59,6 +59,18 @@ public class ExtensionCatalogTests
         Assert.Equal(Path.Combine(dir.Path, "proj", "bin", "dashboard", "demo.dll"), found.EntryPath);
     }
 
+    [Theory]
+    [InlineData("/work/ext", "/work/ext", false)]
+    [InlineData("  /work/ext  ", "/work/ext", false)]
+    [InlineData("/work/exts/*", "/work/exts", true)]
+    [InlineData(@"C:\work\exts\*", @"C:\work\exts", true)]
+    [InlineData("/work/exts*", "/work/exts*", false)]
+    [InlineData("*", "", true)]
+    public void A_trailing_star_means_every_extension_in_the_folder(string typed, string folder, bool everything)
+    {
+        Assert.Equal((folder, everything), ExtensionCatalog.SplitWildcard(typed));
+    }
+
     [Fact]
     public void Installed_linked_and_command_line_extensions_are_all_found()
     {

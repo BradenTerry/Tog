@@ -18,6 +18,9 @@ public sealed class AppPaths
 
     public string SettingsFile => Path.Combine(Root, "settings.json");
 
+    /// <summary>The agent and worktree last in view. See <c>LastViewStore</c>.</summary>
+    public string LastViewFile => Path.Combine(Root, "last-view.json");
+
     /// <summary>One file per worktree holding its unsubmitted review.</summary>
     public string DraftsDir => Path.Combine(Root, "drafts");
 
