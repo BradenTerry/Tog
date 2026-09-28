@@ -412,6 +412,9 @@ storage per origin. The agent is kept after it is closed, so a restart from an
 empty window still finds the last one. A link to another agent wins, and the
 reopening is tried once per window.
 
+Which finished turns you have read is kept beside it, in `seen-turns.json`
+(`SeenTurnsStore`); see "Unread turns" in `docs/agents.md`.
+
 ## Deep links
 
 `chat/<session>/<tab>?file=<rel>&line=N` still works. `ChatPage` carries it out

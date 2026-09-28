@@ -83,6 +83,39 @@ for a command, a leftover file for a subagent. So the monitor ignores anything
 that started before the current agent process did (`ProcessStartedAt`), and
 nothing is listed for a stopped agent.
 
+## Unread turns
+
+Waiting agents sort to the top because they need an answer. An agent that
+finished its turn while you were on another one needs a look instead, and
+without a mark it reads the same as one you already read. So the agent list
+puts a blue dot on it, as a messaging app marks an unread conversation, and
+the title bar counts them under "unread".
+
+```mermaid
+flowchart TD
+  T[a turn ends, in a reply or an error] --> H[AgentHost records TurnEndedAt<br/>and saves it in agents.json]
+  H --> Q{is that agent's chat on screen?<br/>picked, Chat tab in front, panel open}
+  Q -->|yes| S[SeenTurnsStore records it as seen]
+  Q -->|no| U[unread: blue dot, title bar count]
+  U --> O[you open its chat] --> S
+```
+
+"On screen" is the chat panel showing that agent's own thread: picked, the
+Chat tab in front of an unfolded section, and its panel open. A subagent's
+thread standing in for it does not count. `ChatPanel` marks it on every render
+in view, so a turn that ends while you watch is never marked at all.
+
+The turn end is the host's, not the transcript's: `AgentHost` stamps it when
+the last turn in flight finishes, and `agents.json` keeps it, so a turn that
+finished just before the app closed is still unread when it opens again. The
+turns seen are in `seen-turns.json` in the app's data folder, per machine and
+shared by every window, pruned to the agents still in the list. An agent only
+shows as unread once it has stopped working: while it works, its own dot says
+more.
+
+Unread is counted alongside the states rather than instead of one: an unread
+agent is also idle, stopped or failed, and is counted there too.
+
 ## Notifications
 
 Every other signal the dashboard has terminates inside its own window: the

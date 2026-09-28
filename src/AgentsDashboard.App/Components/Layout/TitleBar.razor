@@ -134,9 +134,12 @@
 
         @* How many agents are in each state, the waiting ones first. A click on a
            count lists those agents, and picking one opens its conversation. Only the
-           agents this app hosts are counted, since those are the ones it can open. *@
+           agents this app hosts are counted, since those are the ones it can open.
+           Unread, the agents that finished a turn you have not looked at, comes
+           second: after an answer, a look is the next most expensive thing to miss.
+           Those agents are counted in their state as well. *@
         @{
-            var groups = Groups(Directory.Targets(Snapshot.Value));
+            var groups = Groups(Directory.Targets(Snapshot.Value), Bench.IsUnread);
         }
         @if (groups.Count > 0)
         {
@@ -237,7 +240,7 @@
     /// The agents by state, the ones needing you first. Failed goes in with
     /// stopped: either way a message is what brings it back.
     /// </summary>
-    private static List<AgentGroup> Groups(IReadOnlyList<ChatTarget> targets)
+    private static List<AgentGroup> Groups(IReadOnlyList<ChatTarget> targets, Func<ChatTarget, bool> unread)
     {
         AgentGroup Group(string name, string dot, params ChatState[] states) =>
             new(name, dot, targets.Where(t => states.Contains(t.State)).ToList());
@@ -245,6 +248,7 @@
         return new[]
             {
                 Group("Waiting", "waiting", ChatState.Waiting),
+                new AgentGroup("Unread", "unread", targets.Where(unread).ToList()),
                 Group("Working", "active", ChatState.Active),
                 Group("Idle", "", ChatState.Idle),
                 Group("Stopped", "stopped", ChatState.Parked, ChatState.Failed),

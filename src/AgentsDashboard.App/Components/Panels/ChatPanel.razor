@@ -800,6 +800,13 @@ else
             return;
         }
 
+        // Its reply is on screen, so the agent list stops marking it unread. Not
+        // while a subagent's thread stands in for the agent's own.
+        if (_viewing is null)
+        {
+            Bench.MarkSeen(agent);
+        }
+
         try
         {
             await Js.InvokeVoidAsync("agentsDashboard.bindComposer", _box);

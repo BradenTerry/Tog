@@ -317,6 +317,7 @@ p { margin: 0 0 8px; }
 
 .dot.active { background: var(--active); }
 .dot.waiting { background: var(--waiting); animation: pulse 1.6s ease-in-out infinite; }
+.dot.unread { background: var(--accent); }
 
 @keyframes pulse {
     0%, 100% { opacity: 1; transform: scale(1); }
@@ -2068,6 +2069,9 @@ button.icon-btn:hover:where(:not(:disabled)) { background: var(--surface-2); }
 .agent-menu-item { align-items: flex-start; gap: 10px; padding: 7px 10px; }
 .agent-menu-item.current { background: var(--accent-bg); }
 .agent-menu-item .dot { margin-top: 6px; flex: none; }
+/* A finished turn not read yet, marked the way a messaging app marks an unread conversation. */
+.agent-menu-item .unread-dot { width: 8px; height: 8px; flex: none; align-self: center; border-radius: 99px; background: var(--accent); }
+.agent-menu-item.unread .chat-item-name { font-weight: 650; color: var(--text); }
 .agent-menu .cleanup-offer { margin: 0 4px 6px 26px; }
 .agent-menu-filters { display: flex; margin: 2px 4px 6px; }
 .agent-menu-filters button { flex: 1; justify-content: center; gap: 5px; font-size: 11.5px; padding: 3px 4px; }
