@@ -68,6 +68,11 @@ a scoped service (one per window) that holds:
   which picks the agent's worktree in its place. When the agent's worktree is
   the one open, the header says so instead, and the agent picker marks every
   agent working there.
+  An agent started in a new worktree shows it straight away: the monitor
+  only lists the worktree on its next pass, and until then the agent would
+  look like one outside git and bring up the tabs opened with no worktree
+  (Settings, Worktrees). `StartAgentForm` hands the path to
+  `Workbench.StartedIn`, which stands in until the snapshot has it.
   With nothing picked and the agent closed or removed, the last worktree an
   agent was in stays. A worktree removed since is stood in for by its
   repository's main worktree

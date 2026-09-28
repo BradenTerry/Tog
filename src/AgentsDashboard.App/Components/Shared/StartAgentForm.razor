@@ -491,10 +491,11 @@
 
         var resumed = Resuming ? ResumeId : null;
         HostResult result;
+        string? created = null;
 
         if (NewWorktree)
         {
-            var (created, error) = await Creator.CreateAsync(directory, Blank(_worktreeName), Branch);
+            (created, var error) = await Creator.CreateAsync(directory, Blank(_worktreeName), Branch);
             if (created is null)
             {
                 result = HostResult.Failed($"Could not create the worktree: {error}");
@@ -536,6 +537,11 @@
 
         if (result.Ok && result.SessionId is { } opened)
         {
+            if (created is not null)
+            {
+                Bench.StartedIn(opened, created);
+            }
+
             await OnStartedAgent.InvokeAsync(opened);
         }
     }

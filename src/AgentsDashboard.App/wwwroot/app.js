@@ -1043,6 +1043,21 @@ function bindMenuKeys(menu) {
     });
 })();
 
+// Enter on a checkbox ticks it, as Space does. Someone tabbing through a form
+// reaches for Enter, and without this it does nothing, or submits the form.
+// Ctrl or Cmd+Enter is left alone, so a question form still submits from one.
+document.addEventListener('keydown', (event) => {
+    const box = event.target;
+    if (event.key !== 'Enter' || event.defaultPrevented || event.isComposing
+        || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey
+        || box.tagName !== 'INPUT' || box.type !== 'checkbox' || box.disabled) {
+        return;
+    }
+
+    event.preventDefault();
+    box.click();
+});
+
 // Back and forward through the jumps go to definition has made, on the mouse's
 // side buttons as in VS Code. The keys (Ctrl+- and Ctrl+Shift+- by default) are
 // bindings like any other, in agentsKeys below. The buttons would otherwise go back in the browser's history, which here means to
