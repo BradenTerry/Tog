@@ -182,7 +182,17 @@
 
         var marksChanged = changed || !ReferenceEquals(Marks, _shownMarks);
 
-        if (!changed && !marksChanged && Line == _shownLine && RevealKey == _shownReveal)
+        // Revealing puts the caret at the start of the line, so it happens only
+        // when the line was asked for again or another file came in. A file opened
+        // at a line (go to definition, a reference) keeps that Line for as long as
+        // it is open, and the marks are reread on every save and every touch of
+        // .git/index: revealing on those snapped the caret back under the user's
+        // hands, and word-by-word movement looked like it did nothing.
+        var reveal = !string.Equals(Path, _shownPath, StringComparison.Ordinal)
+            || Line != _shownLine
+            || RevealKey != _shownReveal;
+
+        if (!changed && !marksChanged && !reveal)
         {
             return;
         }
@@ -205,7 +215,7 @@
                 await Js.InvokeVoidAsync("agentsEditor.setMarks", handle, MarksForJs());
             }
 
-            if (Line is { } line)
+            if (reveal && Line is { } line)
             {
                 await Js.InvokeVoidAsync("agentsEditor.revealLine", handle, line);
             }
