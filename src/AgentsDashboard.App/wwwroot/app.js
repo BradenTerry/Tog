@@ -1048,6 +1048,30 @@ function bindMenuKeys(menu) {
     });
 })();
 
+// Escape while a modal dialog is up closes it wherever focus is. Each dialog
+// hears Escape through its own keydown, which only fires while focus is inside
+// it, and focus does leave: a question form in the chat behind takes it when it
+// appears, and a click on a disabled button or a control that is swapped out
+// can drop it on the page. Escape then went to the page and the dialog stayed.
+// The key is taken in the capture phase, before the editor behind can eat it,
+// and sent again from the dialog, which also gets the focus back.
+document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || event.isComposing) {
+        return;
+    }
+
+    const dialogs = document.querySelectorAll('[aria-modal="true"]');
+    const dialog = dialogs[dialogs.length - 1];
+    if (!dialog || dialog.contains(event.target)) {
+        return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    dialog.focus({ preventScroll: true });
+    dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true }));
+}, true);
+
 // Enter on a checkbox ticks it, as Space does. Someone tabbing through a form
 // reaches for Enter, and without this it does nothing, or submits the form.
 // Ctrl or Cmd+Enter is left alone, so a question form still submits from one.
