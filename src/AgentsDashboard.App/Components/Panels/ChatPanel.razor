@@ -474,6 +474,13 @@ else
     private bool _forceScroll = true;
     private bool _wasVisible;
 
+    /// <summary>
+    /// The panel is keyed by agent, so a new one means you switched to it (or
+    /// opened the chat), and the message box takes the keyboard on its first
+    /// render in view.
+    /// </summary>
+    private bool _focusBox = true;
+
     private DateTimeOffset Now => Snapshot.Value.TakenAt;
 
     private ChatTarget? Current => Directory.Targets(Snapshot.Value).FirstOrDefault(t => t.SessionId == SessionId);
@@ -769,6 +776,12 @@ else
             {
                 _putInBox = null;
                 await Js.InvokeVoidAsync("agentsDashboard.setComposer", _box, text);
+            }
+
+            if (_focusBox && _viewing is null)
+            {
+                _focusBox = false;
+                await Js.InvokeVoidAsync("agentsDashboard.focusComposer", _box);
             }
 
             var count = _entries.Count + _pending.Count;
