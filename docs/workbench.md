@@ -44,7 +44,10 @@ to open:
   variables in `app.css` and a line in `Themes.cs`.
 - **The agent picker** in the title bar shows the agent in view. A click lists
   every agent, waiting ones first, with New agent at the top and the offer to
-  remove a merged, stopped agent's worktree under it. It was once a column down
+  remove a merged, stopped agent's worktree under it. A row of filters above
+  the list (All, Waiting, Working, Idle, Stopped, where Stopped takes failed
+  agents too) narrows it, and Left and Right step through them; the filter is
+  kept while the app is open. It was once a column down
   the right of the bottom panel; that cost the conversation a third of its width
   for a list you only look at when switching.
 - **New agent** is a modal dialog over the window, opened from the agent picker. Escape, its close button or a click outside close it, and so does
