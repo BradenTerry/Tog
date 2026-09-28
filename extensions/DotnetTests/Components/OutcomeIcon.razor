@@ -1,0 +1,47 @@
+@* A test's outcome as a glyph, coloured to match the progress bar. *@
+
+<span class="outcome-icon @Class" role="img" aria-label="@Label" title="@Label">
+    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+        @switch (Outcome)
+        {
+            case TestOutcome.Passed:
+                <circle cx="8" cy="8" r="6.5" fill="currentColor" opacity="0.18" />
+                <path d="M5 8.2 7.1 10.3 11 6" fill="none" stroke="currentColor" stroke-width="1.7"
+                      stroke-linecap="round" stroke-linejoin="round" />
+                break;
+            case TestOutcome.Failed:
+                <circle cx="8" cy="8" r="6.5" fill="currentColor" opacity="0.18" />
+                <path d="M5.6 5.6 10.4 10.4M10.4 5.6 5.6 10.4" fill="none" stroke="currentColor" stroke-width="1.7"
+                      stroke-linecap="round" />
+                break;
+            case TestOutcome.Skipped or TestOutcome.NotExecuted:
+                <circle cx="8" cy="8" r="6.5" fill="currentColor" opacity="0.18" />
+                <path d="M5.5 8h5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+                break;
+            default:
+                <circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" stroke-width="1.4" />
+                break;
+        }
+    </svg>
+</span>
+
+@code {
+    [Parameter]
+    public TestOutcome Outcome { get; set; }
+
+    private string Class => Outcome switch
+    {
+        TestOutcome.Passed => "pass",
+        TestOutcome.Failed => "fail",
+        TestOutcome.Skipped or TestOutcome.NotExecuted => "skip",
+        _ => "",
+    };
+
+    private string Label => Outcome switch
+    {
+        TestOutcome.Passed => "Passed",
+        TestOutcome.Failed => "Failed",
+        TestOutcome.Skipped or TestOutcome.NotExecuted => "Skipped",
+        _ => "No result",
+    };
+}

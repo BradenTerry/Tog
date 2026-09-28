@@ -125,3 +125,39 @@ network and container-mounted filesystems it may see nothing at all. A run the
 dashboard silently failed to notice is the one failure mode that makes the whole
 feature untrustworthy, so a cheap walk of the watched worktrees backs it up every
 five seconds.
+
+## The explorer
+
+Below the latest run, the tab lists every test the worktree's recent runs have
+reported, grouped by namespace, class and method, with a name search and a
+status filter. There is no discovery step: the extension follows reports rather
+than running anything of its own, so the tree is the newest result per test
+across the runs it holds. A test that has never run is not in it until
+something runs it, and a partial run only replaces the tests it touched.
+
+```mermaid
+flowchart LR
+    runs["Runs, newest first"] --> latest["Newest result per test"]
+    latest --> filter["Status and name filter"]
+    filter --> tree["Namespace / class / method tree"]
+    tree --> picked["Picked rows"]
+    picked --> filters["One VSTest filter per project"]
+    filters --> seq["dotnet test --project ... --filter ..., one after another"]
+```
+
+Rows are picked as in the file trees: a click picks one, Cmd or Ctrl-click adds
+or removes, Shift-click takes the range as drawn. Folding is the chevron or a
+double click, so picking a namespace does not fold it away.
+
+Running picked rows turns them into a filter in VSTest syntax, the one form every
+runner takes, xunit.v3 on the testing platform included (it also has its own
+`--filter-class` family, but will not mix it with this). A namespace or class
+matches by prefix, a method by exact name, which also takes in every case of a
+theory; a single case cannot be named, so picking one runs its method. With a
+filter on, a group names only the methods of it on screen instead, so what you
+see is what runs.
+
+A run is started per project, one after another, rather than one filtered run
+across the solution. A filter that matches nothing in a project still builds and
+runs that project and writes an empty report, which would show as a run of its
+own, and parallel runs of projects that share a dependency fight over its `obj`.

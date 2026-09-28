@@ -1,0 +1,21 @@
+@* A result's message and stack, with file references made clickable. *@
+
+@if (Test.Result.Message is { Length: > 0 } message)
+{
+    <pre class="failure-text"><LinkedText Text="@message" Agent="Agent" Worktree="Worktree" /></pre>
+}
+@if (Test.Result.StackTrace is { Length: > 0 } stack)
+{
+    <pre class="failure-text faint"><LinkedText Text="@stack" Agent="Agent" Worktree="Worktree" /></pre>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public ExplorerTest Test { get; set; } = default!;
+
+    [Parameter]
+    public AgentContext? Agent { get; set; }
+
+    [Parameter, EditorRequired]
+    public WorktreeContext Worktree { get; set; } = default!;
+}
