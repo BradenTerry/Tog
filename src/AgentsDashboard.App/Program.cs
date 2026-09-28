@@ -69,6 +69,8 @@ builder.Services.AddSingleton<SettingsStore>();
 builder.Services.AddSingleton<Shortcuts>();
 builder.Services.AddSingleton<ReviewDraftStore>();
 builder.Services.AddSingleton<LastViewStore>();
+builder.Services.AddSingleton<PanelLayoutStore>();
+builder.Services.AddSingleton<WindowBoundsStore>();
 
 // Claude
 builder.Services.AddSingleton(new ClaudePaths());
@@ -183,7 +185,8 @@ if (options.Browser)
 // Photino owns the main thread and blocks until the window closes, so the host
 // is already started above rather than run to completion.
 void OpenWindow() => DesktopWindow.Open(url, app.Services.GetRequiredService<ILoggerFactory>(),
-    app.Services.GetRequiredService<FolderPicker>(), app.Services.GetRequiredService<AppUpdate>(), fallbackUrlPrinted: () =>
+    app.Services.GetRequiredService<FolderPicker>(), app.Services.GetRequiredService<AppUpdate>(),
+    app.Services.GetRequiredService<WindowBoundsStore>(), fallbackUrlPrinted: () =>
     Console.WriteLine($"Agents Dashboard is running at {url}"));
 
 if (OperatingSystem.IsWindows())

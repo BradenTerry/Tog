@@ -119,7 +119,9 @@ does not load.
 An extension that names one of the panels needs `"apiVersion": "1.1"` in its
 manifest; one built against 1.0 still loads and lands on the right. Views are
 written against `AgentViewBase` and nothing about where they are drawn, so
-moving one to another panel needs no change to it.
+moving one to another panel needs no change to it. `DefaultLocation` is only
+where a view starts: the person using the app can drag it to any panel or
+section, and that choice wins (see [workbench.md](workbench.md#arranging-the-panels)).
 
 `IEditorTabs` (API 1.3) opens a file as a tab in the window's editor, including
 one outside the worktree, such as a report the extension wrote to its data

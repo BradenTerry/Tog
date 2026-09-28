@@ -1938,6 +1938,51 @@ button.icon-btn:hover:where(:not(:disabled)) { background: var(--surface-2); }
 .ptab-layer { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; }
 .ptab-layer.hidden, .doc-layer.hidden { visibility: hidden; pointer-events: none; }
 
+/* A panel is a column of sections, each a tab strip over its views, sharing the
+   height by flex-grow (the section's weight, which app.js rewrites in pixels when
+   the border between two is dragged). A folded section keeps its views built,
+   hidden and zero high, and shrinks to its strip. */
+.psections { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.psection { display: flex; flex-direction: column; flex: 1 1 0; min-height: 60px; }
+.psection:not(:first-child) { border-top: 1px solid var(--border-soft); }
+.psection.collapsed { flex: none; min-height: 0; }
+.psection.collapsed .ptabs { border-bottom: none; }
+.psection.collapsed .ptab-body { flex: none; height: 0; visibility: hidden; overflow: hidden; }
+
+.psection-fold {
+    display: inline-grid;
+    place-items: center;
+    align-self: center;
+    width: 20px;
+    height: 20px;
+    flex: none;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: none;
+    color: var(--text-faint);
+}
+.psection-fold:hover { color: var(--text); background: var(--accent-bg); }
+.psection-fold svg { transition: transform 0.12s ease; }
+.psection.collapsed .psection-fold svg { transform: rotate(-90deg); }
+
+.section-sash { position: relative; flex: none; height: 5px; margin: -2px 0 -3px; z-index: 4; cursor: row-resize; touch-action: none; }
+.section-sash::after { content: ""; position: absolute; left: 0; right: 0; top: 2px; height: 1px; background: transparent; transition: background 0.12s; }
+.section-sash:hover::after, .section-sash.dragging::after { background: var(--accent); height: 2px; top: 1px; }
+
+/* Where a dragged panel tab can land, drawn only during the drag: the top and
+   bottom of a section split it, the middle joins its strip. A tab it is over
+   is marked on its leading edge, since the dragged tab goes in before it. */
+.view-drops { position: absolute; inset: 0; z-index: 6; display: grid; grid-template-rows: 30% 1fr 30%; }
+.view-drop { display: grid; place-items: center; }
+.view-drop.whole { flex: 1; min-height: 80px; margin: 8px; border: 1px dashed var(--border); border-radius: 6px; }
+.view-drop.over { background: var(--accent-bg); box-shadow: inset 0 0 0 2px var(--accent); }
+.view-drop.over .drop-label { visibility: visible; }
+.view-drop.top.over { box-shadow: inset 0 2px 0 var(--accent); }
+.view-drop.bottom.over { box-shadow: inset 0 -2px 0 var(--accent); }
+.ptabs[data-view-drop].over { background: var(--accent-bg); }
+.ptab[data-view-drop].over { box-shadow: inset 2px 0 0 var(--accent); }
+
 .panel-tools { display: flex; align-items: center; gap: 4px; padding: 6px 8px; flex: none; }
 .panel-tools input[type="text"], .panel-tools select { flex: 1; min-width: 0; max-width: none; padding: 4px 8px; font-size: 12px; }
 .panel-tools .picker { flex: 1; }

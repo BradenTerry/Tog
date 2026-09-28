@@ -52,8 +52,6 @@
 <ExtensionRequestDialog />
 
 @code {
-    private const string LayoutPref = "layout";
-
     private IDisposable? _openRequests;
     private IDisposable? _statusWatch;
     private WorktreeChanges? _fileWatch;
@@ -63,7 +61,6 @@
     protected override void OnInitialized()
     {
         Bench.Changed += OnBenchChanged;
-        Bench.LayoutChanged += OnLayoutChanged;
         State.Changed += OnSnapshot;
         Keys.Changed += OnKeysChanged;
 
@@ -81,12 +78,8 @@
 
         try
         {
-            if (await Js.InvokeAsync<string?>("agentsDashboard.getPref", LayoutPref) is { } saved)
-            {
-                Restore(saved);
-            }
-
             _self = DotNetObjectReference.Create(this);
+            await Js.InvokeVoidAsync("agentsLayout.watch", _self, Bench.Layout.Sizes);
             await Js.InvokeVoidAsync("agentsDashboard.watchNavigation", _self);
             await Js.InvokeVoidAsync("agentsKeys.watch", _self, Keys.Map.ByChord());
         }
@@ -95,19 +88,17 @@
         }
     }
 
-    /// <summary>
-    /// The panels as they were left: one "side:open:tab" triple per panel. How you
-    /// like the window, so it is kept per machine like the panel sizes.
-    /// </summary>
-    private void Restore(string saved)
+    /// <summary>A panel border dragged or reset in app.js, by the name it stores it under.</summary>
+    [JSInvokable]
+    public void SaveSize(string name, string? value) => Bench.SetSize(name, value);
+
+    /// <summary>The sections of a panel after the border between two of them was dragged in app.js.</summary>
+    [JSInvokable]
+    public void SaveSectionWeights(string side, int[] sections, double[] weights)
     {
-        foreach (var part in saved.Split(';', StringSplitOptions.RemoveEmptyEntries))
+        if (Enum.TryParse<PanelSide>(side, out var panel))
         {
-            var fields = part.Split(':', 3);
-            if (fields.Length == 3 && Enum.TryParse<PanelSide>(fields[0], out var side))
-            {
-                Bench.Restore(side, fields[1] == "1", fields[2]);
-            }
+            Bench.SetSectionWeights(panel, sections, weights);
         }
     }
 
@@ -189,25 +180,6 @@
         }
     });
 
-    private void OnLayoutChanged() => _ = SaveLayout();
-
-    private async Task SaveLayout()
-    {
-        var value = string.Join(';', Enum.GetValues<PanelSide>().Select(side =>
-        {
-            var panel = Bench.Panel(side);
-            return $"{side}:{(panel.Open ? "1" : "0")}:{panel.Tab}";
-        }));
-
-        try
-        {
-            await Js.InvokeVoidAsync("agentsDashboard.setPref", LayoutPref, value);
-        }
-        catch (Exception e) when (e is JSException or InvalidOperationException or TaskCanceledException)
-        {
-        }
-    }
-
     private void OnBenchChanged() => _ = InvokeAsync(() =>
     {
         WatchWorktree();
@@ -243,7 +215,6 @@
     public void Dispose()
     {
         Bench.Changed -= OnBenchChanged;
-        Bench.LayoutChanged -= OnLayoutChanged;
         State.Changed -= OnSnapshot;
         Keys.Changed -= OnKeysChanged;
         _openRequests?.Dispose();

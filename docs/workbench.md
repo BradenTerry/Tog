@@ -4,7 +4,8 @@ The window is laid out like VS Code. The agent's files are on the left, source
 control is on the right, and the editor sits in the middle over a bottom panel.
 The bottom panel holds the conversation, across its full width. The agents are
 listed from the picker in the title bar, beside the counts. Each panel has tabs of its own. Extensions add tabs to whichever panel they
-ask for, and to the right panel when they do not ask.
+ask for, and to the right panel when they do not ask. Any tab can be dragged
+somewhere else, as in VS Code: see Arranging the panels below.
 
 ```mermaid
 flowchart TB
@@ -67,7 +68,8 @@ a scoped service (one per window) that holds:
   With nothing picked and the agent closed or removed, the last worktree an
   agent was in stays. A worktree removed since is stood in for by its
   repository's main worktree
-- each panel's open state and the tab in front
+- the panels' layout (`PanelLayout` in Core): each panel's open state, its
+  sections, and which views are in them
 - the open documents, per worktree (`EditorGroup`)
 - one `ChangesModel` per worktree
 
@@ -80,7 +82,7 @@ flowchart LR
     EA --> DD[DiffDocument]
     SC <-->|same ChangesModel| DD
     TB[TitleBar] -->|Toggle| WB
-    WB -->|LayoutChanged| ML[MainLayout] -->|setPref| LS[(localStorage)]
+    WB -->|PanelLayoutStore| LF[(layout.json)]
 ```
 
 ## The editor
@@ -288,19 +290,88 @@ when they call `Touch()` or their model moves.
 the panel moves to another agent. Components are keyed by worktree or session,
 so nothing carries one agent's state into another.
 
+## Arranging the panels
+
+Every panel tab is a view with a key: `files`, `scm`, `chat`, and each
+extension view's key. A panel is a column of sections, and each section is a
+strip of views over the one in front. Nothing about a view says where it is
+drawn, so any view can go in any panel, extensions included, without the
+extension changing.
+
+```mermaid
+flowchart TB
+    subgraph P["Left panel"]
+        direction TB
+        S1["Section: strip [Files | Testing], Files in front"]
+        SS[/"section border, dragged in app.js"/]
+        S2["Section: strip [Source control], folded to its strip"]
+        S1 --- SS --- S2
+    end
+    DRAG[drag a tab] -->|onto a strip or tab| MOVE[PanelLayout.Move]
+    DRAG -->|onto the top or bottom of a section| SPLIT[PanelLayout.Split]
+    DRAG -->|onto the middle of a section| MOVE
+    MENU[tab's right-click menu] -->|Move to, Split down, Reset| MOVE
+    MOVE --> STORE[(layout.json)]
+    SPLIT --> STORE
+```
+
+- **Dragging.** A panel tab is `draggable`. Starting a drag tells `Workbench`
+  (`DraggingView`), and every panel then draws drop targets over its sections:
+  the top and bottom thirds split the section, the middle joins its strip.
+  Dropped on a tab it goes in before that tab; on a strip's empty end, after
+  the last. They are drawn only during a drag, like the editor's, so Monaco or
+  a view never takes the drop and `dragover` never has a handler on the
+  circuit. The zone under the pointer is tinted by `app.js` from `dragover`,
+  not by the server.
+- **The menu.** Right-clicking a panel tab offers Move to each other panel,
+  Split down, and Reset panel layout, so none of it needs a mouse drag.
+- **Folding a section.** With more than one section in a panel each strip gets
+  a chevron that folds its section down to the strip. Clicking a folded
+  section's tab unfolds it. A folded section keeps its views built, hidden and
+  zero high, like a tab behind another.
+- **Section heights** are flex-grow weights. Dragging the border between two
+  sections (in `app.js`) rewrites every open section's weight as its height in
+  pixels, so only the two sides of the border move, then sends them to the
+  server, which renders the same numbers back. Double-click evens the two.
+- **Placed or not.** A view never moved is not in the layout at all: it goes to
+  the end of its default panel's first section, the app's own first. So an
+  extension installed later turns up without anyone arranging it. The first
+  move writes every view down where it is drawn, so nothing on screen shifts.
+  A placed view that is not here now (Chat with no agent, an extension
+  removed) keeps its place and comes back to it. A section left empty by a
+  move goes, and its height passes to its neighbour; a panel keeps one, so
+  there is somewhere to drop into.
+- **Showing a view** (a deep link, `Workbench.Show`) finds it wherever it was
+  put, opens its panel, unfolds its section and brings it to the front.
+
 ## Layout, kept per machine
+
+Everything here is in `layout.json` in the app's data folder
+(`PanelLayoutStore`), not `localStorage`: the window is served from a port
+picked on every start, and the browser keeps its storage per origin, so
+anything there was gone at the next launch.
 
 - **Sizes.** The borders are `.sash` elements dragged in `app.js`, for the same
   reason line selection is: a drag is a stream of moves. Each one sets a CSS
-  variable on the root (`--wb-left`, `--wb-right`, `--wb-bottom`, `--wb-agents`)
-  and saves it to `localStorage`. Double-clicking a border resets it, and the
-  arrow keys move it.
-- **Which panels show, on which tab.** `MainLayout` writes this through
-  `agentsDashboard.setPref("layout")` on every change and reads it back on the
-  first render.
-- **Folding.** A folded panel keeps its grid column at zero width, so the rest of
+  variable on the root (`--wb-left`, `--wb-right`, `--wb-bottom`, `--wb-split`)
+  and saves it to `localStorage` and, through `agentsLayout.saved`, to the
+  layout file. `MainLayout` hands the saved sizes back to `agentsLayout.watch`
+  when a window opens; `localStorage` still answers first, so a reload paints
+  the right sizes before the circuit is up. Double-clicking a border resets it,
+  and the arrow keys move it.
+- **The arrangement.** Which panels show, their sections, the views in them,
+  the one in front of each, what is folded, and the sections' heights. Written
+  by `Workbench` on every change.
+- **Folding a panel.** A folded panel keeps its grid column at zero width, so the rest of
   the grid does not shift and its contents survive. It also gets
   `visibility: hidden`, so nothing inside it can take keyboard focus.
+- **The window itself** reopens where it was and the size it was, from
+  `window.json` (`WindowBoundsStore`, read in `DesktopWindow`). The bounds are
+  followed as the window moves and resizes, and written once it has been still
+  for half a second, since quitting from the menu can end the process without
+  the window closing. A maximized window keeps the size it comes back down to
+  and reopens maximized. A saved place no longer on any screen is dropped for
+  the centre, or an unplugged monitor would leave the window out of reach.
 
 ## Reopening where it was left
 
@@ -325,6 +396,7 @@ navigation, so a closed tab can be reopened by it.
 ## Extensions
 
 `ViewLocation` gained `LeftPanel`, `RightPanel` and `BottomPanel` in API 1.1.
-`RightPanel` is the default. `AgentTab` is kept for extensions built against 1.0
+`RightPanel` is the default. It is only where a view starts; see Arranging the
+panels above. `AgentTab` is kept for extensions built against 1.0
 and is drawn in the right panel. An extension that names one of the new panels
 needs `"apiVersion": "1.1"` in its manifest. See [extensions.md](extensions.md).

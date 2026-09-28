@@ -1,17 +1,11 @@
+using AgentsDashboard.App.Extensions;
 using AgentsDashboard.Core.Git;
 using AgentsDashboard.Core.Model;
+using AgentsDashboard.Core.Presentation;
 using AgentsDashboard.Core.Repos;
 using AgentsDashboard.Extensions;
 
 namespace AgentsDashboard.App.Services;
-
-/// <summary>The three panels around the editor.</summary>
-public enum PanelSide
-{
-    Left,
-    Right,
-    Bottom,
-}
 
 /// <summary>
 /// The window's layout and what is open in it: which agent the panels follow,
@@ -24,26 +18,29 @@ public enum PanelSide
 /// title bar folds the panels away. Documents are kept per worktree, so switching
 /// agents swaps the editor's tabs and switching back finds them as they were.
 /// Memory only, like <see cref="WorktreeViews"/>: where you were looking, not a
-/// preference. Two exceptions: the panels' layout, kept in the browser by the
-/// layout component because it is how you like the window, and the agent and
-/// worktree in view, kept in <see cref="LastViewStore"/> so the app reopens on
-/// them.
+/// preference. Two exceptions: the panels' layout, kept in
+/// <see cref="PanelLayoutStore"/> because it is how you like the window, and the
+/// agent and worktree in view, kept in <see cref="LastViewStore"/> so the app
+/// reopens on them.
 /// </remarks>
 public sealed class Workbench : IDisposable
 {
     private readonly IServiceProvider _services;
     private readonly AgentDirectory _directory;
     private readonly LastViewStore _lastViewStore;
+    private readonly PanelLayoutStore _layoutStore;
     private LastView? _lastView;
 
     /// <summary>The agent open when the app was last used, until a page has had the chance to reopen it.</summary>
     private string? _reopen;
 
-    public Workbench(IServiceProvider services, AgentDirectory directory, LastViewStore lastViewStore)
+    public Workbench(IServiceProvider services, AgentDirectory directory, LastViewStore lastViewStore, PanelLayoutStore layoutStore)
     {
         _services = services;
         _directory = directory;
         _lastViewStore = lastViewStore;
+        _layoutStore = layoutStore;
+        Layout = layoutStore.Load();
         _lastView = lastViewStore.Load();
 
         if (_lastView is { WorktreePath: { } path, RepoRoot: { } root } saved)
@@ -70,9 +67,6 @@ public sealed class Workbench : IDisposable
 
     /// <summary>Anything the panels draw moved: the agent, a document, a tab.</summary>
     public event Action? Changed;
-
-    /// <summary>A panel was shown, hidden or switched tab, which is worth remembering.</summary>
-    public event Action? LayoutChanged;
 
     /// <summary>
     /// Files changed on disk in the worktree in view, with their worktree-relative
@@ -201,18 +195,130 @@ public sealed class Workbench : IDisposable
         Raise();
     }
 
-    public PanelState Left { get; } = new(FilesTab);
+    /// <summary>Where every view sits in the panels, and the panels' sizes. Kept in <see cref="PanelLayoutStore"/>.</summary>
+    public PanelLayout Layout { get; }
 
-    public PanelState Right { get; } = new(SourceControlTab);
+    public DockedPanel Left => Layout.Left;
 
-    public PanelState Bottom { get; } = new(ChatTab);
+    public DockedPanel Right => Layout.Right;
 
-    public PanelState Panel(PanelSide side) => side switch
+    public DockedPanel Bottom => Layout.Bottom;
+
+    public DockedPanel Panel(PanelSide side) => Layout.Panel(side);
+
+    /// <summary>The panel a view goes to until it is moved: the app's own by what they are, an extension's where it asks.</summary>
+    public PanelSide DefaultSide(string key) => key switch
     {
-        PanelSide.Left => Left,
-        PanelSide.Right => Right,
-        _ => Bottom,
+        FilesTab => PanelSide.Left,
+        SourceControlTab => PanelSide.Right,
+        ChatTab => PanelSide.Bottom,
+        _ => Extensions.Views.FirstOrDefault(v => v.View.Key == key) is { } live ? SideOf(live.View.DefaultLocation) : PanelSide.Right,
     };
+
+    /// <summary>Every view there is, the app's first, whether or not it applies to what is in view.</summary>
+    public IReadOnlyList<PanelView> KnownViews =>
+    [
+        new(FilesTab, PanelSide.Left),
+        new(SourceControlTab, PanelSide.Right),
+        new(ChatTab, PanelSide.Bottom),
+        .. Extensions.Views.Select(v => new PanelView(v.View.Key, SideOf(v.View.DefaultLocation))),
+    ];
+
+    private ExtensionHost Extensions => _services.GetRequiredService<ExtensionHost>();
+
+    /// <summary>The panel view being dragged, which every panel draws drop targets for.</summary>
+    public string? DraggingView { get; private set; }
+
+    public void StartViewDrag(string key)
+    {
+        DraggingView = key;
+        Raise();
+    }
+
+    public void EndViewDrag()
+    {
+        if (DraggingView is not null)
+        {
+            DraggingView = null;
+            Raise();
+        }
+    }
+
+    /// <summary>Drops the dragged view into a section's strip, before another view or at the end.</summary>
+    public void DropView(PanelSide side, int section, string? before)
+    {
+        if (DraggingView is { } key)
+        {
+            DraggingView = null;
+            Layout.Move(key, side, section, before, KnownViews);
+            RaiseLayout();
+        }
+    }
+
+    /// <summary>Drops the dragged view into a new section above or below another.</summary>
+    public void DropViewSplit(PanelSide side, int section, bool below)
+    {
+        if (DraggingView is { } key)
+        {
+            DraggingView = null;
+            Layout.Split(key, side, section, below, KnownViews);
+            RaiseLayout();
+        }
+    }
+
+    /// <summary>The tab menu's move, to the end of another panel.</summary>
+    public void MoveView(string key, PanelSide side)
+    {
+        Layout.MoveToPanel(key, side, KnownViews);
+        RaiseLayout();
+    }
+
+    /// <summary>The tab menu's split: the view into a section of its own under the one it is in.</summary>
+    public void SplitView(string key)
+    {
+        var (side, section) = Layout.Locate(key, DefaultSide(key));
+        Layout.Split(key, side, section, below: true, KnownViews);
+        RaiseLayout();
+    }
+
+    public void ToggleSection(PanelSide side, int section)
+    {
+        Layout.ToggleCollapsed(side, section);
+        RaiseLayout();
+    }
+
+    /// <summary>The heights app.js gave the sections of a panel when a border between them was dragged. Already on screen, so nothing is redrawn.</summary>
+    public void SetSectionWeights(PanelSide side, IReadOnlyList<int> sections, IReadOnlyList<double> weights)
+    {
+        for (var i = 0; i < Math.Min(sections.Count, weights.Count); i++)
+        {
+            Layout.SetWeight(side, sections[i], weights[i]);
+        }
+
+        _layoutStore.Save(Layout);
+    }
+
+    /// <summary>A panel border's size as app.js stores it, or null when it was reset. Already on screen, so nothing is redrawn.</summary>
+    public void SetSize(string name, string? value)
+    {
+        if (value is null)
+        {
+            Layout.Sizes.Remove(name);
+        }
+        else
+        {
+            Layout.Sizes[name] = value;
+        }
+
+        _layoutStore.Save(Layout);
+    }
+
+    /// <summary>Every view back in the panel it asks for.</summary>
+    public void ResetViews()
+    {
+        Layout.ResetViews();
+        RaiseLayout();
+    }
 
     /// <summary>
     /// Where an extension's view goes. <see cref="ViewLocation.AgentTab"/> was the
@@ -293,31 +399,20 @@ public sealed class Workbench : IDisposable
         RaiseLayout();
     }
 
-    /// <summary>Brings a panel up on one of its tabs.</summary>
-    public void Show(PanelSide side, string tab)
+    /// <summary>Brings a view up wherever it is: its panel open, its section unfolded, it in front.</summary>
+    public void Show(string view)
     {
-        var panel = Panel(side);
-        if (panel.Open && panel.Tab == tab)
+        if (Layout.Show(view, DefaultSide(view)))
         {
-            return;
+            RaiseLayout();
         }
-
-        panel.Open = true;
-        panel.Tab = tab;
-        RaiseLayout();
     }
 
-    /// <summary>Puts back a layout read from the browser, without writing it straight back.</summary>
-    public void Restore(PanelSide side, bool open, string? tab)
+    /// <summary>A click on a panel tab: in front of the section it is in.</summary>
+    public void Activate(PanelSide side, int section, string view)
     {
-        var panel = Panel(side);
-        panel.Open = open;
-        if (tab is { Length: > 0 })
-        {
-            panel.Tab = tab;
-        }
-
-        Raise();
+        Layout.Activate(side, section, view);
+        RaiseLayout();
     }
 
     public EditorGroup Editors(string worktreePath)
@@ -797,7 +892,7 @@ public sealed class Workbench : IDisposable
 
     private void RaiseLayout()
     {
-        LayoutChanged?.Invoke();
+        _layoutStore.Save(Layout);
         Raise();
     }
 
@@ -808,14 +903,6 @@ public sealed class Workbench : IDisposable
             model.Dispose();
         }
     }
-}
-
-/// <summary>One panel: whether it is showing, and the tab in front.</summary>
-public sealed class PanelState(string tab)
-{
-    public bool Open { get; set; } = true;
-
-    public string Tab { get; set; } = tab;
 }
 
 public enum DocKind
