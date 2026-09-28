@@ -135,6 +135,12 @@ than running anything of its own, so the tree is the newest result per test
 across the runs it holds. A test that has never run is not in it until
 something runs it, and a partial run only replaces the tests it touched.
 
+Clear empties the tree without touching the reports: they are the user's files.
+The tracker remembers each cleared report's length and last write and skips it
+while those match, so the periodic scan does not read it back, and a new run
+writing the same file shows up as usual. Reload forgets the runs and the cleared
+list, re-probes the test projects, and reads every report in the worktree again.
+
 ```mermaid
 flowchart LR
     runs["Runs, newest first"] --> latest["Newest result per test"]
