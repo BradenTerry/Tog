@@ -1833,10 +1833,31 @@ button.icon-btn:hover:where(:not(:disabled)) { background: var(--surface-2); }
 .command-center svg { flex: none; }
 .command-center-label { flex: 1; min-width: 0; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .command-center kbd { flex: none; }
-@media (max-width: 760px) {
+/* A narrow bar gives up centring Go to File: its box becomes the magnifier
+   alone and the two outer columns stop being equal, since keeping them equal
+   leaves the left half empty while the agent picker is squeezed to its dot.
+   The right end is sized to its content and the repository button shrinks
+   first, down to the app's mark and its own caret (56px), so
+   it never slides under the magnifier. The counts keep their dot and number
+   and lose the word, which is in their tooltip. */
+@media (max-width: 1000px) {
+    .titlebar { grid-template-columns: minmax(56px, 1fr) auto auto; }
+    .where { overflow: hidden; }
     .command-center-slot { width: 28px; }
     .command-center { padding: 0; justify-content: center; }
     .command-center-label, .command-center kbd { display: none; }
+    .agent-count-word { display: none; }
+    .agent-count { padding: 0 6px; }
+}
+@media (max-width: 760px) {
+    .brand-name, .where-branch { display: none; }
+    .titlebar .agent-pick { max-width: 180px; }
+    .titlebar-end { gap: 8px; }
+}
+/* No room left for the names: the repository button is its caret, which
+   still opens the worktree list. Its path is in the tooltip. */
+@media (max-width: 520px) {
+    .where-item, .where-sep { display: none; }
 }
 .title-update { display: inline-flex; align-items: center; gap: 6px; flex: none; font-size: 12px; white-space: nowrap; }
 
@@ -2196,7 +2217,6 @@ button.icon-btn:hover:where(:not(:disabled)) { background: var(--surface-2); }
 
 @media (max-width: 900px) {
     .workbench { --left: min(var(--wb-left, 260px), 30vw); --right: min(var(--wb-right, 340px), 34vw); }
-    .where { display: none; }
     .diff-line { grid-template-columns: 76px 18px minmax(0, 1fr); }
     .ln-pick { grid-template-columns: 38px 38px; }
 }
