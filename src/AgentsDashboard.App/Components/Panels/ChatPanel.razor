@@ -390,6 +390,12 @@ else
             </div>
             <div class="composer-foot">
                 <span class="composer-hint">@Hint(agent)</span>
+                @if (ModelOf(agent) is { } model)
+                {
+                    @* The agent reports its settings only once a session runs, so a
+                       stopped agent has none until it is resumed. *@
+                    <span class="chat-model truncate" title="@(model.Description ?? $"Model: {model.Name}")">@model.Name</span>
+                }
                 @if (agent.Context is { } context)
                 {
                     @* Under the Send button, where you are when you decide whether
@@ -522,6 +528,12 @@ else
         >= 70 => "warn",
         _ => "",
     };
+
+    /// <summary>The model the session is on, as the agent names it, when it has said.</summary>
+    private static AcpChoice? ModelOf(ChatTarget target) =>
+        target.Options.FirstOrDefault(o => o.Id == "model") is { Current: { } current } option
+            ? option.Choices.FirstOrDefault(c => c.Value == current) ?? new AcpChoice(current, current, null)
+            : null;
 
     private static string Hint(ChatTarget target)
     {

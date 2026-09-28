@@ -1394,6 +1394,10 @@ button.subagent-link.shown { background: var(--accent-bg); }
 }
 
 .context-meter { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+
+/* The model sits with the context meter, the pair pushed right together. */
+.chat-model { margin-left: auto; font-size: 11.5px; color: var(--text-faint); flex: 0 1 auto; min-width: 0; }
+.chat-model + .context-meter { margin-left: 0; }
 .context-meter.warn { color: var(--waiting); }
 .context-meter.high { color: var(--danger); }
 
