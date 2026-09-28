@@ -272,6 +272,31 @@ function setFontSize(size) {
     }
 }
 
+// Alt+Z wraps long lines at the editor's edge, as in VS Code. Like the text size
+// it applies to every open editor and is kept per machine: whether a wide file is
+// readable is a matter of the window, not of the file.
+const wordWrapKey = 'agents.editorWordWrap';
+
+function savedWordWrap() {
+    return localStorage.getItem(wordWrapKey) === 'on' ? 'on' : 'off';
+}
+
+function toggleWordWrap() {
+    const value = savedWordWrap() === 'on' ? 'off' : 'on';
+    if (value === 'on') {
+        localStorage.setItem(wordWrapKey, value);
+    } else {
+        localStorage.removeItem(wordWrapKey);
+    }
+
+    // Every editor is told, not just the one asked: each tab's toolbar button
+    // shows the setting, and Alt+Z in one tab changes it for all of them.
+    for (const state of editors.values()) {
+        state.editor.updateOptions({ wordWrap: value });
+        state.dotnet.invokeMethodAsync('WordWrapChanged', value === 'on');
+    }
+}
+
 // event.key is '=' or '+' depending on Shift and the layout, so the physical key
 // and the numpad are both accepted.
 function zoomStep(event) {
@@ -533,6 +558,14 @@ function addActions(monaco, state) {
             state.dotnet.invokeMethodAsync('ShowCallHierarchy', caret.lineNumber, caret.column);
         },
     });
+
+    state.editor.addAction({
+        id: 'agents.toggleWordWrap',
+        label: 'Toggle Word Wrap',
+        keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyZ],
+        contextMenuGroupId: '9_view',
+        run: () => toggleWordWrap(),
+    });
 }
 
 // Typing is still not sent on every keystroke, but references that ignore the
@@ -611,7 +644,7 @@ window.agentsEditor = {
             readOnly: !!settings.readOnly,
             automaticLayout: true,
             minimap: { enabled: true },
-            wordWrap: 'off',
+            wordWrap: savedWordWrap(),
             fontSize: savedFontSize(),
             fontFamily: mono(),
             scrollBeyondLastLine: false,
@@ -680,6 +713,11 @@ window.agentsEditor = {
 
         const handle = nextHandle++;
         editors.set(handle, state);
+
+        if (savedWordWrap() === 'on') {
+            dotnetRef.invokeMethodAsync('WordWrapChanged', true);
+        }
+
         return handle;
     },
 
@@ -746,6 +784,8 @@ window.agentsEditor = {
             state.dotnet.invokeMethodAsync('SetDirty', false);
         }
     },
+
+    toggleWordWrap: () => toggleWordWrap(),
 
     getText: (handle) => editors.get(handle)?.editor.getValue() ?? '',
 

@@ -79,6 +79,13 @@
     [Parameter]
     public EventCallback<string> OnTextChanged { get; set; }
 
+    /// <summary>
+    /// Whether long lines wrap. The setting is the browser's, shared by every
+    /// editor, so this reports it rather than being a parameter.
+    /// </summary>
+    [Parameter]
+    public EventCallback<bool> OnWordWrapChanged { get; set; }
+
     private ElementReference _host;
     private DotNetObjectReference<CodeEditor>? _self;
     private int? _handle;
@@ -355,6 +362,24 @@
 
     [JSInvokable]
     public Task TextChanged(string text) => OnTextChanged.InvokeAsync(text);
+
+    [JSInvokable]
+    public Task WordWrapChanged(bool on) => OnWordWrapChanged.InvokeAsync(on);
+
+    /// <summary>Wraps long lines in every open editor, or stops wrapping them, as Alt+Z does.</summary>
+    public async Task ToggleWordWrapAsync()
+    {
+        try
+        {
+            await Js.InvokeVoidAsync("agentsEditor.toggleWordWrap");
+        }
+        catch (JSException)
+        {
+        }
+        catch (InvalidOperationException)
+        {
+        }
+    }
 
     /// <summary>
     /// Runs a query against the extension that answers for this file, if one is

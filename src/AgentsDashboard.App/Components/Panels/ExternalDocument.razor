@@ -20,6 +20,16 @@ else
         <div class="doc-bar">
             <span class="mono truncate faint" title="@Doc.Path">@Doc.Path</span>
             <span class="spacer"></span>
+            @if (ShowsEditor)
+            {
+                <button class="icon-btn doc-wrap @(_wrap ? "active" : "")" @onclick="ToggleWrap"
+                        title="@(_wrap ? "Stop wrapping long lines (Alt+Z)" : "Wrap long lines (Alt+Z)")"
+                        aria-label="Word wrap" aria-pressed="@(_wrap.ToString().ToLowerInvariant())">
+                    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                        <path d="M2 3.5h12M2 7.5h10a2 2 0 0 1 0 4H8.5M10 9.5l-2 2 2 2M2 11.5h3.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                </button>
+            }
             @if (_text?.Editable == true)
             {
                 <button class="icon-btn doc-save" disabled="@(!_unsaved || _saving)" @onclick="Save"
@@ -97,7 +107,8 @@ else
                             RevealKey="@Doc.Reveal"
                             OnSave="SaveText"
                             OnDirtyChanged="SetUnsaved"
-                            OnTextChanged="PushText" />
+                            OnTextChanged="PushText"
+                            OnWordWrapChanged="SetWrap" />
             </div>
         }
         else if (_preview && CanPreview)
@@ -143,6 +154,9 @@ else
     private CodeEditor? _editor;
     private string _stamp = "";
     private bool _unsaved;
+
+    /// <summary>Whether the editor wraps long lines, as it last reported.</summary>
+    private bool _wrap;
     private bool _saving;
     private bool _conflict;
     private string? _failure;
@@ -218,6 +232,23 @@ else
         _live = null;
         _conflict = false;
         _failure = null;
+    }
+
+    /// <summary>The Monaco editor is on screen, which is when wrapping means anything.</summary>
+    private bool ShowsEditor => _file is { IsBinary: false } file && string.IsNullOrEmpty(file.Error) && _text?.Editable == true && !(_preview && CanPreview);
+
+    private void SetWrap(bool on)
+    {
+        _render = true;
+        _wrap = on;
+    }
+
+    private async Task ToggleWrap()
+    {
+        if (_editor is not null)
+        {
+            await _editor.ToggleWordWrapAsync();
+        }
     }
 
     private void SetUnsaved(bool unsaved)
