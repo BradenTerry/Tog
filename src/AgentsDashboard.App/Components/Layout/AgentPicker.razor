@@ -4,6 +4,8 @@
 @inject NavigationManager Nav
 @inject WorktreeInventory Inventory
 @inject WorktreeViews Views
+@inject Shortcuts Keys
+@inject IJSRuntime Js
 
 @* The agent in view, in the title bar beside the counts. A click lists every
    agent, like a messaging app's list of conversations, with New agent at the
@@ -15,9 +17,9 @@
     var targets = Targets;
     var agent = IsAtAgent ? targets.FirstOrDefault(t => t.SessionId == Bench.SessionId) : null;
 }
-<button type="button" class="agent-pick @(_menu is not null ? "open" : "")" @onclick="Toggle"
+<button type="button" class="agent-pick @(_menu is not null ? "open" : "")" @onclick="Toggle" @ref="_button"
         aria-haspopup="menu" aria-expanded="@(_menu is not null ? "true" : "false")"
-        title="@(agent is null ? "Pick an agent, or start one" : $"{agent.Label} ({agent.Where}, {AgentDirectory.StateWord(agent)})\nClick to switch agents or start one")">
+        title="@(agent is null ? Keys.Title("Pick an agent, or start one", Commands.SelectAgent) : $"{agent.Label} ({agent.Where}, {AgentDirectory.StateWord(agent)})\n{Keys.Title("Click to switch agents or start one", Commands.SelectAgent)}")">
     @if (agent is not null)
     {
         <span class="dot @AgentDirectory.DotClass(agent.State)" aria-hidden="true"></span>
@@ -129,6 +131,35 @@
 
     private void Toggle(MouseEventArgs e) => _menu = _menu is null ? (e.ClientX, e.ClientY) : null;
 
+    private ElementReference _button;
+
+    /// <summary>
+    /// Select Agent's key: the list opens under the button rather than at a
+    /// pointer, and the menu puts focus on the agent in view, so the arrows
+    /// start from there and Enter on it changes nothing.
+    /// </summary>
+    private void OnPickerRequested() => _ = InvokeAsync(async () =>
+    {
+        if (_menu is not null)
+        {
+            _menu = null;
+            StateHasChanged();
+            return;
+        }
+
+        try
+        {
+            var at = await Js.InvokeAsync<double[]>("agentsDashboard.anchorBelow", _button);
+            _menu = (at[0], at[1]);
+        }
+        catch (Exception e) when (e is JSException or JSDisconnectedException or TaskCanceledException or InvalidOperationException)
+        {
+            return;
+        }
+
+        StateHasChanged();
+    });
+
     private void GoTo(ChatTarget target)
     {
         _menu = null;
@@ -230,6 +261,7 @@
         Nav.LocationChanged += OnLocationChanged;
         Directory.Changed += OnChanged;
         Bench.Changed += OnChanged;
+        Bench.AgentPickerRequested += OnPickerRequested;
     }
 
     private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e) =>
@@ -246,6 +278,7 @@
             Nav.LocationChanged -= OnLocationChanged;
             Directory.Changed -= OnChanged;
             Bench.Changed -= OnChanged;
+            Bench.AgentPickerRequested -= OnPickerRequested;
         }
 
         base.Dispose(disposing);

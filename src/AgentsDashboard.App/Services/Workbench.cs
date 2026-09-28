@@ -393,6 +393,14 @@ public sealed class Workbench : IDisposable
 
     public event Action<string>? QuickOpenRequested;
 
+    /// <summary>
+    /// Asks the title bar to open its list of agents from the keyboard, or shut
+    /// it if it is open. Arrows move through it and Enter picks, as in any menu.
+    /// </summary>
+    public void ToggleAgentPicker() => AgentPickerRequested?.Invoke();
+
+    public event Action? AgentPickerRequested;
+
     /// <summary>How many recently opened files are kept per worktree.</summary>
     private const int RecentLimit = 50;
 

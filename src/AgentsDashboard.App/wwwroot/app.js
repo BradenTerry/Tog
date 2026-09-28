@@ -838,7 +838,20 @@ window.agentsDashboard = {
         if (r.bottom > window.innerHeight - 4) {
             menu.style.top = `${Math.max(4, r.top - r.height)}px`;
         }
-        menu.focus();
+        bindMenuKeys(menu);
+
+        // The checked item (the agent in view, the worktree picked) takes focus,
+        // so the arrows start from where you are; otherwise the menu itself does,
+        // and the first arrow goes to the first item.
+        const checked = menu.querySelector('.context-item[aria-checked="true"]:not(:disabled)');
+        (checked || menu).focus();
+        checked?.scrollIntoView({ block: 'nearest' });
+    },
+    // Where a menu opened from the keyboard goes: under its button, left edges
+    // lined up, as it would be had the button been clicked at its corner.
+    anchorBelow: (element) => {
+        const r = element.getBoundingClientRect();
+        return [r.left, r.bottom + 4];
     },
     copy: async (text) => {
         try {
@@ -948,6 +961,37 @@ function bindPicker(trigger) {
         if (['ArrowDown', 'ArrowUp', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) {
             event.preventDefault();
         }
+    });
+}
+
+// Up and down walk a menu's items, wrapping at the ends, and Home and End jump
+// to them; Enter is the focused button's own click. Only the menu's items are
+// stops, so a button inside an item's note (Remove... on a cleanup offer) is
+// left to Tab.
+function bindMenuKeys(menu) {
+    if (menu.dataset.keysBound) {
+        return;
+    }
+
+    menu.dataset.keysBound = 'true';
+    menu.addEventListener('keydown', (event) => {
+        if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+            return;
+        }
+
+        const items = [...menu.querySelectorAll('.context-item:not(:disabled)')];
+        if (items.length === 0) {
+            return;
+        }
+
+        event.preventDefault();
+        const at = items.indexOf(document.activeElement);
+        const next = event.key === 'Home' ? 0
+            : event.key === 'End' ? items.length - 1
+            : at < 0 ? (event.key === 'ArrowDown' ? 0 : items.length - 1)
+            : (at + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+        items[next].focus();
+        items[next].scrollIntoView({ block: 'nearest' });
     });
 }
 

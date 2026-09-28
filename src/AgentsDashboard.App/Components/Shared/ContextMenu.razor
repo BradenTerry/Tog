@@ -4,7 +4,8 @@
    window takes the next click or right click anywhere else and closes it, which
    is how a native menu behaves and needs no listener on the document. The menu
    is moved back inside the window once drawn, since only the page knows how
-   big it came out. *@
+   big it came out. The arrow keys walk its items (app.js, bindMenuKeys), starting
+   from the checked one when there is one, and Enter picks. *@
 
 <div class="context-backdrop" @onclick="Close" @oncontextmenu="Close" @oncontextmenu:preventDefault="true"></div>
 <div class="context-menu" role="menu" tabindex="-1" style="@Position" @ref="_menu" @onkeydown="OnKey">
