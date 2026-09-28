@@ -179,6 +179,72 @@ public class AgentHostTests
     }
 
     [Fact]
+    public async Task A_stopped_agent_can_be_resumed_without_sending_it_anything()
+    {
+        var (host, agent, dir) = Build();
+        await using var _ = host;
+        using var __ = dir;
+        var id = (await host.StartAsync(new AgentStart(dir.Path), Ct)).SessionId!;
+        await host.StopAsync(id, Ct);
+
+        var result = await host.WakeAsync(id, Ct);
+
+        Assert.True(result.Ok, result.Message);
+        Assert.Equal(HostedState.Idle, host.Find(id)!.State);
+        Assert.Contains("session/resume:" + id, agent.Calls);
+        Assert.DoesNotContain(agent.Calls, c => c.StartsWith("session/prompt:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Resuming_an_agent_whose_folder_is_gone_says_so_and_does_not_fail_it()
+    {
+        var (host, agent, dir) = Build();
+        await using var _ = host;
+        using var __ = dir;
+        var gone = Path.Combine(dir.Path, "removed");
+        Directory.CreateDirectory(gone);
+        var id = (await host.StartAsync(new AgentStart(gone), Ct)).SessionId!;
+        await host.StopAsync(id, Ct);
+        Directory.Delete(gone);
+
+        var result = await host.WakeAsync(id, Ct);
+
+        Assert.False(result.Ok);
+        Assert.Equal(HostedState.Stopped, host.Find(id)!.State);
+        Assert.DoesNotContain("session/resume:" + id, agent.Calls);
+    }
+
+    [Fact]
+    public async Task The_slash_commands_an_agent_listed_are_kept_across_a_restart()
+    {
+        var dir = new TempDir();
+        using var _ = dir;
+        var store = new HostedAgentStore(new AppPaths(dir.Path));
+        var agent = new FakeAcpAgent
+        {
+            OnPrompt = async script =>
+            {
+                await script.Commands(new { name = "review", description = "Review the diff", input = new { hint = "[level]" } });
+                return "end_turn";
+            },
+        };
+
+        await using (var host = new AgentHost(Backend, agent, store))
+        {
+            var id = (await host.StartAsync(new AgentStart("/repo", Prompt: "go"), Ct)).SessionId!;
+            await Until(host, id, a => a.Commands is { Count: 1 } && a.State == HostedState.Idle);
+            await Task.Delay(250, Ct);
+        }
+
+        await using var second = new AgentHost(Backend, new FakeAcpAgent(), store);
+        Assert.Equal([new AcpCommand("review", "Review the diff", "[level]")], Assert.Single(second.Agents).Commands);
+
+        // A new agent that has not listed any yet is offered the saved ones too.
+        var fresh = (await second.StartAsync(new AgentStart(dir.Path), Ct)).SessionId!;
+        Assert.Single(second.Agents.Single(a => a.SessionId == fresh).Commands!);
+    }
+
+    [Fact]
     public async Task Agents_come_back_as_stopped_after_a_restart()
     {
         var dir = new TempDir();

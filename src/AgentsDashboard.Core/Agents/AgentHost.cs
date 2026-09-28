@@ -159,6 +159,8 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
     /// session is running, and a stopped agent is resumed by the message you are
     /// typing, so without these it would have none to offer. Skills and commands
     /// mostly live in your own settings, so another session's list is close.
+    /// Each agent's list is saved with it, so this starts from the saved ones
+    /// rather than empty after a restart, when no session has run yet.
     /// </summary>
     private IReadOnlyList<AcpCommand> _knownCommands = [];
 
@@ -189,7 +191,13 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
                 Title = saved.Title,
                 Prompt = saved.Prompt,
                 Context = saved.Context,
+                Commands = saved.Commands,
             };
+
+            if (saved.Commands is { Count: > 0 } commands)
+            {
+                _knownCommands = commands;
+            }
         }
 
         _flush = new Timer(_ => Flush(), null, TimeSpan.FromMilliseconds(100), TimeSpan.FromMilliseconds(100));
@@ -327,6 +335,31 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
             return string.IsNullOrWhiteSpace(start.Prompt)
                 ? new HostResult(true, "Resumed.", sessionId)
                 : await SendAsync(sessionId, start.Prompt, ct).ConfigureAwait(false);
+        }
+        catch (Exception e) when (IsAgentFailure(e))
+        {
+            // A missing folder is not the agent failing: nothing ran, and the
+            // chat already says why it cannot continue.
+            if (e is not FolderGoneException)
+            {
+                Fail(sessionId, Explain(e));
+            }
+
+            return HostResult.Failed(Explain(e));
+        }
+    }
+
+    /// <summary>
+    /// Picks a stopped agent's session up again without sending it anything, so
+    /// its commands and settings are live before the first message. Resuming
+    /// starts no turn. A running agent is left as it is.
+    /// </summary>
+    public async Task<HostResult> WakeAsync(string sessionId, CancellationToken ct = default)
+    {
+        try
+        {
+            await AttachAsync(sessionId, ct).ConfigureAwait(false);
+            return new HostResult(true, "Resumed.", sessionId);
         }
         catch (Exception e) when (IsAgentFailure(e))
         {
@@ -875,8 +908,14 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
                     break;
 
                 case "available_commands_update":
-                    entry.Commands = AcpClient.ReadCommands(update);
-                    _knownCommands = entry.Commands;
+                    var listed = AcpClient.ReadCommands(update);
+                    if (entry.Commands is null || !entry.Commands.SequenceEqual(listed))
+                    {
+                        _recordChanged = true;
+                    }
+
+                    entry.Commands = listed;
+                    _knownCommands = listed;
                     break;
 
                 case "session_info_update":
@@ -1083,7 +1122,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
         {
             records = _entries.Values
                 .OrderBy(e => e.AddedAt)
-                .Select(e => new HostedAgentRecord(e.SessionId, e.Cwd, e.Title, e.AddedAt, e.Prompt, e.Context))
+                .Select(e => new HostedAgentRecord(e.SessionId, e.Cwd, e.Title, e.AddedAt, e.Prompt, e.Context, e.Commands))
                 .ToList();
         }
 

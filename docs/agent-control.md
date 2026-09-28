@@ -45,7 +45,10 @@ Agents run inside the dashboard, so closing it ends them, like local agents in a
 editor. Nothing is lost: the SDK saves every conversation to the same transcripts
 the Claude CLI uses, and the agent list shows the agents again on the next start as
 **Stopped**. Sending one a message resumes it with `session/resume` and then
-prompts it. A turn in progress when the app closed is the only thing that stops.
+prompts it. **Resume** in the chat header (`AgentHost.WakeAsync`) sends only
+`session/resume`, which starts no turn, so the agent's commands and settings are
+live before you decide what to send. A turn in progress when the app closed is
+the only thing that stops.
 
 A conversation can only be resumed in the folder it started in: the transcript
 lives under a directory named after that path, and the agent refuses a `cwd` that
@@ -291,8 +294,10 @@ something you said, or a notice when they were skipped.
   as you type a slash at the start of any word. Only one that starts the
   message runs as a command; further in it is text the agent reads, which is how
   a skill is asked for mid-sentence. A stopped agent has not listed any, and it
-  is the message being typed that resumes it, so it is offered the last list any
-  session gave.
+  is the message being typed that resumes it, so it is offered the list it gave
+  last, or failing that the last list any session gave. Each agent's list is
+  saved in `agents.json` with it; kept only in memory, every agent came back
+  from a restart with none, since no session has run yet to list them.
   The menu lives in `app.js`, not on the circuit, so it keeps up with typing.
 
 ## When the agent process dies

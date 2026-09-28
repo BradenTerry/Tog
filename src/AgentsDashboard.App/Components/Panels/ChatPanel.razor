@@ -52,7 +52,18 @@ else
                 <button class="ghost small" @onclick="() => Act(() => Host.CancelAsync(agent.SessionId))" disabled="@_busy"
                         title="Stop the turn in progress. The agent stays, with everything so far kept.">Stop turn</button>
             }
-            @if (agent.State is not ChatState.Parked)
+            @if (agent.State is ChatState.Parked)
+            {
+                @* Sending resumes a stopped agent too, but until it runs it has
+                   not listed its commands or settings, which you may want before
+                   deciding what to send. Resuming starts no turn. *@
+                @if (CanSend(agent))
+                {
+                    <button class="ghost small" @onclick="() => Act(() => Host.WakeAsync(agent.SessionId))" disabled="@_busy"
+                            title="Pick its session up again without sending anything, with its conversation kept.">@(_busy ? "Resuming..." : "Resume")</button>
+                }
+            }
+            else
             {
                 <button class="ghost small" @onclick="() => Act(() => Host.StopAsync(agent.SessionId))" disabled="@_busy"
                         title="End the agent's session. Its conversation is kept, and a message picks it up again.">End session</button>
@@ -497,7 +508,7 @@ else
         return target.State switch
         {
             ChatState.Active or ChatState.Waiting => Keys,
-            ChatState.Parked => Keys + " Its session has ended: sending resumes it with its conversation kept.",
+            ChatState.Parked => Keys + " Its session has ended: sending, or Resume above, picks it up with its conversation kept.",
             ChatState.Failed => Keys + " Sending starts it again with its conversation kept.",
             _ => Keys + " It picks up from where the conversation left off.",
         };
