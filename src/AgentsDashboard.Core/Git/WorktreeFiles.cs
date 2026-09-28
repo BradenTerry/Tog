@@ -150,7 +150,7 @@ public sealed class WorktreeFiles(IGitCli git)
             var take = (int)Math.Min(info.Length, MaxBytes);
             var bytes = new byte[take];
 
-            using (var stream = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            using (var stream = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
             {
                 stream.ReadExactly(bytes, 0, take);
             }
@@ -227,7 +227,7 @@ public sealed class WorktreeFiles(IGitCli git)
             var take = (int)Math.Min(info.Length, MaxBytes);
             var bytes = new byte[take];
 
-            using (var stream = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            using (var stream = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
             {
                 stream.ReadExactly(bytes, 0, take);
             }

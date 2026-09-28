@@ -234,7 +234,7 @@ public class WorktreeFileEditingTests
         using var dir = new TempDir();
         var target = dir.File("dotfiles/CLAUDE.md", "one\n");
         var link = Path.Combine(dir.Path, "CLAUDE.md");
-        File.CreateSymbolicLink(link, target);
+        Links.File(link, target);
         var files = Files();
 
         var result = files.WriteOutside(link, "two\n", files.ReadTextOutside(link).Stamp);
@@ -249,7 +249,7 @@ public class WorktreeFileEditingTests
     {
         using var dir = new TempDir();
         var target = dir.File("dotfiles/CLAUDE.md", "a line well past the length of the link's own path\n");
-        File.CreateSymbolicLink(Path.Combine(dir.Path, "CLAUDE.md"), target);
+        Links.File(Path.Combine(dir.Path, "CLAUDE.md"), target);
 
         Assert.Equal("a line well past the length of the link's own path\n", Files().ReadText(dir.Path, "CLAUDE.md").Text);
         Assert.Equal("a line well past the length of the link's own path", Assert.Single(Files().Read(dir.Path, "CLAUDE.md").Lines, l => l.Length > 0));
@@ -258,7 +258,8 @@ public class WorktreeFileEditingTests
 
 public class FileReferenceTests
 {
-    private const string Worktree = "/repo/wt";
+    // Native, so on Windows the absolute paths below carry a drive and backslashes.
+    private static readonly string Worktree = Path.GetFullPath("/repo/wt");
 
     private static readonly string[] Known =
     [
@@ -311,7 +312,7 @@ public class FileReferenceTests
     [Fact]
     public void Finds_a_dotnet_stack_frame()
     {
-        var r = Assert.Single(Find("   at Foo.Bar() in /repo/wt/src/Foo/Bar.cs:line 42"));
+        var r = Assert.Single(Find($"   at Foo.Bar() in {Path.Combine(Worktree, "src", "Foo", "Bar.cs")}:line 42"));
 
         Assert.Equal("src/Foo/Bar.cs", r.Path);
         Assert.Equal(42, r.Line);
@@ -327,6 +328,18 @@ public class FileReferenceTests
     }
 
     [Fact]
+    public void A_windows_drive_letter_is_part_of_the_path_not_a_line_separator()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "A drive path is only rooted on Windows.");
+
+        var r = Assert.Single(FileReferences.Find(@"C:\repo\wt\Program.cs(12,5): error", @"C:\repo\wt", p => Known.Contains(p)));
+
+        Assert.Equal("Program.cs", r.Path);
+        Assert.Equal(12, r.Line);
+        Assert.Equal(5, r.Column);
+    }
+
+    [Fact]
     public void Drops_a_path_that_is_not_a_file_in_the_worktree() =>
         Assert.Empty(Find("have a look at src/Nope/Missing.cs"));
 
@@ -337,7 +350,7 @@ public class FileReferenceTests
     [Fact]
     public void Makes_an_absolute_path_inside_the_worktree_relative()
     {
-        var r = Assert.Single(Find("edit /repo/wt/Program.cs now"));
+        var r = Assert.Single(Find($"edit {Path.Combine(Worktree, "Program.cs")} now"));
 
         Assert.Equal("Program.cs", r.Path);
     }
@@ -412,4 +425,8 @@ public class EditorLinkTests
         Assert.Equal("vscode://file/repo/a.cs:42", EditorLinks.VsCode("/repo/a.cs", 42));
         Assert.Equal("vscode://file/repo/a.cs:42:7", EditorLinks.VsCode("/repo/a.cs", 42, 7));
     }
+
+    [Fact]
+    public void Keeps_a_windows_drive_as_the_first_segment() =>
+        Assert.Equal("vscode://file/C:/my%20wt/a.cs:12", EditorLinks.VsCode(@"C:\my wt\a.cs", 12));
 }

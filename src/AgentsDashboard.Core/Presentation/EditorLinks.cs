@@ -19,9 +19,12 @@ public static class EditorLinks
 
         // Escaping the whole path would escape the separators with it and leave one
         // opaque segment, so each segment is escaped and the slashes are put back.
-        var escaped = string.Join('/', path.Split('/').Select(Uri.EscapeDataString));
+        // A Windows drive keeps its colon and gains the leading slash a Unix path
+        // already has: vscode://file/C:/x/a.cs.
+        var escaped = string.Join('/', path.Split('/').Select((s, i) =>
+            i == 0 && s.Length == 2 && s[1] == ':' && char.IsAsciiLetter(s[0]) ? s : Uri.EscapeDataString(s)));
 
-        var url = "vscode://file" + escaped;
+        var url = "vscode://file" + (escaped.StartsWith('/') ? "" : "/") + escaped;
 
         if (line is null)
         {

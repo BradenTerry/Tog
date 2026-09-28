@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      # The build vendors Monaco, Mermaid, the TextMate grammars and the ACP
+      # bridge with Node scripts in tools/.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build
+        run: dotnet build AgentsDashboard.slnx
+
+      # Never --nologo: in Microsoft.Testing.Platform mode it is forwarded to the
+      # test application, which rejects it and reports zero tests. --long-running
+      # names a test that hangs while it hangs, and --timeout ends the run, so a
+      # hang fails with the culprit in the log instead of eating the job's hours.
+      - name: Test
+        run: dotnet test AgentsDashboard.slnx --no-build --report-trx --results-directory TestResults --long-running 60 --timeout 10m
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.os }}
+          path: TestResults

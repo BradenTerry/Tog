@@ -27,7 +27,7 @@
           BeforeTargets="ResolveCurrentProjectStaticWebAssetsInputs;BeforeBuild"
           Condition="!Exists('$(MSBuildThisFileDirectory)wwwroot\monaco\vs\loader.js')">
     <Message Importance="high" Text="Vendoring monaco-editor into wwwroot/monaco" />
-    <Exec Command="bash tools/vendor-monaco.sh" WorkingDirectory="$(MSBuildThisFileDirectory)../.." />
+    <Exec Command="node tools/vendor-monaco.mjs" WorkingDirectory="$(MSBuildThisFileDirectory)../.." />
     <ItemGroup>
       <!-- Project-relative on purpose: the static web assets pipeline only
            keeps Content whose identity starts with wwwroot/. -->
@@ -40,7 +40,7 @@
           BeforeTargets="ResolveCurrentProjectStaticWebAssetsInputs;BeforeBuild"
           Condition="!Exists('$(MSBuildThisFileDirectory)wwwroot\mermaid\mermaid.min.js')">
     <Message Importance="high" Text="Vendoring mermaid into wwwroot/mermaid" />
-    <Exec Command="bash tools/vendor-mermaid.sh" WorkingDirectory="$(MSBuildThisFileDirectory)../.." />
+    <Exec Command="node tools/vendor-mermaid.mjs" WorkingDirectory="$(MSBuildThisFileDirectory)../.." />
     <ItemGroup>
       <Content Include="wwwroot\mermaid\**" Exclude="@(Content)" />
     </ItemGroup>
@@ -51,7 +51,7 @@
           BeforeTargets="ResolveCurrentProjectStaticWebAssetsInputs;BeforeBuild"
           Condition="!Exists('$(MSBuildThisFileDirectory)wwwroot\textmate\index.json')">
     <Message Importance="high" Text="Vendoring the TextMate tokenizer and grammars into wwwroot/textmate" />
-    <Exec Command="bash tools/vendor-textmate.sh" WorkingDirectory="$(MSBuildThisFileDirectory)../.." />
+    <Exec Command="node tools/vendor-textmate.mjs" WorkingDirectory="$(MSBuildThisFileDirectory)../.." />
     <ItemGroup>
       <Content Include="wwwroot\textmate\**" Exclude="@(Content)" />
     </ItemGroup>
@@ -66,7 +66,7 @@
           BeforeTargets="BeforeBuild"
           Condition="!Exists('$(MSBuildThisFileDirectory)acp\VERSION')">
     <Message Importance="high" Text="Installing the Claude ACP bridge into acp/" />
-    <Exec Command="bash tools/vendor-acp.sh" WorkingDirectory="$(MSBuildThisFileDirectory)../.." />
+    <Exec Command="node tools/vendor-acp.mjs" WorkingDirectory="$(MSBuildThisFileDirectory)../.." />
   </Target>
 
 </Project>

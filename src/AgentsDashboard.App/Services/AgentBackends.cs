@@ -23,6 +23,6 @@ public static class AgentBackends
             [entry],
             File.Exists(entry)
                 ? null
-                : $"The Claude ACP bridge is not installed ({BridgePackage}). Install Node 22 or newer, then run tools/vendor-acp.sh or build the app again.");
+                : $"The Claude ACP bridge is not installed ({BridgePackage}). Install Node 22 or newer, then run tools/vendor-acp.mjs or build the app again.");
     }
 }

@@ -21,8 +21,8 @@
         {
             "label": "vendor monaco",
             "type": "shell",
-            "command": "bash",
-            "args": ["tools/vendor-monaco.sh"],
+            "command": "node",
+            "args": ["tools/vendor-monaco.mjs"],
             "problemMatcher": []
         },
         {

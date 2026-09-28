@@ -396,7 +396,8 @@ public sealed class Workbench : IDisposable
     {
         if (worktreePath.Length > 0
             && System.IO.Path.GetRelativePath(worktreePath, absolutePath).Replace('\\', '/') is var relative
-            && WorktreeFiles.Resolve(worktreePath, relative) == absolutePath)
+            && WorktreeFiles.Resolve(worktreePath, relative) is { } resolved
+            && string.Equals(resolved, System.IO.Path.GetFullPath(absolutePath), AgentsDashboard.Core.Repos.RealPaths.Comparison))
         {
             OpenFile(worktreePath, relative, line, keep: true);
             if (Editors(worktreePath).Find(EditorDoc.FileKey(relative)) is { } opened)

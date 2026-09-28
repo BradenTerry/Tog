@@ -23,7 +23,7 @@ public class WorktreeListerTests
 
         Assert.Equal(2, list.Count);
 
-        Assert.Equal("/repo", list[0].Path);
+        Assert.Equal(WorktreeLister.Native("/repo"), list[0].Path);
         Assert.Equal("repo", list[0].Name);
         Assert.Equal("main", list[0].Branch);
         Assert.True(list[0].IsPrimary);

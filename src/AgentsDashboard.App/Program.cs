@@ -83,7 +83,7 @@ builder.Services.AddScoped<Workbench>();
 
 // Agents
 // Run over the Agent Client Protocol, inside this process. Claude is one agent
-// backend, launched through the official ACP bridge that tools/vendor-acp.sh
+// backend, launched through the official ACP bridge that tools/vendor-acp.mjs
 // installs next to the project; another agent is another AgentBackend.
 builder.Services.AddSingleton(_ => AgentBackends.Claude(builder.Environment.ContentRootPath));
 builder.Services.AddSingleton<IAgentLauncher, ProcessAgentLauncher>();
@@ -170,9 +170,24 @@ if (options.Browser)
 
 // Photino owns the main thread and blocks until the window closes, so the host
 // is already started above rather than run to completion.
-DesktopWindow.Open(url, app.Services.GetRequiredService<ILoggerFactory>(),
+void OpenWindow() => DesktopWindow.Open(url, app.Services.GetRequiredService<ILoggerFactory>(),
     app.Services.GetRequiredService<FolderPicker>(), app.Services.GetRequiredService<AppUpdate>(), fallbackUrlPrinted: () =>
     Console.WriteLine($"Agents Dashboard is running at {url}"));
+
+if (OperatingSystem.IsWindows())
+{
+    // WebView2 and the folder dialog are COM and need a single-threaded
+    // apartment. An async Main cannot be [STAThread], and after the await above
+    // this may be a pool thread anyway, so the window gets a thread of its own.
+    var windowThread = new Thread(OpenWindow) { Name = "Photino" };
+    windowThread.SetApartmentState(ApartmentState.STA);
+    windowThread.Start();
+    windowThread.Join();
+}
+else
+{
+    OpenWindow();
+}
 
 await app.StopAsync();
 

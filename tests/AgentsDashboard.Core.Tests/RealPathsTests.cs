@@ -10,7 +10,7 @@ public class RealPathsTests
     {
         using var dir = new TempDir();
         var real = dir.Dir("real/repo");
-        Directory.CreateSymbolicLink(Path.Combine(dir.Path, "alias"), Path.Combine(dir.Path, "real"));
+        Links.Directory(Path.Combine(dir.Path, "alias"), Path.Combine(dir.Path, "real"));
 
         var resolved = RealPaths.Resolve(Path.Combine(dir.Path, "alias", "repo"));
 
@@ -23,7 +23,7 @@ public class RealPathsTests
     {
         using var dir = new TempDir();
         var real = dir.Dir("real/repo/src");
-        Directory.CreateSymbolicLink(Path.Combine(dir.Path, "alias"), Path.Combine(dir.Path, "real"));
+        Links.Directory(Path.Combine(dir.Path, "alias"), Path.Combine(dir.Path, "real"));
 
         Assert.True(RealPaths.IsUnder(Path.Combine(dir.Path, "alias", "repo", "src"), RealPaths.Resolve(Path.Combine(dir.Path, "real", "repo"))));
         Assert.True(RealPaths.IsUnder(Path.Combine(dir.Path, "alias", "repo"), Path.Combine(dir.Path, "real", "repo")));
@@ -35,8 +35,8 @@ public class RealPathsTests
     {
         using var dir = new TempDir();
         dir.Dir("real/repo");
-        Directory.CreateSymbolicLink(Path.Combine(dir.Path, "one"), Path.Combine(dir.Path, "real"));
-        Directory.CreateSymbolicLink(Path.Combine(dir.Path, "two"), Path.Combine(dir.Path, "one"));
+        Links.Directory(Path.Combine(dir.Path, "one"), Path.Combine(dir.Path, "real"));
+        Links.Directory(Path.Combine(dir.Path, "two"), Path.Combine(dir.Path, "one"));
 
         Assert.Equal(
             RealPaths.Resolve(Path.Combine(dir.Path, "real", "repo")),

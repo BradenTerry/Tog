@@ -302,7 +302,7 @@
             return null;
         }
 
-        var parts = path.Split('/');
+        var parts = path.Split('/', '\\');
         return parts.Length > 1 ? parts[^2] : null;
     }
 
