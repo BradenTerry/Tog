@@ -61,7 +61,7 @@
 
                 <div class="psection @(folded ? "collapsed" : "")" data-section="@index" @key="section.Section"
                      style="@(folded ? null : FormattableString.Invariant($"flex-grow: {section.Section.Weight}"))">
-                    <div class="ptabs" role="tablist" aria-label="@Label" data-view-drop="@dragging"
+                    <div class="ptabs @(section.Views.Count == 1 ? "single" : "")" role="tablist" aria-label="@Label" data-view-drop="@dragging"
                          @ondragover:preventDefault="@dragging" @ondrop="() => Bench.DropView(Side, index, null)" @ondrop:preventDefault="true">
                         @if (many)
                         {

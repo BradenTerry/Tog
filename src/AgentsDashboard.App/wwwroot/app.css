@@ -1894,6 +1894,9 @@ button.icon-btn:hover:where(:not(:disabled)) { background: var(--surface-2); }
 }
 .ptab:hover { background: none; color: var(--text-dim); }
 .ptab.active { color: var(--text); border-bottom-color: var(--accent); }
+/* A section holding one view is a title row, not a tab strip: there is no
+   other tab to tell the front one from, so the underline only reads as noise. */
+.ptabs.single .ptab.active { border-bottom-color: transparent; }
 .ptab .count { text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--text-faint); font-variant-numeric: tabular-nums; }
 .ptab .count.danger { color: var(--danger); }
 .ptab .count.warning { color: var(--waiting); }
