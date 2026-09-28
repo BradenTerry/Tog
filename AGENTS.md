@@ -126,6 +126,12 @@ diff also only draws the lines of files near the screen: `app.js`
 height they measured at. The file trees draw only their visible rows through
 `Virtualize`, which is why `.tree-row` has a pinned height.
 
+**Never start a `FileSystemWatcher` on macOS.** .NET's watcher calls `sync()`
+as it starts, which waits for every disk on the machine to flush: seconds while
+agents are building. Watch through `PathWatcher` in Core, which talks to FSEvents
+directly. For the same reason `Program.cs` switches off the host builder's
+appsettings reload watcher, which was most of the app's startup time.
+
 **Vendored UMD scripts load through Monaco's `require`.** `vscode-textmate` and
 `vscode-oniguruma` register as anonymous AMD modules when Monaco's loader is on
 the page, so a script tag for either fails. `textmate.js` requires them. See

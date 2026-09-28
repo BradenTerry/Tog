@@ -20,7 +20,18 @@ using AgentsDashboard.Extensions;
 // with no extra code, which is how you check on agents from another device.
 var options = CliOptions.Parse(args);
 
+// By default the builder watches the content root to reload appsettings.json,
+// which this app does not have. On macOS starting that watcher calls sync(),
+// which waits for every disk on the machine to flush: with agents building,
+// seconds before the window could load. See PathWatcher. The builder only reads
+// the switch from the environment (a command-line switch comes too late), and
+// it is put back at once so the processes the app starts, an agent's dotnet
+// among them, do not inherit it.
+const string ReloadSwitch = "DOTNET_hostBuilder__reloadConfigOnChange";
+var reload = Environment.GetEnvironmentVariable(ReloadSwitch);
+Environment.SetEnvironmentVariable(ReloadSwitch, "false");
 var builder = WebApplication.CreateBuilder(args);
+Environment.SetEnvironmentVariable(ReloadSwitch, reload);
 
 // Every process the app starts (git above all, many times a second) resolves
 // its program with the working folder in hand, and once that folder is gone
