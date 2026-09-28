@@ -20,6 +20,12 @@ public sealed record ExtensionView(
     public string Key => ExtensionId + "." + ViewId;
 }
 
+/// <summary>An overlay an extension added, as the app keeps it.</summary>
+public sealed record ExtensionOverlay(string ExtensionId, string OverlayId, Type Component)
+{
+    public string Key => ExtensionId + "." + OverlayId;
+}
+
 /// <summary>Collects what an extension registers in <see cref="IDashboardExtension.Configure"/>.</summary>
 internal sealed class ExtensionBuilder(ExtensionInfo info) : IExtensionBuilder
 {
@@ -93,6 +99,18 @@ internal sealed class ExtensionBuilder(ExtensionInfo info) : IExtensionBuilder
     {
         Services.AddSingleton<TTool>();
         AgentTools.Add(typeof(TTool));
+    }
+
+    public List<ExtensionOverlay> Overlays { get; } = [];
+
+    public void AddOverlay<TComponent>(string id) where TComponent : IComponent
+    {
+        if (Overlays.Any(o => o.OverlayId == id))
+        {
+            throw new InvalidOperationException($"{Info.Id} adds the overlay \"{id}\" twice.");
+        }
+
+        Overlays.Add(new ExtensionOverlay(Info.Id, id, typeof(TComponent)));
     }
 
     public List<ExtensionSetting> Settings { get; } = [];

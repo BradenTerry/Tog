@@ -1,0 +1,22 @@
+@using AgentsDashboard.App.Extensions
+@inject ExtensionHost Extensions
+@implements IDisposable
+
+@* Every loaded extension's overlays, over the whole window. Nothing here takes
+   parameters, so the layout's once-a-second render passes it by and each
+   overlay renders only when it asks to. Keyed by generation, like a view, so a
+   rebuilt extension's overlay is built fresh from the new type. *@
+<div class="ext-overlays">
+    @foreach (var live in Extensions.Overlays)
+    {
+        <ExtensionOverlayHost Live="live" @key="(live.Overlay.Key, live.Generation)" />
+    }
+</div>
+
+@code {
+    protected override void OnInitialized() => Extensions.Changed += OnChanged;
+
+    private void OnChanged() => _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Extensions.Changed -= OnChanged;
+}

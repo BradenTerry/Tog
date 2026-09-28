@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Runtime.Loader;
 using AgentsDashboard.Core.Extensions;
 using AgentsDashboard.Core.Platform;
 using AgentsDashboard.Core.Repos;
@@ -26,6 +27,9 @@ public sealed record ExtensionEntry(
 
 /// <summary>A view, with the context its components are given.</summary>
 public sealed record LiveView(ExtensionView View, ExtensionContext Context, int Generation);
+
+/// <summary>An overlay, with the context its component is given.</summary>
+public sealed record LiveOverlay(ExtensionOverlay Overlay, ExtensionContext Context, int Generation);
 
 /// <summary>
 /// Finds, loads, reloads and supervises extensions, and holds what they add.
@@ -83,6 +87,7 @@ public sealed class ExtensionHost : IDisposable
         public required ServiceProvider Services { get; init; }
         public required ExtensionContext Context { get; init; }
         public required IReadOnlyList<ExtensionView> Views { get; init; }
+        public required IReadOnlyList<ExtensionOverlay> Overlays { get; init; }
         /// <summary>Each an <see cref="IAgentIndicator"/> or an <see cref="IWorktreeIndicator"/>.</summary>
         public required IReadOnlyDictionary<string, object> Indicators { get; init; }
         public required IReadOnlyList<ICodeIntelligence> CodeIntelligence { get; init; }
@@ -220,6 +225,45 @@ public sealed class ExtensionHost : IDisposable
                     .ThenBy(v => v.View.Title, StringComparer.OrdinalIgnoreCase)
                     .ToList();
             }
+        }
+    }
+
+    /// <summary>Every overlay of every loaded extension.</summary>
+    public IReadOnlyList<LiveOverlay> Overlays
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _loaded.Values
+                    .SelectMany(l => l.Overlays.Select(o => new LiveOverlay(o, l.Context, l.Generation)))
+                    .ToList();
+            }
+        }
+    }
+
+    /// <summary>
+    /// The context of the loaded extension a type comes from, found by its load
+    /// context, so a component names its own extension and nothing it says can.
+    /// Null for a type of the app's, or of a copy no longer loaded.
+    /// </summary>
+    public (ExtensionContext Context, int Generation)? ContextFor(Type type)
+    {
+        var context = AssemblyLoadContext.GetLoadContext(type.Assembly);
+        lock (_gate)
+        {
+            return _loaded.Values.FirstOrDefault(l => ReferenceEquals(l.LoadContext, context)) is { } loaded
+                ? (loaded.Context, loaded.Generation)
+                : null;
+        }
+    }
+
+    /// <summary>Whether this generation of the extension is still the loaded one.</summary>
+    public bool IsLoaded(string id, int generation)
+    {
+        lock (_gate)
+        {
+            return _loaded.GetValueOrDefault(id)?.Generation == generation;
         }
     }
 
@@ -669,6 +713,7 @@ public sealed class ExtensionHost : IDisposable
                 Services = services,
                 Context = new ExtensionContext(info, services),
                 Views = builder.Views,
+                Overlays = builder.Overlays,
                 Indicators = indicators,
                 CodeIntelligence = [.. builder.CodeIntelligence.Select(t => (ICodeIntelligence)services.GetRequiredService(t))],
                 AgentTools = [.. builder.AgentTools.Select(t => (IAgentTool)services.GetRequiredService(t))],

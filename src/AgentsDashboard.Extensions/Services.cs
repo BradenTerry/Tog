@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Components;
+
 namespace AgentsDashboard.Extensions;
 
 /// <summary>
@@ -107,3 +109,38 @@ public sealed record AgentOffer(
     string? Worktree = null,
     string? WorktreeName = null,
     string? Prompt = null);
+
+/// <summary>
+/// Dialogs over the window. Since API 1.10. Scoped to the window, like
+/// <see cref="IEditorTabs"/>, so only a component's <c>@inject</c> has it: a
+/// view's or an overlay's.
+/// </summary>
+/// <remarks>
+/// The app draws the frame: the backdrop, the title, which extension is asking,
+/// a close button, focus on open and Escape to cancel. The component draws the
+/// body and its own buttons, and ends the dialog through
+/// <see cref="DialogBase.Dialog"/>. One dialog shows at a time per window; a
+/// second waits for the first. The app's own prompts (an agent asking to add
+/// an extension, a secret) are drawn over any of these.
+/// </remarks>
+public interface IDialogs
+{
+    /// <summary>
+    /// Shows <typeparamref name="TComponent"/> as a dialog, written against
+    /// <see cref="DialogBase"/>, and completes when it closes.
+    /// </summary>
+    /// <param name="title">What the dialog's header says.</param>
+    /// <param name="parameters">The component's parameters, by name. Only ones it declares.</param>
+    /// <returns>
+    /// What the component passed to <see cref="DialogReference.Close"/>, or
+    /// <see cref="DialogResult.Cancelled"/> when it was cancelled: Escape, the
+    /// close button, the window closing or the extension reloading.
+    /// </returns>
+    Task<DialogResult> ShowAsync<TComponent>(string title, IReadOnlyDictionary<string, object?>? parameters = null)
+        where TComponent : IComponent;
+}
+
+/// <summary>How a dialog ended. Since API 1.10.</summary>
+/// <param name="Cancelled">True unless the component closed it with a value.</param>
+/// <param name="Value">What the component passed to <see cref="DialogReference.Close"/>.</param>
+public sealed record DialogResult(bool Cancelled, object? Value = null);

@@ -103,6 +103,7 @@ does not load.
 | `AddCodeIntelligence<T>()` | Navigation for a language in the editor: hover, definition, references, callers, colouring. See [code-intelligence.md](code-intelligence.md) |
 | `AddAgentTool<T>()` | A tool the agents the dashboard runs can call. Since 1.2; see below |
 | `AddSetting(setting)` | A setting shown under the extension in Settings, Extensions. Since 1.9; see below |
+| `AddOverlay<T>(id)` | A component drawn once per window over everything. Since 1.10; see below |
 | `Services` | The extension's own DI container |
 
 `ViewLocation` says which panel the view is a tab in (see
@@ -204,6 +205,74 @@ These are separate calls rather than a flag on `AddView` because an extension
 built against 1.0 binds to `AddView`'s exact signature, and because an
 agent view handed a stand-in agent with no id would build links to an agent
 that does not exist.
+
+## Overlays and every agent
+
+A view is drawn in a panel for the agent or worktree in view, which is the
+wrong shape for news about any agent, such as a celebration when one finishes.
+API 1.10 adds both halves of that:
+
+- `IDashboardView.Current.Agents` is every agent the dashboard runs, as
+  `AgentContext`, taken with the snapshot, so it is up to a tick old.
+  `AgentContext.TurnEndedAt` says when each last finished a turn. Watch it
+  rather than `State`: a turn that starts and ends between two snapshots never
+  shows as `Active`.
+- `AddOverlay<T>(id)` draws `T` (written against `OverlayBase`) once per
+  window, in `ExtensionOverlays`, a fixed layer over the whole layout.
+
+```mermaid
+flowchart LR
+    Monitor[Monitor tick] --> Adapter[DashboardViewAdapter]
+    Host[AgentHost] --> Directory[AgentDirectory] --> Adapter
+    Adapter -->|Changed, Current.Agents| Overlay[Extension overlay]
+    Layout[MainLayout] --> Layer[ExtensionOverlays] --> OverlayHost[ExtensionOverlayHost] --> Overlay
+```
+
+The layer has `pointer-events: none`, so an overlay that draws nothing, or
+confetti, never takes a click meant for the app. An element that should be
+clickable sets `pointer-events: auto` itself. The layer sits under the
+dialogs, so nothing an extension draws there can cover the app's own prompts
+or pass for one; a dialog goes through `IDialogs`, below. The layer takes no parameters, so the layout's once-a-second render
+passes it by and an overlay renders only when it calls `StateHasChanged`,
+usually from `IDashboardView.Changed`. Each overlay has its own error boundary,
+drawn clickable so its Retry works through the layer.
+
+## Dialogs
+
+`IDialogs` (API 1.10) shows a component of the extension's as a dialog:
+`ShowAsync<T>(title, parameters)` returns a `DialogResult` when it closes. The
+component inherits `DialogBase`, draws its body and buttons (the app's
+`modal-body` and `modal-foot` classes lay them out like its own dialogs), and
+ends the dialog with `Dialog.Close(value)` or `Dialog.Cancel()`. It is scoped
+to the window like `IEditorTabs`, so a view or an overlay `@inject`s it and a
+worker cannot.
+
+The app draws the frame, in `ExtensionDialogHost`, the same way for every
+extension: the title, a chip naming the extension, Close, focus on open and
+Escape to cancel. A click on the backdrop does nothing, so a half-filled form
+is not lost to a stray click. The extension's name comes from the load
+context of the component's type (`ExtensionHost.ContextFor`), not from
+anything the extension passes, so it cannot put another's name on a dialog.
+
+```mermaid
+sequenceDiagram
+    participant C as Extension component
+    participant D as ExtensionDialogs (per window)
+    participant H as ExtensionDialogHost
+    C->>D: ShowAsync<T>(title, parameters)
+    D->>D: ContextFor(typeof T), queue
+    D-->>H: Changed
+    H->>H: draw frame, cascade DialogReference, focus
+    H->>D: Close(value) / Cancel (Escape, Close)
+    D-->>C: DialogResult
+```
+
+One dialog shows at a time per window and the rest wait, with the count in
+the header. A dialog is cancelled when its window goes, and when its extension
+reloads or unloads, since its component type belongs to a copy no longer
+running. The host is placed before the app's own prompts in the layout and
+shares their layer, so an agent's request to add an extension, or a secret
+request, lands on top of an extension's dialog rather than under it.
 
 ## Agent tools
 

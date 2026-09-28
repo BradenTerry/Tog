@@ -98,6 +98,20 @@ public interface IExtensionBuilder
     /// Extensions. Read it through <see cref="IExtensionSettings"/>. Since API 1.9.
     /// </summary>
     void AddSetting(ExtensionSetting setting);
+
+    /// <summary>
+    /// Adds a component drawn once per window, over everything, for as long as
+    /// the extension is loaded: a celebration, a toast, a banner. Write it
+    /// against <see cref="OverlayBase"/>. Since API 1.10.
+    /// </summary>
+    /// <remarks>
+    /// The layer it is drawn in lets clicks through, so an overlay never blocks
+    /// the app by accident; give an element <c>pointer-events: auto</c> to make
+    /// it clickable. The app does not re-render it: it re-renders itself, from
+    /// <see cref="IDashboardView.Changed"/> or its own timers.
+    /// </remarks>
+    /// <param name="id">Unique within the extension.</param>
+    void AddOverlay<TComponent>(string id) where TComponent : IComponent;
 }
 
 /// <summary>
