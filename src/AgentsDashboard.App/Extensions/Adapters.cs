@@ -93,6 +93,33 @@ public sealed class EditorTabs(Workbench bench, DashboardState state) : IEditorT
         bench.OpenExternal(bench.WorktreeInView(state.Snapshot) ?? "", absolutePath, line);
 }
 
+/// <summary>
+/// One window's New agent dialog, for an extension's view. Only fills it in: the
+/// user presses Start, so an extension never starts an agent itself.
+/// </summary>
+public sealed class AgentOffers(Workbench bench) : IAgentOffers
+{
+    public void Offer(AgentOffer offer)
+    {
+        ArgumentNullException.ThrowIfNull(offer);
+
+        // A relative folder would resolve against the app's working directory,
+        // which means nothing to the extension; drop it rather than guess.
+        bench.OpenNewAgent(new NewAgentPreset(
+            Folder(offer.Repository),
+            Folder(offer.Worktree),
+            Blank(offer.WorktreeName),
+            Blank(offer.Prompt)));
+    }
+
+    private static string? Folder(string? path) =>
+        !string.IsNullOrWhiteSpace(path) && Path.IsPathFullyQualified(path)
+            ? Path.TrimEndingDirectorySeparator(Path.GetFullPath(path))
+            : null;
+
+    private static string? Blank(string? text) => string.IsNullOrWhiteSpace(text) ? null : text;
+}
+
 public sealed class Navigation : INavigation
 {
     public string FileHref(string agentId, string relativePath, int? line = null) =>

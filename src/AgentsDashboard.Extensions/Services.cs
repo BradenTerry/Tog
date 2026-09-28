@@ -68,3 +68,32 @@ public interface IExtensionStorage
     /// <summary>Created on first use, and kept across reloads and restarts.</summary>
     string DataDirectory { get; }
 }
+
+/// <summary>
+/// Offers the user a new agent. Since API 1.5. Scoped to the window, like
+/// <see cref="IEditorTabs"/>, so only a view's <c>@inject</c> has it.
+/// </summary>
+/// <remarks>
+/// Nothing starts here: the window's New agent dialog opens filled in with the
+/// offer, and the user checks it and presses Start, or closes it. An extension
+/// cannot start an agent on its own, from a worker or anywhere else, because
+/// an agent can read and change the whole repository and run commands in it.
+/// Call it from a click in a view, such as a "Start an agent" button beside a
+/// ticket.
+/// </remarks>
+public interface IAgentOffers
+{
+    /// <summary>Opens the New agent dialog with the offer filled in, replacing whatever it held.</summary>
+    void Offer(AgentOffer offer);
+}
+
+/// <summary>What the New agent dialog is filled in with. Anything left null keeps the dialog's own default.</summary>
+/// <param name="Repository">The repository's root folder. One not in Settings is still offered.</param>
+/// <param name="Worktree">An existing worktree of that repository to start in, or null for a new worktree.</param>
+/// <param name="WorktreeName">The new worktree's name, such as a ticket key; its branch is named after it. Ignored with <paramref name="Worktree"/>.</param>
+/// <param name="Prompt">The agent's first message, which the user can edit before starting it.</param>
+public sealed record AgentOffer(
+    string? Repository = null,
+    string? Worktree = null,
+    string? WorktreeName = null,
+    string? Prompt = null);

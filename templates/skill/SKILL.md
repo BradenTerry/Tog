@@ -56,7 +56,7 @@ plus a one-line `CLAUDE.md` for whoever works on it later.
 
 The template targets API 1.0, which every dashboard since 1.0 loads. If the
 extension uses anything added later (naming a panel is 1.1, `AddAgentTool`
-1.2, `IEditorTabs` 1.3, `AddWorktreeView` 1.4; the template's `AGENTS.md`
+1.2, `IEditorTabs` 1.3, `AddWorktreeView` 1.4, `IAgentOffers` 1.5; the template's `AGENTS.md`
 marks each), set `"apiVersion"` in `extension.json` to `{{api}}` and point the
 csproj's `AgentsDashboardSdk` default at `{{sdk}}`. Compiling against the 1.0
 SDK fails on those members. Never set `apiVersion` newer than {{api}}: this
@@ -71,7 +71,7 @@ order they bite:
 - **Own services through `Context.Get<T>()`**, registered on `b.Services`.
   `@inject` resolves from the dashboard's container, which has only the API
   services (`IDashboardView`, `INavigation`, `ITextLinker`,
-  `IExtensionStorage`, `ILogger<T>`, and `IEditorTabs` in a view).
+  `IExtensionStorage`, `ILogger<T>`, and `IEditorTabs` and `IAgentOffers` in a view).
 - **Never ship a shared assembly.** The API reference stays `Private="false"`,
   and do not add packages for `Microsoft.AspNetCore.*`, `Microsoft.Extensions.*`
   or `System.*` the shared framework already has. A second copy makes the

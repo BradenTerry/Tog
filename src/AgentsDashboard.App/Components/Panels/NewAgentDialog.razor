@@ -39,7 +39,7 @@
                     <div class="banner danger">@failed.Message</div>
                 }
 
-                <StartAgentForm OnStarted="r => _result = r" OnStartedAgent="Open" />
+                <StartAgentForm @key="Bench.NewAgentGeneration" OnStarted="r => _result = r" OnStartedAgent="Open" />
             </div>
         </div>
     </div>

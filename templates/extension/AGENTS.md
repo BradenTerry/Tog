@@ -66,7 +66,9 @@ agent's editor), `ITextLinker` and the `<LinkedText Text="..." Agent="Agent" />`
 component (paths in text become links), `IExtensionStorage` (a data folder of
 your own), and `ILogger<T>`. In a view only, `IEditorTabs` (API 1.3) opens a
 file as a tab in that window's editor, such as a long report you wrote to your
-data folder.
+data folder, and `IAgentOffers` (API 1.5) opens the New agent dialog filled
+in with an `AgentOffer` (repository, worktree or new worktree name, prompt).
+It never starts the agent: the user presses Start. Call it from a click.
 
 ## Rules
 

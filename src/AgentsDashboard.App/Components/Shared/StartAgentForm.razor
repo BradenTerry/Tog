@@ -302,11 +302,14 @@
         _effort = _settings.DefaultEffort ?? "";
         _permissionMode = _settings.DefaultPermissionMode ?? "";
 
-        // Opened for a particular worktree, from the Worktrees view.
+        // Opened for a particular worktree, from the Worktrees view, or filled in
+        // by an extension's offer.
         if (Bench.NewAgentIn is { } place)
         {
-            _repo = place.RepoRoot;
-            _worktree = place.WorktreePath;
+            _repo = place.RepoRoot ?? "";
+            _worktree = place.WorktreePath ?? "";
+            _worktreeName = place.WorktreeName ?? "";
+            _prompt = place.Prompt ?? "";
         }
     }
 
@@ -314,13 +317,14 @@
     /// <remarks>
     /// A repository the form was opened for is listed even when it is not in
     /// Settings: the Worktrees view also shows repositories found only because an
-    /// agent is running in them.
+    /// agent is running in them, and an extension can offer any folder. The trust
+    /// card still asks before an agent works in one for the first time.
     /// </remarks>
     private IReadOnlyList<string> Repos =>
         _settings.RepoRoots
             .Where(r => !_settings.HiddenRoots.Contains(r, StringComparer.Ordinal))
-            .Concat(Bench.NewAgentIn is { } place && !_settings.RepoRoots.Contains(place.RepoRoot, StringComparer.Ordinal)
-                ? [place.RepoRoot]
+            .Concat(Bench.NewAgentIn is { RepoRoot: { } offered } && !_settings.RepoRoots.Contains(offered, StringComparer.Ordinal)
+                ? [offered]
                 : [])
             .OrderBy(RepoName, StringComparer.OrdinalIgnoreCase)
             .ThenBy(r => r, StringComparer.Ordinal)
