@@ -31,7 +31,7 @@
                 }
                 <div class="etab @(active ? "active" : "") @(doc.Pinned ? "pinned" : "") @(doc.Preview ? "preview" : "") @(doc.Dirty ? "dirty" : "")"
                      role="tab" aria-selected="@(active ? "true" : "false")" tabindex="0"
-                     title="@(doc.Kind switch { DocKind.Changes => "Every change in the worktree", DocKind.Diff => doc.Path + ", its changes", DocKind.Settings => "Settings", DocKind.Worktrees => "Every worktree, and cleaning them up", _ => doc.Path })"
+                     title="@(doc.Kind switch { DocKind.Changes => "Every change in the worktree", DocKind.Diff => doc.Path + ", its changes", DocKind.Worktrees => "Every worktree, and cleaning them up", _ => doc.Path })"
                      @key="doc.Key"
                      @onclick="() => Bench.Activate(WorktreePath, doc.Key)"
                      @ondblclick="() => Bench.Keep(WorktreePath, doc.Key)"
@@ -39,16 +39,7 @@
                      @oncontextmenu="e => OpenMenu(e, doc)" @oncontextmenu:preventDefault="true"
                      draggable="true" @ondragstart="() => _dragging = doc.Key" @ondragend="EndDrag"
                      @onkeydown="e => OnKey(e, doc)">
-                    @if (doc.Kind == DocKind.Settings)
-                    {
-                        <span class="file-icon" aria-hidden="true">
-                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <circle cx="12" cy="12" r="3" />
-                                <path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" />
-                            </svg>
-                        </span>
-                    }
-                    else if (doc.Kind == DocKind.Worktrees)
+                    @if (doc.Kind == DocKind.Worktrees)
                     {
                         <span class="file-icon" aria-hidden="true"><WorktreesGlyph Size="14" /></span>
                     }
@@ -146,13 +137,7 @@
         {
             <div class="doc-layer pane-@doc.Pane @(doc.Key == Group.ActiveIn(doc.Pane) ? "" : "hidden")" @key="doc.Key"
                  @onmousedown="() => Bench.FocusPane(WorktreePath, doc.Pane)" @onfocusin="() => Bench.FocusPane(WorktreePath, doc.Pane)">
-                @if (doc.Kind == DocKind.Settings)
-                {
-                    <div class="doc-scroll">
-                        <SettingsDocument />
-                    </div>
-                }
-                else if (doc.Kind == DocKind.Worktrees)
+                @if (doc.Kind == DocKind.Worktrees)
                 {
                     <div class="doc-scroll">
                         <WorktreesDocument />

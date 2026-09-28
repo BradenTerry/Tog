@@ -303,13 +303,16 @@
     }
 
     /// <summary>
-    /// Opens the Worktrees tab over the agent in view, on the remove dialog for
-    /// this worktree. The dialog is what removes it, as it is from the tab.
+    /// Opens the remove dialog for this worktree over the agent in view, which
+    /// stays in view behind it. The dialog is what removes it.
     /// </summary>
     private void AskRemove(ChatTarget target)
     {
         _menu = null;
-        Bench.OpenWorktrees(Bench.WorktreeInView(Snapshot.Value), target.WorktreePath);
+        if (target.WorktreePath is { } path)
+        {
+            Bench.AskRemoveWorktree(path);
+        }
     }
 
     /// <summary>

@@ -15,7 +15,7 @@ flowchart TB
         L["Left panel<br/>Files + extensions"]
         subgraph C["Centre"]
             direction TB
-            E["Editor<br/>files, diffs, Settings"]
+            E["Editor<br/>files, diffs, Worktrees"]
             B["Bottom panel<br/>Chat + extensions"]
         end
         R["Right panel<br/>Source control + extensions"]
@@ -32,9 +32,10 @@ flowchart TB
 there, even with no agent picked, so a tab that belongs to no file has somewhere
 to open:
 
-- **Settings** is a tab, opened from the gear, closed like any other, and the
-  agent stays selected under it. With no agent picked its tab is kept under the
-  empty worktree.
+- **Settings** is a modal dialog over the window (`SettingsDialog`), opened
+  from the gear or Cmd+, and closed with Escape, its close button or a click
+  outside. It belongs to no worktree, so it is not a tab, and the agent and its
+  files stay as they were under it.
 - **The theme** is chosen under Settings, Appearance: System, which follows the
   OS between Dark and Light, or a named theme. The server writes the choice on
   `<html>` as `data-theme-choice`, and `theme.js`, a blocking script in the head
@@ -52,7 +53,7 @@ to open:
   for a list you only look at when switching.
 - **New agent** is a modal dialog over the window, opened from the agent picker. Escape, its close button or a click outside close it, and so does
   going to a page that is not an agent's.
-- `/settings` and `/new` still work as addresses: each opens its tab or dialog
+- `/settings` and `/new` still work as addresses: each opens its dialog
   over the agent that was on screen and goes back to `/chat/<session>`.
 
 The panels do not pass parameters to each other. They talk through `Workbench`,
@@ -71,7 +72,7 @@ a scoped service (one per window) that holds:
   An agent started in a new worktree shows it straight away: the monitor
   only lists the worktree on its next pass, and until then the agent would
   look like one outside git and bring up the tabs opened with no worktree
-  (Settings, Worktrees). `StartAgentForm` hands the path to
+  (Worktrees). `StartAgentForm` hands the path to
   `Workbench.StartedIn`, which stands in until the snapshot has it.
   With nothing picked and the agent closed or removed, the last worktree an
   agent was in stays. A worktree removed since is stood in for by its
@@ -256,10 +257,12 @@ defaults, and a key bound twice is marked.
   agent list under its button, with focus on the agent in view. Up and down
   walk it and Enter picks: every `ContextMenu` takes the arrows, from
   `bindMenuKeys` in `app.js`, starting at its checked item. Delete (Backspace
-  on a Mac) on an agent opens the Worktrees view on the remove dialog for its
-  worktree, the same one the list's Remove offer opens: sizes, what would be
-  lost, the branch, and a confirmation. A worktree not measured yet holds the
-  request until it is, rather than dropping it.
+  on a Mac) on an agent opens the remove dialog for its worktree over whatever
+  is on screen, the same one the list's Remove offer and the Worktrees view's
+  Remove button open (`RemoveWorktreeDialog`, asked for through
+  `Workbench.AskRemoveWorktree`): sizes, what would be lost, the branch, and a
+  confirmation. It does not switch the editor to the Worktrees view. A
+  worktree not measured yet is measured then, and the dialog waits on it.
 - **Focus Chat** (Shift+Cmd+C, Ctrl+Shift+C elsewhere) brings up the
   conversation, in whichever panel it was put, and puts the caret in its box,
   from anywhere, Settings included.
