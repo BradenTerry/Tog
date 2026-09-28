@@ -236,10 +236,13 @@
         }
         finally
         {
+            // A relist started by the watcher is not an event handler, so nothing
+            // else renders once it lands and the tree would stay stale until a click.
             if (!token.IsCancellationRequested)
             {
                 _loading = false;
                 Touch();
+                StateHasChanged();
             }
         }
     }
