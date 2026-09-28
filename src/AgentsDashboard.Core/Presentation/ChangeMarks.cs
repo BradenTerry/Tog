@@ -2,7 +2,7 @@ using AgentsDashboard.Core.Model;
 
 namespace AgentsDashboard.Core.Presentation;
 
-/// <summary>How a line of the file on disk differs from the diff base.</summary>
+/// <summary>How a line of the file on disk differs from the commit it is compared with.</summary>
 public enum ChangeMarkKind
 {
     /// <summary>A line that is new: nothing was removed where it is.</summary>

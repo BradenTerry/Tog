@@ -430,3 +430,50 @@ public class EditorLinkTests
     public void Keeps_a_windows_drive_as_the_first_segment() =>
         Assert.Equal("vscode://file/C:/my%20wt/a.cs:12", EditorLinks.VsCode(@"C:\my wt\a.cs", 12));
 }
+
+public class RevisionTextTests
+{
+    private static CancellationToken Ct => TestContext.Current.CancellationToken;
+
+    private static WorktreeFiles Files() => new(new GitCli());
+
+    [Fact]
+    public async Task Reads_a_file_at_head_and_in_the_index_apart()
+    {
+        using var repo = new TempRepo();
+        repo.Write("a.txt", "committed\n");
+        repo.Commit("first");
+        repo.Write("a.txt", "staged\n");
+        repo.Git("add", "a.txt");
+        repo.Write("a.txt", "working\n");
+
+        // A diff of the unstaged changes compares the index with the disk, and
+        // one of the staged changes compares HEAD with the index.
+        Assert.Equal("committed\n", (await Files().ReadTextAtRevisionAsync(repo.Path, "a.txt", "HEAD", Ct)).Text);
+        Assert.Equal("staged\n", (await Files().ReadTextAtRevisionAsync(repo.Path, "a.txt", "", Ct)).Text);
+    }
+
+    [Fact]
+    public async Task A_file_the_revision_does_not_have_is_empty_not_an_error()
+    {
+        using var repo = new TempRepo();
+        repo.Write("old.txt", "x\n");
+        repo.Commit("first");
+        repo.Write("new.txt", "hello\n");
+
+        var file = await Files().ReadTextAtRevisionAsync(repo.Path, "new.txt", "HEAD", Ct);
+
+        Assert.Equal("", file.Text);
+        Assert.Null(file.Error);
+    }
+
+    [Fact]
+    public async Task Refuses_a_path_outside_the_worktree()
+    {
+        using var repo = new TempRepo();
+
+        var file = await Files().ReadTextAtRevisionAsync(repo.Path, "../secret.txt", "HEAD", Ct);
+
+        Assert.NotNull(file.Error);
+    }
+}

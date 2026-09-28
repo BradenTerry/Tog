@@ -510,8 +510,8 @@ public sealed class Workbench : IDisposable
     }
 
     /// <summary>
-    /// A worktree's diff, staging and review draft, shared by Source control and
-    /// the Changes document so the two never disagree.
+    /// A worktree's uncommitted changes and staging, shared by Source control and
+    /// the open diff tabs so they never disagree.
     /// </summary>
     public ChangesModel Changes(string worktreePath)
     {
@@ -638,11 +638,13 @@ public sealed class Workbench : IDisposable
     }
 
     /// <summary>
-    /// Opens one file's changes, the way clicking a file in VS Code's Source
-    /// Control view does: a tab of its own, previewed like a file until kept.
+    /// Opens one file's changes side by side, the way clicking a file in VS
+    /// Code's Source Control view does: a tab of its own, previewed like a file
+    /// until kept. Staged, it is the index against HEAD; otherwise the working
+    /// tree against the index.
     /// </summary>
-    public void OpenDiff(string worktreePath, string path, bool keep = false) =>
-        Open(worktreePath, DocKind.Diff, path, null, keep);
+    public void OpenDiff(string worktreePath, string path, bool staged, bool keep = false) =>
+        Open(worktreePath, staged ? DocKind.StagedDiff : DocKind.Diff, path, null, keep);
 
     private void Open(string worktreePath, DocKind kind, string path, int? line, bool keep)
     {
@@ -715,24 +717,6 @@ public sealed class Workbench : IDisposable
         doc.Line = line;
         doc.Reveal++;
         group.ActiveKey = key;
-        Raise();
-    }
-
-    /// <summary>Opens the worktree's whole diff, every file in one document, scrolled to a file when one is given.</summary>
-    public void OpenChanges(string worktreePath, string? file = null)
-    {
-        var group = Editors(worktreePath);
-        if (group.Find(EditorDoc.ChangesKey) is null)
-        {
-            group.Add(new EditorDoc(EditorDoc.ChangesKey, DocKind.Changes, null));
-        }
-
-        group.ActiveKey = EditorDoc.ChangesKey;
-        if (file is not null)
-        {
-            Changes(worktreePath).RequestScroll(file);
-        }
-
         Raise();
     }
 
@@ -838,9 +822,11 @@ public sealed class Workbench : IDisposable
             var path = target.Key[(target.Key.IndexOf(':') + 1)..];
             doc = target.Key.StartsWith("diff:", StringComparison.Ordinal)
                 ? new EditorDoc(target.Key, DocKind.Diff, path)
-                : target.Key.StartsWith("file:", StringComparison.Ordinal)
-                    ? new EditorDoc(target.Key, DocKind.File, path)
-                    : null;
+                : target.Key.StartsWith("staged:", StringComparison.Ordinal)
+                    ? new EditorDoc(target.Key, DocKind.StagedDiff, path)
+                    : target.Key.StartsWith("file:", StringComparison.Ordinal)
+                        ? new EditorDoc(target.Key, DocKind.File, path)
+                        : null;
 
             if (doc is null)
             {
@@ -1023,11 +1009,11 @@ public enum DocKind
     /// <summary>A file, in an editor.</summary>
     File,
 
-    /// <summary>Every change in the worktree, in one document.</summary>
-    Changes,
-
-    /// <summary>One file's changes.</summary>
+    /// <summary>One file's unstaged changes: the working tree against the index.</summary>
     Diff,
+
+    /// <summary>One file's staged changes: the index against HEAD.</summary>
+    StagedDiff,
 
     /// <summary>Every worktree of every repo, and cleaning them up.</summary>
     Worktrees,
@@ -1188,14 +1174,18 @@ public sealed class EditorGroup
 /// <summary>A tab in the editor.</summary>
 public sealed class EditorDoc(string key, DocKind kind, string? path)
 {
-    public const string ChangesKey = "changes";
     public const string WorktreesKey = "worktrees";
 
     public static string FileKey(string path) => "file:" + path;
 
     public static string ExternalKey(string absolutePath) => "ext:" + absolutePath;
 
-    public static string KeyFor(DocKind kind, string path) => kind == DocKind.Diff ? "diff:" + path : FileKey(path);
+    public static string KeyFor(DocKind kind, string path) => kind switch
+    {
+        DocKind.Diff => "diff:" + path,
+        DocKind.StagedDiff => "staged:" + path,
+        _ => FileKey(path),
+    };
 
     public string Key { get; } = key;
 
@@ -1222,7 +1212,6 @@ public sealed class EditorDoc(string key, DocKind kind, string? path)
 
     public string Title => Kind switch
     {
-        DocKind.Changes => "Changes",
         DocKind.Worktrees => "Worktrees",
         DocKind.External => System.IO.Path.GetFileName(Path!),
         _ => Path![(Path!.LastIndexOf('/') + 1)..],

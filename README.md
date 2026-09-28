@@ -20,7 +20,7 @@ you actually need from them are the three things a terminal is worst at.
 | Problem | What the dashboard does |
 | --- | --- |
 | An agent is blocked and you do not notice | Agents waiting on you sort to the top of the agent list, longest-blocked first, with the question Claude recorded. An OS notification when one starts waiting. |
-| Reviewing the agent's work means eyeballing a terminal | A PR-style diff with line comments, submitted in one go as a markdown file the agent can act on, plus staging. See [docs/review.md](docs/review.md) and [docs/staging.md](docs/staging.md). |
+| Reviewing the agent's work means eyeballing a terminal | VS Code's Source Control view over the agent's worktree: its uncommitted files, staged and unstaged, each opening in a side by side diff you can edit in, plus staging. See [docs/review.md](docs/review.md) and [docs/staging.md](docs/staging.md). |
 | Starting and steering agents means more terminals | Agents run in the dashboard over the Agent Client Protocol: replies stream in live, and permission prompts are answered in the app. See [docs/agent-control.md](docs/agent-control.md). |
 | Reading an agent's code means guessing what a symbol is | Hover, go to definition, find references and call hierarchy, from an extension per language. The C# one runs Roslyn in-process, off until you press Load in a worktree, or set it in Settings to load when a C# file opens. See [docs/code-intelligence.md](docs/code-intelligence.md). |
 | You want a view the app does not have | Write an extension: a small Razor project, usually by asking Claude, linked in Settings and reloaded on every build. See [docs/extensions.md](docs/extensions.md). |
@@ -42,13 +42,12 @@ picked. See [docs/workbench.md](docs/workbench.md).
   the editor as a preview tab; a double click keeps it.
 - **Editor** in the middle: a tab per open file, pinnable, each a Monaco editor
   with hover, go to definition, references and call hierarchy for C# (see
-  [docs/code-intelligence.md](docs/code-intelligence.md)), plus diffs: a changed
-  file's own, or every change in one, with line and range comments handed back
-  to the agent.
-  Both are coloured by Monaco: see [docs/syntax.md](docs/syntax.md).
-- **Right panel: Source control**, what to diff against, the changed files split
-  into staged and pending (a click opens that file's diff), staging, and the
-  review to send. It follows the agent's edits as they land, as do open files.
+  [docs/code-intelligence.md](docs/code-intelligence.md)), plus diffs in
+  Monaco's diff editor, side by side or inline. Both are coloured by Monaco:
+  see [docs/syntax.md](docs/syntax.md).
+- **Right panel: Source control**, the uncommitted files split into Staged
+  Changes and Changes (a click opens that file's diff), staging, and the push
+  and pull counts. It follows the agent's edits as they land, as do open files.
 - **Bottom panel: Chat**, under the editor: the conversation and a box to
   message the agent, with the list of **Agents** down its right side, the ones
   waiting on you first, and **New agent**, which opens as a dialog.
@@ -115,7 +114,7 @@ group together. Add or hide one under **Repositories**.
 
 | Project | What it holds |
 | --- | --- |
-| `src/AgentsDashboard.Core` | Everything that is not UI: the ACP agent host, the Claude transcript readers, the git layer and its parsers, review writing, the monitor loop, extension discovery. No ASP.NET dependency, so all of it is testable without a host. |
+| `src/AgentsDashboard.Core` | Everything that is not UI: the ACP agent host, the Claude transcript readers, the git layer and its parsers, the monitor loop, extension discovery. No ASP.NET dependency, so all of it is testable without a host. |
 | `src/AgentsDashboard.App` | The Blazor Server UI and the Photino window. `Program.cs` starts the host on a free loopback port, then opens the window at it. |
 | `src/AgentsDashboard.Extensions` | The extension API (1.0), the one assembly an extension compiles against. No reference to Core. |
 | `extensions/DotnetTests` | The Tests tab, as an extension. Not shipped with the app; link it in Settings. |

@@ -1,18 +1,14 @@
 @inject Workbench Bench
-@inject IJSRuntime Js
 @inject DashboardState State
 @inject MonitorService Monitor
 @inject IGitCli Git
 @implements IDisposable
 
-@* The right panel's Source control: what to compare against, the changed files
-   split the way git holds them, and the review drafted on the diff. A file
-   opens its own changes in the editor, where lines are commented on; this is
-   where the review is sent from. *@
+@* The right panel's Source control, as VS Code's: the uncommitted files split
+   the way git holds them, and where the branch stands against its upstream. A
+   file opens its changes side by side in the editor. *@
 
 <div class="panel-tools">
-    <Picker AriaLabel="What to diff against" Class="panel-picker" Value="@Model.Base.ToString()" Options="BaseOptions"
-            ValueChanged="OnBase" />
     <span class="spacer"></span>
     @if (_sync is { Upstream: { } upstream } sync)
     {
@@ -30,28 +26,12 @@
             <span class="@(sync.Behind > 0 ? "" : "faint")">@sync.Behind</span>
         </button>
     }
-    <button class="icon-btn" @onclick="() => Bench.OpenChanges(WorktreePath)" title="Open every change in one document" aria-label="Open every change in one document">
-        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-            <path d="M3 2.5h6l3 3v8H3zM6 7h4M8 5v4M6 11h4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
-        </svg>
-    </button>
     <button class="icon-btn" @onclick="Model.Load" disabled="@Model.Loading" title="Refresh" aria-label="Refresh the diff">
         <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
             <path d="M13 8a5 5 0 1 1-1.5-3.55M13 2.5v3h-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
     </button>
 </div>
-
-@if (Model.Base == DiffBase.CustomRef)
-{
-    <div class="panel-tools">
-        <input type="text" placeholder="e.g. origin/main" aria-label="Ref to diff against"
-               value="@Model.CustomRef"
-               @oninput="e => Model.CustomRef = e.Value?.ToString() ?? string.Empty"
-               @onkeydown="OnRefKey" />
-        <button class="small" @onclick="Model.Load">Compare</button>
-    </div>
-}
 
 <div class="panel-scroll">
     @if (_discarding is { } discard)
@@ -102,81 +82,33 @@
     }
     else if (Model.Diff is { Files.Count: 0 })
     {
-        <div class="panel-note faint">
-            @(Model.Base == DiffBase.WorkingTree
-                ? "Nothing uncommitted."
-                : "No changes against that base.")
-        </div>
+        <div class="panel-note faint">Nothing uncommitted.</div>
     }
     else if (Model.Diff is { } set)
     {
-        <div class="panel-note faint">
-            @Fmt.Count(set.Files.Count, "file"),
-            <span class="n add">+@set.Additions</span>
-            <span class="n del">-@set.Deletions</span>
-        </div>
+        var (staged, unstaged) = Sections(set);
 
-        @if (Model.Base == DiffBase.WorkingTree)
+        @* Staged above pending, the way VS Code's Source Control view lays it
+           out. A partly staged file is in both, because it is in both places.
+           Each section is its own tree with its own folds, since the same
+           folder can be in both. *@
+        @if (staged.FileCount > 0)
         {
-            var (staged, unstaged) = Sections(set);
-
-            @* Staged above pending, the way VS Code's Source Control view lays it
-               out. A partly staged file is in both, because it is in both places.
-               Each section is its own tree with its own folds, since the same
-               folder can be in both. *@
-            @if (staged.FileCount > 0)
+            @SectionHead(("Staged Changes", true, staged))
+            @if (!_stagedFolded)
             {
-                @SectionHead(("Staged Changes", true, staged))
-                @if (!_stagedFolded)
-                {
-                    @SectionTree((staged, true))
-                }
-            }
-
-            @SectionHead(("Changes", false, unstaged))
-            @if (!_changesFolded)
-            {
-                @if (unstaged.FileCount == 0)
-                {
-                    <div class="scm-empty faint">Everything is staged.</div>
-                }
-                @SectionTree((unstaged, false))
+                @SectionTree((staged, true))
             }
         }
-        else
-        {
-            <div class="scm-head">
-                <span class="scm-title">Files</span>
-                <button type="button" class="scm-action" @onclick="() => ToggleAllIn(_opened, Tree(set))"
-                        title="@(AllDirectories(Tree(set)).Any(_opened.Contains) ? "Collapse all folders" : "Expand all folders")">
-                    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-                        <path d="M4 3 8 6.5 12 3M4 9.5 8 13l4-3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-                    </svg>
-                </button>
-                <button type="button" class="scm-action" @onclick="Model.StageAll" disabled="@Model.IsStaging"
-                        title="Stage all" aria-label="Stage all">+</button>
-                <button type="button" class="scm-action" @onclick="Model.UnstageAll" disabled="@Model.IsStaging"
-                        title="Unstage all" aria-label="Unstage all">&minus;</button>
-            </div>
 
-            <PathTreeView TValue="DiffFile"
-                          Node="Tree(set)"
-                          Collapsed="_opened"
-                          FoldedByDefault="true"
-                          Selected="@_selected"
-                          OnToggle="path => ToggleIn(_opened, path)"
-                          OnSelect="path => Show(path, keep: false)"
-                          OnKeep="path => Show(path, keep: true)">
-                <FileRow Context="node">
-                    <span class="label">@node.Name</span>
-                    @CommentChip(node.Path)
-                    <span class="n add">+@node.Value!.Additions</span>
-                    <span class="n del">-@node.Value.Deletions</span>
-                    <span class="kind @DiffDocument.KindClass(node.Value.Kind)" title="@node.Value.Kind">
-                        @DiffDocument.KindLetter(node.Value.Kind)
-                    </span>
-                </FileRow>
-            </PathTreeView>
+        @SectionHead(("Changes", false, unstaged))
+        @if (!_changesFolded)
+        {
+            @if (unstaged.FileCount == 0)
+            {
+                <div class="scm-empty faint">Everything is staged.</div>
+            }
+            @SectionTree((unstaged, false))
         }
     }
 
@@ -201,7 +133,7 @@
             @if (menu.Files is [var only] && menu.PickedOne)
             {
                 <hr class="context-sep" />
-                <button type="button" class="context-item" @onclick="() => FromMenu(() => { Show(only, keep: true); return Task.CompletedTask; })">
+                <button type="button" class="context-item" @onclick="() => FromMenu(() => { Show(only, menu.InStaged, keep: true); return Task.CompletedTask; })">
                     Open changes
                 </button>
                 <button type="button" class="context-item" @onclick="() => FromMenu(() => { Bench.OpenFile(WorktreePath, only, keep: true); return Task.CompletedTask; })">
@@ -211,91 +143,29 @@
         </ContextMenu>
     }
 
-    @if (Model.Submission is { } submission)
-    {
-        <div class="banner info panel-banner">
-            <strong>Review written.</strong>
-            <p class="mono muted" style="margin: 5px 0; word-break: break-all;">@submission.MarkdownPath</p>
-            <p class="muted" style="margin: 0 0 8px;">
-                @if (submission.Sent)
-                {
-                    <span>@(Model.Recipient == ChangesModel.NewAgent ? "A new agent is on it." : "Handed to the agent.")</span>
-                }
-                else if (submission.ClipboardCopied)
-                {
-                    <span>The prompt is on your clipboard. Paste it into the agent's terminal.</span>
-                }
-                else
-                {
-                    <span>Copy the prompt into the agent's terminal.</span>
-                }
-            </p>
-            <div class="inline">
-                <button class="small" @onclick="() => Copy(submission.Prompt)">@(_copied ? "Copied" : "Copy prompt")</button>
-                <button class="ghost small" @onclick="Model.DismissSubmission">Dismiss</button>
-            </div>
-            @if (submission.SendError is { Length: > 0 } why)
-            {
-                <p class="faint" style="margin: 8px 0 0;">@why</p>
-            }
-        </div>
-    }
 </div>
-
-@if (Model.Draft.Comments.Count > 0 || !string.IsNullOrWhiteSpace(Model.Draft.Summary))
-{
-    <div class="panel-review">
-        <div class="inline">
-            <strong>@Fmt.Count(Model.Draft.Comments.Count, "comment") pending</strong>
-            <span class="faint spacer" title="Submitting writes them into the worktree">Saved as you go</span>
-        </div>
-        <textarea rows="2" placeholder="Overall note, optional" aria-label="Overall review note"
-                  value="@Model.Summary"
-                  @oninput="e => Model.Summary = e.Value?.ToString() ?? string.Empty"></textarea>
-        <label class="stack">
-            <span class="faint">Send to</span>
-            <Picker AriaLabel="Which agent to send the review to"
-                    Value="@(Model.Recipient ?? "")"
-                    Options="RecipientOptions"
-                    ValueChanged="v => { Model.SetRecipient(v.Length > 0 ? v : null); Touch(); }" />
-        </label>
-        <div class="inline">
-            <button class="primary" @onclick="Submit" disabled="@(Model.Submitting || Model.Draft.Comments.Count == 0)">
-                @(Model.Submitting ? "Submitting..." : "Submit review")
-            </button>
-            <button class="ghost" @onclick="Model.Discard">Discard</button>
-        </div>
-    </div>
-}
 
 @code {
     [Parameter, EditorRequired]
     public string WorktreePath { get; set; } = "";
 
-    /// <summary>The agent this panel is open for, whom the review goes to by default.</summary>
-    [Parameter]
-    public string? SessionId { get; set; }
-
     private ChangesModel Model => Bench.Changes(WorktreePath);
     private ChangesModel? _model;
 
     private string? _selected;
-    private bool _copied;
     private bool _stagedFolded;
     private bool _changesFolded;
 
-    /// <summary>Folders opened in each staging section, apart because a folder can be in both.</summary>
-    private readonly HashSet<string> _stagedOpened = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _changesOpened = new(StringComparer.Ordinal);
-
-    /// <summary>Folders opened in the single tree shown for a branch or ref diff.</summary>
-    private readonly HashSet<string> _opened = new(StringComparer.Ordinal);
+    /// <summary>
+    /// Folders folded shut in each staging section, apart because a folder can
+    /// be in both. Every folder starts open, so a change is one click away.
+    /// </summary>
+    private readonly HashSet<string> _stagedShut = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _changesShut = new(StringComparer.Ordinal);
 
     private (PathTreeNode<DiffFile> Staged, PathTreeNode<DiffFile> Unstaged)? _sections;
     private DiffSet? _sectionsForDiff;
     private IReadOnlyDictionary<string, FileStage>? _sectionsForStages;
-    private PathTreeNode<DiffFile>? _treeCache;
-    private DiffSet? _treeCacheFor;
 
     /// <summary>
     /// Renders only when the model or this panel's own folds move. The layout
@@ -330,7 +200,6 @@
 
         _model = Model;
         _model.Changed += OnModelChanged;
-        _model.PickRecipient(SessionId);
 
         // Coming back to an agent reads its worktree afresh: the agent has
         // usually been working in the meantime.
@@ -393,81 +262,23 @@
         Touch();
     }
 
-    private static readonly IReadOnlyList<PickerOption> BaseOptions =
-    [
-        new(nameof(DiffBase.WorkingTree), "Uncommitted", "What is not committed yet"),
-        new(nameof(DiffBase.DefaultBranch), "Whole branch", "Everything since the default branch"),
-        new(nameof(DiffBase.CustomRef), "Against a ref", "Any commit, tag or branch"),
-    ];
-
-    private IReadOnlyList<PickerOption> RecipientOptions =>
-    [
-        new("", "Nobody, just write the file"),
-        new(ChangesModel.NewAgent, "Start a new agent on it"),
-        .. Model.Recipients.Select(c => new PickerOption(c.SessionId, c.Label, c.Running ? "running" : "stopped")),
-    ];
-
-    private async Task OnBase(string value)
-    {
-        Touch();
-        if (Enum.TryParse<DiffBase>(value, out var next))
-        {
-            await Model.SetBase(next);
-        }
-    }
-
-    private async Task OnRefKey(KeyboardEventArgs e)
-    {
-        if (e.Key == "Enter")
-        {
-            await Model.Load();
-        }
-    }
-
     /// <summary>
-    /// A file's own changes in a tab, previewed until kept, as VS Code's Source
-    /// Control view opens them. The whole diff is the button in the toolbar.
+    /// A file's changes side by side in a tab, previewed until kept, as VS
+    /// Code's Source Control view opens them. The row's section decides which
+    /// changes: staged ones against HEAD, the rest against the index.
     /// </summary>
-    private void Show(string path, bool keep)
+    private void Show(string path, bool staged, bool keep)
     {
         Touch();
         _selected = path;
-        Bench.OpenDiff(WorktreePath, path, keep);
+        Bench.OpenDiff(WorktreePath, path, staged, keep);
     }
-
-    private async Task Submit()
-    {
-        _copied = false;
-        await Model.Submit();
-    }
-
-    private async Task Copy(string text)
-    {
-        Touch();
-        try
-        {
-            _copied = await Js.InvokeAsync<bool>("agentsDashboard.copy", text);
-        }
-        catch (JSException)
-        {
-            _copied = false;
-        }
-    }
-
-    private RenderFragment CommentChip(string path) => __builder =>
-    {
-        var count = Model.CommentCount(path);
-        if (count > 0)
-        {
-            <span class="chip accent" title="@Fmt.Count(count, "comment") on this file">@count</span>
-        }
-    };
 
     private RenderFragment SectionHead((string Title, bool InStaged, PathTreeNode<DiffFile> Tree) section) => __builder =>
     {
         var folded = section.InStaged ? _stagedFolded : _changesFolded;
-        var opened = section.InStaged ? _stagedOpened : _changesOpened;
-        var anyOpen = AllDirectories(section.Tree).Any(opened.Contains);
+        var shut = section.InStaged ? _stagedShut : _changesShut;
+        var anyOpen = AllDirectories(section.Tree).Any(d => !shut.Contains(d));
 
         <div class="scm-head">
             <button type="button" class="scm-toggle" aria-expanded="@(!folded ? "true" : "false")"
@@ -478,7 +289,7 @@
                 </svg>
                 @section.Title
             </button>
-            <button type="button" class="scm-action" @onclick="() => ToggleAllIn(opened, section.Tree)"
+            <button type="button" class="scm-action" @onclick="() => ToggleAllIn(shut, section.Tree)"
                     title="@(anyOpen ? "Collapse all folders" : "Expand all folders")"
                     aria-label="@(anyOpen ? "Collapse all folders" : "Expand all folders")">
                 <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
@@ -569,24 +380,22 @@
     /// </remarks>
     private RenderFragment SectionTree((PathTreeNode<DiffFile> Tree, bool InStaged) section) => __builder =>
     {
-        var opened = section.InStaged ? _stagedOpened : _changesOpened;
+        var shut = section.InStaged ? _stagedShut : _changesShut;
 
         <PathTreeView TValue="DiffFile"
                       Node="section.Tree"
-                      Collapsed="opened"
-                      FoldedByDefault="true"
+                      Collapsed="shut"
                       Selected="@_selected"
                       Picked="@(section.InStaged ? _stagedPicked : _changesPicked)"
                       OnPickedChanged="() => Picked(section.InStaged)"
                       OnContextMenu="e => OpenMenu(section.Tree, section.InStaged, e)"
-                      OnToggle="path => ToggleIn(opened, path)"
-                      OnSelect="path => Show(path, keep: false)"
-                      OnKeep="path => Show(path, keep: true)">
+                      OnToggle="path => ToggleIn(shut, path)"
+                      OnSelect="path => Show(path, section.InStaged, keep: false)"
+                      OnKeep="path => Show(path, section.InStaged, keep: true)">
             <FileRow Context="node">
                 <span class="label">@node.Name</span>
-                @CommentChip(node.Path)
-                <span class="kind end @DiffDocument.KindClass(node.Value!.Kind)" title="@node.Value.Kind">
-                    @DiffDocument.KindLetter(node.Value.Kind)
+                <span class="kind end @KindClass(node.Value!.Kind)" title="@node.Value.Kind">
+                    @KindLetter(node.Value.Kind)
                 </span>
             </FileRow>
             <Actions Context="node">
@@ -714,17 +523,6 @@
     private static List<string> FilesUnder(PathTreeNode<DiffFile> node) =>
         node.IsFile ? [node.Path] : node.Children.SelectMany(FilesUnder).ToList();
 
-    private PathTreeNode<DiffFile> Tree(DiffSet set)
-    {
-        if (!ReferenceEquals(_treeCacheFor, set))
-        {
-            _treeCacheFor = set;
-            _treeCache = DiffTree.Build(set.Files);
-        }
-
-        return _treeCache!;
-    }
-
     private void ToggleIn(HashSet<string> set, string path)
     {
         Touch();
@@ -736,19 +534,19 @@
 
     /// <summary>
     /// Folds every folder of a tree shut if any is open, otherwise opens them
-    /// all. The set holds the opened folders, since these trees start folded.
+    /// all. The set holds the folded folders, since these trees start open.
     /// </summary>
-    private void ToggleAllIn<T>(HashSet<string> opened, PathTreeNode<T> tree)
+    private void ToggleAllIn<T>(HashSet<string> shut, PathTreeNode<T> tree)
     {
         Touch();
         var dirs = AllDirectories(tree).ToList();
-        if (dirs.Any(opened.Contains))
+        if (dirs.Any(d => !shut.Contains(d)))
         {
-            opened.ExceptWith(dirs);
+            shut.UnionWith(dirs);
         }
         else
         {
-            opened.UnionWith(dirs);
+            shut.ExceptWith(dirs);
         }
     }
 
@@ -756,6 +554,22 @@
         node.Children
             .Where(c => !c.IsFile)
             .SelectMany(c => new[] { c.Path }.Concat(AllDirectories(c)));
+
+    private static string KindLetter(FileChangeKind kind) => kind switch
+    {
+        FileChangeKind.Added => "A",
+        FileChangeKind.Deleted => "D",
+        FileChangeKind.Renamed => "R",
+        FileChangeKind.Untracked => "U",
+        _ => "M",
+    };
+
+    private static string KindClass(FileChangeKind kind) => kind switch
+    {
+        FileChangeKind.Added or FileChangeKind.Untracked => "added",
+        FileChangeKind.Deleted => "deleted",
+        _ => "",
+    };
 
     public void Dispose()
     {

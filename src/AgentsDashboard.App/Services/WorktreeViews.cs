@@ -1,5 +1,3 @@
-using AgentsDashboard.Core.Model;
-
 namespace AgentsDashboard.App.Services;
 
 /// <summary>
@@ -17,9 +15,6 @@ public sealed class WorktreeViews
     private readonly Dictionary<string, RememberedView> _views = new(StringComparer.Ordinal);
     private readonly Lock _gate = new();
 
-    /// <summary>Raised with the worktree's path when its diff base changes.</summary>
-    public event Action<string>? BaseChanged;
-
     public RememberedView For(string worktreePath)
     {
         lock (_gate)
@@ -33,32 +28,11 @@ public sealed class WorktreeViews
             return view;
         }
     }
-
-    /// <summary>
-    /// Records the base Source control compared against. The editor marks its
-    /// lines against the same one, so the two never disagree about what changed.
-    /// </summary>
-    public void SetBase(string worktreePath, DiffBase diffBase, string customRef)
-    {
-        var view = For(worktreePath);
-        if (view.Base == diffBase && string.Equals(view.CustomRef, customRef, StringComparison.Ordinal))
-        {
-            return;
-        }
-
-        view.Base = diffBase;
-        view.CustomRef = customRef;
-        BaseChanged?.Invoke(worktreePath);
-    }
 }
 
 /// <summary>One worktree's remembered view.</summary>
 public sealed class RememberedView
 {
-    public DiffBase Base { get; set; } = DiffBase.WorkingTree;
-
-    public string CustomRef { get; set; } = "";
-
     /// <summary>
     /// Folded directories in the Files tree. Null until the tree is first drawn,
     /// which is when every directory starts folded.

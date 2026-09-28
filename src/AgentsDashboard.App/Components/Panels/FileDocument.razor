@@ -9,7 +9,9 @@
 
 @* One file open in the editor. Every open file is its own document with its
    own Monaco editor, kept built while another tab is in front, so each keeps
-   its undo history, its scroll and anything not yet saved. *@
+   its undo history, its scroll and anything not yet saved. A diff tab is the
+   same document with Monaco's diff editor: the file's unstaged changes against
+   the index, editable, or its staged changes against HEAD, read-only. *@
 
 <div class="doc-file">
     <div class="doc-bar">
@@ -36,6 +38,23 @@
             }
         }
         <span class="spacer"></span>
+        @if (ShowsEditor && IsDiff)
+        {
+            <button class="icon-btn doc-wrap @(_sideBySide ? "" : "active")" @onclick="ToggleSideBySide"
+                    title="@(_sideBySide ? "Show the changes inline" : "Show the changes side by side")"
+                    aria-label="Inline view" aria-pressed="@((!_sideBySide).ToString().ToLowerInvariant())">
+                <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                    @if (_sideBySide)
+                    {
+                        <path d="M2.5 2.5h11v11h-11zM8 2.5v11" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" />
+                    }
+                    else
+                    {
+                        <path d="M2.5 2.5h11v11h-11zM5 6h6M5 10h6" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+                    }
+                </svg>
+            </button>
+        }
         @if (ShowsEditor)
         {
             <button class="icon-btn doc-wrap @(_wrap ? "active" : "")" @onclick="ToggleWrap"
@@ -46,7 +65,7 @@
                 </svg>
             </button>
         }
-        @if (_file?.Editable == true)
+        @if (_file?.Editable == true && !_readOnly)
         {
             <button class="icon-btn doc-save" disabled="@(!_unsaved || _saving)" @onclick="Save"
                     title="@(_saving ? "Saving..." : _unsaved ? "Save (Ctrl+S)" : "No changes to save")"
@@ -98,7 +117,7 @@
         <div class="banner danger doc-banner">@failure</div>
     }
 
-    @if (_file is null)
+    @if (_file is null || (IsDiff && _original is null))
     {
         <div class="empty"><p>Reading the file...</p></div>
     }
@@ -145,6 +164,10 @@
                         Stamp="@_stamp"
                         Line="@_line"
                         Marks="@_marks"
+                        ReadOnly="@_readOnly"
+                        Original="@_original"
+                        Variant="@(IsDiff ? (Staged ? "staged" : "diff") : null)"
+                        OnSideBySideChanged="SetSideBySide"
                         OnSave="Save"
                         OnDirtyChanged="SetUnsaved"
                         OnNavigate="Navigate"
@@ -178,9 +201,28 @@
 
     private string Path => Doc.Path ?? "";
 
+    private bool IsDiff => Doc.Kind is DocKind.Diff or DocKind.StagedDiff;
+
+    private bool Staged => Doc.Kind == DocKind.StagedDiff;
+
+    /// <summary>A diff's left side, null until read and always null for a plain file.</summary>
+    private string? _original;
+
+    /// <summary>
+    /// The staged side of a diff is the index, and a deleted file's working
+    /// side is nothing: neither is a file on disk to save to.
+    /// </summary>
+    private bool _readOnly;
+
+    /// <summary>Whether a diff is side by side rather than inline, as the editor last reported.</summary>
+    private bool _sideBySide = true;
+
+    /// <summary>The staging state the diff's sides were last read against.</summary>
+    private IReadOnlyDictionary<string, FileStage>? _sidesFor;
+
     private RememberedView _view = new();
 
-    /// <summary>Lines changed against the diff base Source control compares with, for the gutter.</summary>
+    /// <summary>Lines changed against HEAD, for the gutter.</summary>
     private IReadOnlyList<ChangeMark> _marks = [];
 
     /// <summary>Whether Markdown files show rendered. Remembered per worktree, so it holds from file to file.</summary>
@@ -251,7 +293,8 @@
     private void Touch() => _render = true;
 
     private bool CanPreview =>
-        _file is { IsBinary: false, Truncated: false, Error: null } file
+        !IsDiff
+        && _file is { IsBinary: false, Truncated: false, Error: null } file
         && (file.Path.EndsWith(".md", StringComparison.OrdinalIgnoreCase)
             || file.Path.EndsWith(".markdown", StringComparison.OrdinalIgnoreCase));
 
@@ -308,8 +351,12 @@
 
         Code.StatusChanged += OnCodeStatusChanged;
         Code.ProvidersChanged += OnCodeProvidersChanged;
-        Views.BaseChanged += OnBaseChanged;
         Bench.FilesChanged += OnFilesChanged;
+        if (IsDiff)
+        {
+            Bench.Changes(WorktreePath).Changed += OnChangesMoved;
+        }
+
         _view = Views.For(WorktreePath);
         _preview = _view.MarkdownPreview;
 
@@ -343,6 +390,12 @@
         _failure = null;
         ClearSaved();
 
+        if (IsDiff)
+        {
+            _ = ReadSides();
+            return;
+        }
+
         _file = Files.ReadText(WorktreePath, Path);
         _stamp = _file.Stamp;
         _marks = [];
@@ -352,6 +405,74 @@
         }
 
         _ = ReadMarks();
+    }
+
+    /// <summary>
+    /// Reads both sides of a diff, as VS Code pairs them: unstaged changes are
+    /// the index against the file on disk, staged ones HEAD against the index.
+    /// </summary>
+    /// <remarks>
+    /// Read again whenever the staging state moves, since a stage moves the
+    /// index, which is one side of both. The file on disk is only read when it
+    /// is the right side and nothing is waiting to be saved over it.
+    /// </remarks>
+    private async Task ReadSides()
+    {
+        _sidesFor = Bench.Changes(WorktreePath).Stages;
+
+        TextFile right;
+        if (Staged)
+        {
+            right = await Files.ReadTextAtRevisionAsync(WorktreePath, Path, "");
+            right = right with { Stamp = "index:" + right.Text.GetHashCode() };
+            _readOnly = true;
+        }
+        else if (_file is not null && _unsaved)
+        {
+            right = _file;
+        }
+        else if (WorktreeFiles.Resolve(WorktreePath, Path) is { } full && !File.Exists(full) && !Directory.Exists(full))
+        {
+            // Deleted: the right side is empty, which draws every line removed.
+            right = new TextFile { Path = Path, Stamp = "deleted" };
+            _readOnly = true;
+        }
+        else
+        {
+            right = Files.ReadText(WorktreePath, Path);
+            _readOnly = false;
+        }
+
+        var original = await Files.ReadTextAtRevisionAsync(WorktreePath, Path, Staged ? "HEAD" : "");
+
+        _file = right;
+        _stamp = right.Stamp;
+        _original = original.IsBinary ? "" : original.Text;
+        Touch();
+        StateHasChanged();
+    }
+
+    /// <summary>A stage, unstage or refresh from Source control, which may have moved the index.</summary>
+    private void OnChangesMoved()
+    {
+        if (!ReferenceEquals(Bench.Changes(WorktreePath).Stages, _sidesFor))
+        {
+            _ = InvokeAsync(ReadSides);
+        }
+    }
+
+    private async Task ToggleSideBySide()
+    {
+        if (_editor is not null)
+        {
+            await _editor.ToggleSideBySideAsync();
+        }
+    }
+
+    private void SetSideBySide(bool on)
+    {
+        Touch();
+        _sideBySide = on;
     }
 
     /// <summary>
@@ -391,7 +512,7 @@
     public Task OpenLinked(string path) => InvokeAsync(() => Bench.OpenFile(WorktreePath, path, keep: true));
 
     /// <summary>
-    /// Reads which lines of the file differ from the diff base.
+    /// Reads which lines of the file differ from HEAD.
     /// </summary>
     /// <remarks>
     /// Against the file on disk, so it runs whenever the disk and the editor come
@@ -399,13 +520,13 @@
     /// </remarks>
     private async Task ReadMarks()
     {
-        if (_file is not { } file || file.IsBinary || file.Error is not null)
+        if (IsDiff || _file is not { } file || file.IsBinary || file.Error is not null)
         {
             return;
         }
 
         var marks = ChangeMarks.From(
-            await Diffs.ReadFileAsync(WorktreePath, file.Path, _view.Base, _view.CustomRef));
+            await Diffs.ReadFileAsync(WorktreePath, file.Path, DiffBase.WorkingTree));
 
         if (!ReferenceEquals(_file, file) && _file?.Path != file.Path)
         {
@@ -439,7 +560,7 @@
             return;
         }
 
-        if (paths.Contains(Path) && Files.ReadText(WorktreePath, Path) is { } disk && disk.Stamp != _stamp)
+        if (paths.Contains(Path) && !Staged && Files.ReadText(WorktreePath, Path) is { } disk && disk.Stamp != _stamp)
         {
             RefreshCode(Path);
             Read();
@@ -447,16 +568,16 @@
         }
         else if (paths.Contains(".git"))
         {
-            // A commit or a stage moves what the gutter marks against.
-            _ = ReadMarks();
-        }
-    }
-
-    private void OnBaseChanged(string worktreePath)
-    {
-        if (string.Equals(worktreePath, WorktreePath, StringComparison.Ordinal))
-        {
-            _ = InvokeAsync(ReadMarks);
+            // A commit or a stage moves what the gutter marks against, and
+            // both sides of a staged diff.
+            if (IsDiff)
+            {
+                _ = ReadSides();
+            }
+            else
+            {
+                _ = ReadMarks();
+            }
         }
     }
 
@@ -860,7 +981,10 @@
     {
         Code.StatusChanged -= OnCodeStatusChanged;
         Code.ProvidersChanged -= OnCodeProvidersChanged;
-        Views.BaseChanged -= OnBaseChanged;
+        if (IsDiff)
+        {
+            Bench.Changes(WorktreePath).Changed -= OnChangesMoved;
+        }
         Bench.FilesChanged -= OnFilesChanged;
         _self?.Dispose();
         _savedFor?.Dispose();

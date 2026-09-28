@@ -121,7 +121,6 @@
                 break;
             case "changes":
                 Bench.Show(Workbench.SourceControlTab);
-                Bench.OpenChanges(worktree!);
                 break;
             case { } key when Extensions.Views.Any(v => v.View.Key == key):
                 Bench.Show(key);
