@@ -1130,6 +1130,14 @@ document.addEventListener('dragstart', (event) => {
             sections.map((s) => parseFloat(s.style.flexGrow) || 1));
     }
 
+    // Every height is read before any is written: writing one section's grow
+    // while the others still hold the server's small weights (1 each, until a
+    // first drag) reflows the panel, and the next read would measure that.
+    function pin(sections) {
+        const heights = sections.map((s) => Math.round(s.getBoundingClientRect().height));
+        sections.forEach((s, i) => { s.style.flexGrow = String(heights[i]); });
+    }
+
     function neighbours(handle) {
         const above = handle.previousElementSibling;
         const below = handle.nextElementSibling;
@@ -1145,9 +1153,7 @@ document.addEventListener('dragstart', (event) => {
 
         event.preventDefault();
         const sections = open(handle);
-        for (const section of sections) {
-            section.style.flexGrow = String(Math.round(section.getBoundingClientRect().height));
-        }
+        pin(sections);
 
         const [above, below] = pair;
         const start = event.clientY;
@@ -1184,9 +1190,7 @@ document.addEventListener('dragstart', (event) => {
         }
 
         const sections = open(handle);
-        for (const section of sections) {
-            section.style.flexGrow = String(Math.round(section.getBoundingClientRect().height));
-        }
+        pin(sections);
 
         const share = String((parseFloat(pair[0].style.flexGrow) + parseFloat(pair[1].style.flexGrow)) / 2);
         pair[0].style.flexGrow = share;
