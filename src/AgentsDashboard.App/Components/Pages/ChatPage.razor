@@ -114,17 +114,17 @@
         switch (Tab)
         {
             case "chat":
-                Bench.Show(PanelSide.Bottom, Workbench.ChatTab);
+                Bench.Show(Workbench.ChatTab);
                 break;
             case "files":
-                Bench.Show(PanelSide.Left, Workbench.FilesTab);
+                Bench.Show(Workbench.FilesTab);
                 break;
             case "changes":
-                Bench.Show(PanelSide.Right, Workbench.SourceControlTab);
+                Bench.Show(Workbench.SourceControlTab);
                 Bench.OpenChanges(worktree!);
                 break;
-            case { } key when Extensions.Views.FirstOrDefault(v => v.View.Key == key) is { } view:
-                Bench.Show(Workbench.SideOf(view.View.DefaultLocation), key);
+            case { } key when Extensions.Views.Any(v => v.View.Key == key):
+                Bench.Show(key);
                 break;
         }
 

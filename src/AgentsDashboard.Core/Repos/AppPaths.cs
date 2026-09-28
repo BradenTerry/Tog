@@ -21,6 +21,12 @@ public sealed class AppPaths
     /// <summary>The agent and worktree last in view. See <c>LastViewStore</c>.</summary>
     public string LastViewFile => Path.Combine(Root, "last-view.json");
 
+    /// <summary>Where the views sit in the panels, and the panels' sizes. See <c>PanelLayoutStore</c>.</summary>
+    public string LayoutFile => Path.Combine(Root, "layout.json");
+
+    /// <summary>The native window's size and place on screen. See <c>WindowBoundsStore</c>.</summary>
+    public string WindowFile => Path.Combine(Root, "window.json");
+
     /// <summary>One file per worktree holding its unsubmitted review.</summary>
     public string DraftsDir => Path.Combine(Root, "drafts");
 

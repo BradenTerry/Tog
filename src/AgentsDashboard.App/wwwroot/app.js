@@ -811,21 +811,6 @@ window.agentsDashboard = {
     // getting taller, without waiting for the server to say something changed.
     keepScroll: (element, key) => keepScroll(element, key),
     enhanceMarkdown: (element, reference) => enhanceMarkdown(element, reference),
-    // Small per-machine preferences, such as which panels are showing.
-    // Storage can be unavailable, in which case the default simply stands.
-    getPref: (key) => {
-        try {
-            return localStorage.getItem('agentsDashboard.' + key);
-        } catch {
-            return null;
-        }
-    },
-    setPref: (key, value) => {
-        try {
-            localStorage.setItem('agentsDashboard.' + key, value);
-        } catch {
-        }
-    },
     watchDiffWindow: (column, reference) => watchDiffWindow(column, reference),
     scrollThread: (thread, force) => {
         if (!thread) {
@@ -1073,6 +1058,40 @@ function bindMenuKeys(menu) {
     window.agentsDashboard.watchNavigation = (ref) => { reference = ref; };
 })();
 
+// Where the borders below keep their sizes. localStorage alone forgets them at
+// every start, since the window is served from a new port each time and the
+// browser keeps storage per origin, so each size is also sent to the server,
+// which writes it to the layout file and hands the saved ones back when a window
+// opens. localStorage still answers first, so a reload paints the right sizes
+// before the circuit is up.
+window.agentsLayout = (() => {
+    let owner = null;
+    const appliers = {};
+
+    return {
+        // A border's module registers how to put a saved size on screen.
+        register: (name, apply) => { appliers[name] = apply; },
+        watch: (reference, sizes) => {
+            owner = reference;
+            for (const [name, value] of Object.entries(sizes ?? {})) {
+                try {
+                    localStorage.setItem('agentsDashboard.' + name, value);
+                } catch {
+                }
+
+                appliers[name]?.(value);
+            }
+        },
+        // A size set by hand, or null when it was reset.
+        saved: (name, value) => {
+            owner?.invokeMethodAsync('SaveSize', name, value == null ? null : String(value)).catch(() => {});
+        },
+        sectionWeights: (side, sections, weights) => {
+            owner?.invokeMethodAsync('SaveSectionWeights', side, sections, weights).catch(() => {});
+        },
+    };
+})();
+
 // The borders between the panels, dragged. Done here rather than on the circuit
 // for the same reason as line selection: a drag is a stream of moves, and a round
 // trip for each would lag behind the pointer. Each size is a CSS variable on the
@@ -1124,6 +1143,8 @@ function bindMenuKeys(menu) {
                 localStorage.setItem(storageKey(sash), String(size));
             } catch {
             }
+
+            agentsLayout.saved(sash.name.slice(2), size);
         }
     }
 
@@ -1134,9 +1155,18 @@ function bindMenuKeys(menu) {
             localStorage.removeItem(storageKey(sash));
         } catch {
         }
+
+        agentsLayout.saved(sash.name.slice(2), null);
     }
 
     for (const [which, sash] of Object.entries(sashes)) {
+        agentsLayout.register(sash.name.slice(2), (value) => {
+            const px = parseInt(value, 10);
+            if (Number.isFinite(px)) {
+                apply(which, px, false);
+            }
+        });
+
         try {
             const saved = parseInt(localStorage.getItem(storageKey(sash)) ?? '', 10);
             if (Number.isFinite(saved)) {
@@ -1230,7 +1260,7 @@ function bindMenuKeys(menu) {
 // guess, the drag would carry the tab's text for Monaco to paste if dropped on
 // an editor. An empty string and a move is all it needs.
 document.addEventListener('dragstart', (event) => {
-    if (event.target.closest?.('.etab') && event.dataTransfer) {
+    if (event.target.closest?.('.etab, .ptab') && event.dataTransfer) {
         event.dataTransfer.setData('text/plain', '');
         event.dataTransfer.effectAllowed = 'move';
     }
@@ -1264,8 +1294,17 @@ document.addEventListener('dragstart', (event) => {
                 localStorage.setItem(storageKey, String(share));
             } catch {
             }
+
+            agentsLayout.saved(name.slice(2), share);
         }
     }
+
+    agentsLayout.register(name.slice(2), (value) => {
+        const saved = parseFloat(value);
+        if (Number.isFinite(saved)) {
+            apply(saved, 0, false);
+        }
+    });
 
     try {
         const saved = parseFloat(localStorage.getItem(storageKey) ?? '');
@@ -1318,6 +1357,109 @@ document.addEventListener('dragstart', (event) => {
         const step = (event.shiftKey ? 8 : 2) * (event.key === 'ArrowRight' ? 1 : -1);
         apply(current() + step, handle.parentElement.getBoundingClientRect().width, true);
     });
+})();
+
+// The borders between the sections of a panel. Sections share the panel's height
+// by flex-grow, so a drag writes each open section's height in pixels as its
+// grow, which keeps every other section where it was, and sends them all to the
+// server on release. The server renders the same numbers back, so a redraw does
+// not undo the drag. Double-click shares the height evenly between the two.
+(() => {
+    const minHeight = 60;
+
+    function open(handle) {
+        return [...handle.closest('[data-panel]').querySelectorAll(':scope > .psections > .psection:not(.collapsed)')];
+    }
+
+    function report(handle, sections) {
+        agentsLayout.sectionWeights(
+            handle.closest('[data-panel]').dataset.panel,
+            sections.map((s) => parseInt(s.dataset.section, 10)),
+            sections.map((s) => parseFloat(s.style.flexGrow) || 1));
+    }
+
+    function neighbours(handle) {
+        const above = handle.previousElementSibling;
+        const below = handle.nextElementSibling;
+        return above?.classList.contains('psection') && below?.classList.contains('psection') ? [above, below] : null;
+    }
+
+    document.addEventListener('pointerdown', (event) => {
+        const handle = event.target.closest?.('.section-sash');
+        const pair = handle && neighbours(handle);
+        if (!pair || event.button !== 0) {
+            return;
+        }
+
+        event.preventDefault();
+        const sections = open(handle);
+        for (const section of sections) {
+            section.style.flexGrow = String(Math.round(section.getBoundingClientRect().height));
+        }
+
+        const [above, below] = pair;
+        const start = event.clientY;
+        const heights = [above.getBoundingClientRect().height, below.getBoundingClientRect().height];
+        handle.setPointerCapture(event.pointerId);
+        handle.classList.add('dragging');
+        document.body.classList.add('resizing-row');
+
+        const move = (e) => {
+            const total = heights[0] + heights[1];
+            const top = Math.min(total - minHeight, Math.max(minHeight, heights[0] + e.clientY - start));
+            above.style.flexGrow = String(Math.round(top));
+            below.style.flexGrow = String(Math.round(total - top));
+        };
+        const up = () => {
+            handle.removeEventListener('pointermove', move);
+            handle.removeEventListener('pointerup', up);
+            handle.removeEventListener('pointercancel', up);
+            handle.classList.remove('dragging');
+            document.body.classList.remove('resizing-row');
+            report(handle, sections);
+        };
+
+        handle.addEventListener('pointermove', move);
+        handle.addEventListener('pointerup', up);
+        handle.addEventListener('pointercancel', up);
+    });
+
+    document.addEventListener('dblclick', (event) => {
+        const handle = event.target.closest?.('.section-sash');
+        const pair = handle && neighbours(handle);
+        if (!pair) {
+            return;
+        }
+
+        const sections = open(handle);
+        for (const section of sections) {
+            section.style.flexGrow = String(Math.round(section.getBoundingClientRect().height));
+        }
+
+        const share = String((parseFloat(pair[0].style.flexGrow) + parseFloat(pair[1].style.flexGrow)) / 2);
+        pair[0].style.flexGrow = share;
+        pair[1].style.flexGrow = share;
+        report(handle, sections);
+    });
+})();
+
+// Where a dragged panel view would land is tinted here rather than on the
+// circuit, which would take a round trip per move. Followed by dragover, which
+// fires on whatever is under the pointer, rather than dragenter and dragleave,
+// which a tab's own label would set off in pairs.
+(() => {
+    let over = null;
+    const mark = (zone) => {
+        if (zone !== over) {
+            over?.classList.remove('over');
+            zone?.classList.add('over');
+            over = zone;
+        }
+    };
+
+    document.addEventListener('dragover', (event) => mark(event.target.closest?.('[data-view-drop]') ?? null));
+    document.addEventListener('drop', () => mark(null));
+    document.addEventListener('dragend', () => mark(null));
 })();
 
 // Keyboard shortcuts. The server owns the map (defaults plus what was changed on

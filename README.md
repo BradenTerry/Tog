@@ -53,6 +53,8 @@ picked. See [docs/workbench.md](docs/workbench.md).
   message the agent, with the list of **Agents** down its right side, the ones
   waiting on you first, and **New agent**, which opens as a dialog.
 - Extensions add tabs to any of the three panels, the right one by default.
+  Any tab, the app's own included, can be dragged to another panel or split
+  into a section of its own, and the arrangement is kept.
 - **New agent** starts one in a repository from Settings, in a new worktree or an
   existing one.
 - **Settings** holds the repositories New agent offers, the preferences (the
@@ -160,7 +162,8 @@ dotnet run --project src/AgentsDashboard.App -- --no-extensions
 The window is Photino over the platform's own webview (WebView2, WKWebView,
 WebKitGTK), with native binaries for Windows, macOS and Linux on both x64 and
 arm64. If the window cannot be created the app does not die with it: the host is
-already serving, so it prints the URL and carries on.
+already serving, so it prints the URL and carries on. It reopens where it was
+and the size it was, from `window.json` in the data folder.
 
 Requirements: the .NET 10 SDK, `git` and Node 22 or newer on `PATH`, and Claude
 Code if you want any agents to look at. The first build fetches Monaco, Mermaid,
