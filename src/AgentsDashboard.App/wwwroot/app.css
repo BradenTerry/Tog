@@ -1871,6 +1871,11 @@ button.icon-btn:hover:where(:not(:disabled)) { background: var(--surface-2); }
 .ptab-body { position: relative; flex: 1; min-height: 0; }
 .ptab-layer { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; }
 .ptab-layer.hidden, .doc-layer.hidden { visibility: hidden; pointer-events: none; }
+/* A descendant that sets visibility: visible shows through a hidden ancestor,
+   and Monaco's diff editor has several. A code tab in front covers them with
+   Monaco's own background; a Markdown preview is transparent, so they shone
+   through it. */
+.ptab-layer.hidden *, .doc-layer.hidden * { visibility: hidden !important; }
 
 /* A panel is a column of sections, each a tab strip over its views, sharing the
    height by flex-grow (the section's weight, which app.js rewrites in pixels when
