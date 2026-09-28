@@ -429,7 +429,11 @@
 
     private ElementReference _nav;
     private readonly Dictionary<string, ElementReference> _tabs = [];
-    private bool _focusTab;
+
+    // Starts true so the page opens with its section list focused: opened from
+    // Cmd+, focus would otherwise stay in the editor behind, and the arrow keys
+    // that walk the sections would do nothing until the list was clicked.
+    private bool _focusTab = true;
 
     private sealed record Section(string Id, string Title, string Icon, int? Count = null);
 
@@ -553,6 +557,7 @@
     {
         if (TakeSection())
         {
+            _focusTab = true;
             StateHasChanged();
         }
     });
