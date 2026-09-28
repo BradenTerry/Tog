@@ -12,7 +12,9 @@
    top; picking one moves every panel to it. It used to be a column down the
    right of the bottom panel, which cost the conversation a third of its width
    to show a list you look at only when switching. Delete on an agent in the
-   list asks to remove its worktree, through the same dialog as Remove. *@
+   list asks to remove its worktree, through the same dialog as Remove. Left
+   and Right step through the status filters above the list, so with a dozen
+   agents the waiting or stopped ones are one key away. *@
 
 @{
     var targets = Targets;
@@ -38,8 +40,9 @@
 @if (_menu is { } at)
 {
     var inView = Bench.WorktreeInView(Snapshot.Value);
-    <ContextMenu X="at.X" Y="at.Y" OnClose="() => _menu = null">
-        <div class="agent-menu">
+    var shown = targets.Where(t => Matches(t, _filter)).ToList();
+    <ContextMenu X="at.X" Y="at.Y" OnClose="() => _menu = null" OnKeyDown="OnMenuKey">
+        <div class="agent-menu" @ref="_list">
             <button type="button" class="context-item agent-menu-new" role="menuitem" @onclick="NewAgent">
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"
                      stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
@@ -49,9 +52,23 @@
             @if (targets.Count > 0)
             {
                 <hr class="context-sep" />
+                <div class="segmented agent-menu-filters" role="group" aria-label="Show agents that are">
+                    @foreach (var filter in Filters)
+                    {
+                        var on = filter == _filter;
+                        <button type="button" class="small @(on ? "on" : "")" aria-pressed="@(on ? "true" : "false")"
+                                tabindex="-1" title="Left and Right switch filters" @onclick="() => SetFilter(filter)">
+                            @FilterWord(filter) <span class="nums">@targets.Count(t => Matches(t, filter))</span>
+                        </button>
+                    }
+                </div>
+                @if (shown.Count == 0)
+                {
+                    <div class="agent-menu-empty faint">No @FilterWord(_filter).ToLowerInvariant() agents</div>
+                }
             }
 
-            @foreach (var target in targets)
+            @foreach (var target in shown)
             {
                 var current = target.SessionId == Bench.SessionId && IsAtAgent;
                 var open = target.WorktreePath is { } home && home == inView;
@@ -130,6 +147,79 @@
 
     /// <summary>Each agent's state at the last snapshot, to see one stop.</summary>
     private readonly Dictionary<string, ChatState> _was = new(StringComparer.Ordinal);
+
+    private enum Filter { All, Waiting, Working, Idle, Stopped }
+
+    private static readonly Filter[] Filters = Enum.GetValues<Filter>();
+
+    /// <summary>
+    /// Kept while the app is open rather than reset each time the list opens:
+    /// narrowing to the stopped agents to clear them out is several opens of it.
+    /// </summary>
+    private Filter _filter;
+
+    /// <summary>Focus has to be put back on an item once the list redraws under a new filter.</summary>
+    private bool _refocus;
+
+    private ElementReference _list;
+
+    private static string FilterWord(Filter filter) => filter switch
+    {
+        Filter.Waiting => "Waiting",
+        Filter.Working => "Working",
+        Filter.Idle => "Idle",
+        Filter.Stopped => "Stopped",
+        _ => "All",
+    };
+
+    /// <summary>A failed agent is stopped too: it will not do anything more until it is sent a message.</summary>
+    private static bool Matches(ChatTarget target, Filter filter) => filter switch
+    {
+        Filter.Waiting => target.State == ChatState.Waiting,
+        Filter.Working => target.State == ChatState.Active,
+        Filter.Idle => target.State == ChatState.Idle,
+        Filter.Stopped => target.State is ChatState.Parked or ChatState.Failed,
+        _ => true,
+    };
+
+    private void SetFilter(Filter filter)
+    {
+        _filter = filter;
+        _refocus = true;
+    }
+
+    private void OnMenuKey(KeyboardEventArgs e)
+    {
+        if (e.Key is not ("ArrowLeft" or "ArrowRight") || e.CtrlKey || e.AltKey || e.MetaKey || e.ShiftKey)
+        {
+            return;
+        }
+
+        var step = e.Key == "ArrowRight" ? 1 : -1;
+        SetFilter(Filters[((int)_filter + step + Filters.Length) % Filters.Length]);
+    }
+
+    /// <summary>
+    /// The item that had focus may have been filtered out of the list, which
+    /// leaves focus on the page and the next key going nowhere.
+    /// </summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_refocus || _menu is null)
+        {
+            return;
+        }
+
+        _refocus = false;
+        try
+        {
+            await Js.InvokeVoidAsync("agentsDashboard.focusMenuItem", _list);
+        }
+        catch (Exception e) when (e is JSException or JSDisconnectedException or TaskCanceledException)
+        {
+            // The list closed, or the window went, before it was drawn.
+        }
+    }
 
     private void Toggle(MouseEventArgs e) => _menu = _menu is null ? (e.ClientX, e.ClientY) : null;
 

@@ -860,6 +860,21 @@ window.agentsDashboard = {
         (checked || menu).focus();
         checked?.scrollIntoView({ block: 'nearest' });
     },
+    // After a menu's items change under it (the agent list's filter), focus
+    // goes back to the checked item, or the first, or the menu when none are
+    // left, so the next arrow key still has somewhere to start.
+    focusMenuItem: (element) => {
+        const menu = element?.closest('.context-menu');
+        if (!menu) {
+            return;
+        }
+
+        const target = menu.querySelector('.context-item[aria-checked="true"]:not(:disabled)')
+            || menu.querySelector('.context-item[role="menuitemradio"]:not(:disabled)')
+            || menu;
+        target.focus();
+        target.scrollIntoView?.({ block: 'nearest' });
+    },
     // Where a menu opened from the keyboard goes: under its button, left edges
     // lined up, as it would be had the button been clicked at its corner.
     anchorBelow: (element) => {

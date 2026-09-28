@@ -26,6 +26,10 @@
     [Parameter]
     public EventCallback OnClose { get; set; }
 
+    /// <summary>Keys the menu does not handle itself, from anywhere inside it.</summary>
+    [Parameter]
+    public EventCallback<KeyboardEventArgs> OnKeyDown { get; set; }
+
     private ElementReference _menu;
 
     private string Position => FormattableString.Invariant($"left: {X}px; top: {Y}px;");
@@ -47,5 +51,5 @@
 
     private Task Close() => OnClose.InvokeAsync();
 
-    private Task OnKey(KeyboardEventArgs e) => e.Key == "Escape" ? Close() : Task.CompletedTask;
+    private Task OnKey(KeyboardEventArgs e) => e.Key == "Escape" ? Close() : OnKeyDown.InvokeAsync(e);
 }
