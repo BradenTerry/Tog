@@ -22,6 +22,9 @@ public sealed record Settings
     /// </summary>
     public string? Theme { get; init; }
 
+    /// <summary>Show times of day as 14:05 rather than 2:05 PM.</summary>
+    public bool TwentyFourHourClock { get; init; }
+
     /// <summary>Model to preselect when starting an agent. Null leaves it to the CLI.</summary>
     public string? DefaultModel { get; init; }
 

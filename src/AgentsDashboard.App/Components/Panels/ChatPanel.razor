@@ -504,7 +504,7 @@ else
     }
 
     private string When(DateTimeOffset at) =>
-        at == DateTimeOffset.MinValue ? "" : Now - at < TimeSpan.FromHours(12) ? at.ToLocalTime().ToString("t") : at.ToLocalTime().ToString("MMM d, t");
+        at == DateTimeOffset.MinValue ? "" : Now - at < TimeSpan.FromHours(12) ? Fmt.Clock(at.ToLocalTime()) : at.ToLocalTime().ToString("MMM d, ", System.Globalization.CultureInfo.InvariantCulture) + Fmt.Clock(at.ToLocalTime());
 
     protected override void OnInitialized()
     {

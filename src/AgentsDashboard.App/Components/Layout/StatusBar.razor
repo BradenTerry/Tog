@@ -98,7 +98,7 @@
                         }
                     </div>
                 }
-                <div class="faint plan-seen">As of @Limits.Max(l => l.SeenAt).ToLocalTime().ToString("ddd h:mm tt"), the last turn that reported it.</div>
+                <div class="faint plan-seen">As of @Fmt.DayClock(Limits.Max(l => l.SeenAt).ToLocalTime()), the last turn that reported it.</div>
             </div>
         }
     }
@@ -162,7 +162,7 @@
     private static string When(DateTimeOffset at)
     {
         var local = at.ToLocalTime();
-        return local - DateTimeOffset.Now < TimeSpan.FromHours(20) ? local.ToString("h:mm tt") : local.ToString("ddd h:mm tt");
+        return local - DateTimeOffset.Now < TimeSpan.FromHours(20) ? Fmt.Clock(local) : Fmt.DayClock(local);
     }
 
     /// <summary>The path just copied, so its button says so until the next copy.</summary>

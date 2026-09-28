@@ -12,6 +12,24 @@ namespace AgentsDashboard.Core.Presentation;
 public static class Fmt
 {
     /// <summary>
+    /// Times of day as 14:05 rather than 2:05 PM, from the setting. Static rather
+    /// than passed in because it is one user's preference for the whole window,
+    /// and every view that shows a time would otherwise need the store injected.
+    /// </summary>
+    public static bool TwentyFourHourClock { get; set; }
+
+    /// <summary>
+    /// A time of day in the chosen clock. Always the invariant culture: the
+    /// setting is the choice, not whatever culture the process happened to get.
+    /// </summary>
+    public static string Clock(DateTimeOffset local) =>
+        local.ToString(TwentyFourHourClock ? "HH:mm" : "h:mm tt", System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>A time of day with its weekday: "Tue 2:05 PM".</summary>
+    public static string DayClock(DateTimeOffset local) =>
+        local.ToString("ddd ", System.Globalization.CultureInfo.InvariantCulture) + Clock(local);
+
+    /// <summary>
     /// A duration at the precision a person actually reads: seconds while it is
     /// seconds, then minutes, then hours. "4m 12s" rather than "00:04:12".
     /// </summary>
@@ -78,7 +96,7 @@ public static class Fmt
 
         if (local.Date == today.Date)
         {
-            return local.ToString("h:mm tt", invariant);
+            return Clock(local);
         }
 
         return local.Year == today.Year
