@@ -19,6 +19,9 @@ public sealed class FakeAcpAgent : IAgentLauncher
     /// <summary>The mcpServers of the last session/new, as JSON.</summary>
     public string? McpServers { get; set; }
 
+    /// <summary>The _meta of the last session/new or session/resume, as JSON, null when it had none.</summary>
+    public string? SessionMeta { get; set; }
+
     public int Launches { get; private set; }
 
     /// <summary>
@@ -210,10 +213,12 @@ public sealed class FakeAcpAgent : IAgentLauncher
                 case "session/new":
                     owner.Calls.Enqueue(method);
                     owner.McpServers = p.GetProperty("mcpServers").GetRawText();
+                    owner.SessionMeta = p.TryGetProperty("_meta", out var newMeta) ? newMeta.GetRawText() : null;
                     return new { sessionId = "s" + Interlocked.Increment(ref _sessions), configOptions = Options() };
 
                 case "session/resume":
                     owner.Calls.Enqueue(method + ":" + sessionId);
+                    owner.SessionMeta = p.TryGetProperty("_meta", out var resumeMeta) ? resumeMeta.GetRawText() : null;
                     return new { configOptions = Options() };
 
                 case "session/set_config_option":

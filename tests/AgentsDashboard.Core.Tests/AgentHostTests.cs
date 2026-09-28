@@ -361,25 +361,64 @@ public class AgentHostTests
 
     private sealed class Servers : IAgentMcpServers
     {
-        public IReadOnlyList<McpServer> For(string cwd) =>
-            [new McpServer("agents-dashboard", "http://127.0.0.1:1/_mcp?cwd=" + cwd, [new("Authorization", "Bearer ${KEY}")])];
+        private int _minted;
 
-        public IReadOnlyDictionary<string, string> Environment { get; } = new Dictionary<string, string>();
+        public List<string> Log { get; } = [];
+
+        public McpGrant Grant(string cwd, string? sessionId)
+        {
+            var key = "k" + ++_minted;
+            Log.Add($"grant {key} {cwd} {sessionId}");
+            return new McpGrant(
+                key,
+                [new McpServer("agents-dashboard", "http://127.0.0.1:1/_mcp", [new("Authorization", "Bearer ${KEY}")])],
+                new Dictionary<string, string> { ["KEY"] = key });
+        }
+
+        public void Bind(string key, string sessionId) => Log.Add($"bind {key} {sessionId}");
+
+        public void Revoke(string key) => Log.Add($"revoke {key}");
     }
 
     [Fact]
-    public async Task Hands_each_session_the_dashboards_mcp_server_for_its_folder()
+    public async Task Hands_each_session_the_dashboards_mcp_server_with_a_key_of_its_own()
     {
         var dir = new TempDir();
         using var _ = dir;
         var agent = new FakeAcpAgent();
-        await using var host = new AgentHost(Backend, agent, new HostedAgentStore(new AppPaths(dir.Path)), mcpServers: new Servers());
+        var servers = new Servers();
+        await using var host = new AgentHost(Backend, agent, new HostedAgentStore(new AppPaths(dir.Path)), mcpServers: servers);
 
         await host.StartAsync(new AgentStart("/repo"), Ct);
+        Assert.Equal("""{"claudeCode":{"options":{"env":{"KEY":"k1"}}}}""", agent.SessionMeta);
+
+        await host.StartAsync(new AgentStart("/other"), Ct);
+        Assert.Equal("""{"claudeCode":{"options":{"env":{"KEY":"k2"}}}}""", agent.SessionMeta);
 
         Assert.Equal(
-            """[{"type":"http","name":"agents-dashboard","url":"http://127.0.0.1:1/_mcp?cwd=/repo","headers":[{"name":"Authorization","value":"Bearer ${KEY}"}]}]""",
+            """[{"type":"http","name":"agents-dashboard","url":"http://127.0.0.1:1/_mcp","headers":[{"name":"Authorization","value":"Bearer ${KEY}"}]}]""",
             agent.McpServers);
+        Assert.Equal(["grant k1 /repo ", "bind k1 s1", "grant k2 /other ", "bind k2 s2"], servers.Log);
+    }
+
+    [Fact]
+    public async Task Revokes_a_sessions_mcp_key_when_it_stops_and_grants_a_new_one_when_it_resumes()
+    {
+        var agent = new FakeAcpAgent();
+        var servers = new Servers();
+        var dir = new TempDir();
+        using var _ = dir;
+        await using var host = new AgentHost(Backend, agent, new HostedAgentStore(new AppPaths(dir.Path)), mcpServers: servers);
+
+        var id = (await host.StartAsync(new AgentStart(dir.Path), Ct)).SessionId!;
+        await host.StopAsync(id, Ct);
+        await host.WakeAsync(id, Ct);
+        Assert.Equal("""{"claudeCode":{"options":{"env":{"KEY":"k2"}}}}""", agent.SessionMeta);
+        await host.RemoveAsync(id, Ct);
+
+        Assert.Equal(
+            [$"grant k1 {dir.Path} ", $"bind k1 {id}", "revoke k1", $"grant k2 {dir.Path} {id}", "revoke k2"],
+            servers.Log);
     }
 
     [Fact]

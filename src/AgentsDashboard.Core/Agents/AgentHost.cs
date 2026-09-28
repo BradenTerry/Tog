@@ -271,7 +271,23 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
         try
         {
             var client = await ConnectAsync(ct).ConfigureAwait(false);
-            var (sessionId, options) = await client.NewSessionAsync(start.Cwd, ct, _mcpServers?.For(start.Cwd)).ConfigureAwait(false);
+            var mcp = _mcpServers?.Grant(start.Cwd, null);
+            string sessionId;
+            IReadOnlyList<AcpConfigOption> options;
+            try
+            {
+                (sessionId, options) = await client.NewSessionAsync(start.Cwd, ct, mcp).ConfigureAwait(false);
+            }
+            catch
+            {
+                Revoke(mcp?.Key);
+                throw;
+            }
+
+            if (mcp is not null)
+            {
+                _mcpServers!.Bind(mcp.Key, sessionId);
+            }
 
             var entry = new Entry(sessionId, start.Cwd, _clock.Now, _clock.Now)
             {
@@ -279,6 +295,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
                 Prompt = Clip(start.Prompt),
                 Attached = true,
                 Options = options,
+                McpKey = mcp?.Key,
             };
             entry.SetState(HostedState.Idle, _clock.Now);
 
@@ -481,10 +498,12 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
             }
         }
 
+        string? mcpKey = null;
         lock (_gate)
         {
             if (_entries.TryGetValue(sessionId, out var entry))
             {
+                (mcpKey, entry.McpKey) = (entry.McpKey, null);
                 entry.Attached = false;
                 entry.Turns = 0;
                 entry.Live.Clear();
@@ -494,6 +513,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
             }
         }
 
+        Revoke(mcpKey);
         Touch();
         return new HostResult(true, "Stopped. Its conversation is kept; send it a message to pick it up again.");
     }
@@ -647,11 +667,24 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
             throw new FolderGoneException(cwd);
         }
 
-        var options = await client.ResumeSessionAsync(sessionId, cwd, ct, _mcpServers?.For(cwd)).ConfigureAwait(false);
+        var mcp = _mcpServers?.Grant(cwd, sessionId);
+        IReadOnlyList<AcpConfigOption> options;
+        try
+        {
+            options = await client.ResumeSessionAsync(sessionId, cwd, ct, mcp).ConfigureAwait(false);
+        }
+        catch
+        {
+            Revoke(mcp?.Key);
+            throw;
+        }
+
+        string? replaced = mcp?.Key;
         lock (_gate)
         {
             if (_entries.TryGetValue(sessionId, out var entry))
             {
+                (replaced, entry.McpKey) = (entry.McpKey, mcp?.Key);
                 entry.Attached = true;
                 entry.Options = options.Count > 0 ? options : entry.Options;
                 entry.Error = null;
@@ -663,8 +696,19 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
             }
         }
 
+        // The key the last run of the session had, or the new one when the
+        // agent was removed while it resumed.
+        Revoke(replaced);
         Touch();
         return client;
+    }
+
+    private void Revoke(string? mcpKey)
+    {
+        if (mcpKey is not null)
+        {
+            _mcpServers?.Revoke(mcpKey);
+        }
     }
 
     /// <summary>Sets the model, effort and mode asked for, where the agent offers them. The rest are left alone.</summary>
@@ -797,6 +841,9 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
             _process = null;
             foreach (var entry in _entries.Values.Where(e => e.Attached))
             {
+                // Whatever the agent started can outlive it and still holds the key.
+                Revoke(entry.McpKey);
+                entry.McpKey = null;
                 entry.Attached = false;
                 entry.Abandon();
                 entry.Live.Clear();
@@ -1327,6 +1374,9 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
         public string? Prompt { get; set; }
         public ContextUsage? Context { get; set; }
         public bool Attached { get; set; }
+
+        /// <summary>The MCP key the session's current run was granted, until it stops.</summary>
+        public string? McpKey { get; set; }
         public int Turns { get; set; }
         public HostedState State { get; private set; } = HostedState.Stopped;
         public DateTimeOffset StateSince { get; private set; } = now;

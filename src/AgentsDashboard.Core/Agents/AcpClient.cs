@@ -17,17 +17,35 @@ public sealed record AcpCommand(string Name, string Description, string? Hint);
 /// <param name="Headers">Sent with every request. A value may name an environment variable as <c>${NAME}</c>, which the Claude CLI expands.</param>
 public sealed record McpServer(string Name, string Url, IReadOnlyList<KeyValuePair<string, string>>? Headers = null);
 
-/// <summary>The MCP servers to hand an agent session in a folder. The app's own tools, today.</summary>
+/// <summary>What one agent session is handed to reach the app's MCP servers.</summary>
+/// <param name="Key">The session's own key, which <see cref="IAgentMcpServers"/> knows it by.</param>
+/// <param name="Environment">
+/// Variables the session's agent process needs for those servers, such as the
+/// key a header names. Kept out of the server list, which the SDK puts on the
+/// CLI's command line where any process can read it.
+/// </param>
+public sealed record McpGrant(string Key, IReadOnlyList<McpServer> Servers, IReadOnlyDictionary<string, string> Environment);
+
+/// <summary>
+/// The MCP servers to hand an agent session, each with a key of its own. The
+/// app's own tools, today.
+/// </summary>
+/// <remarks>
+/// The server tells callers apart by key alone, so the key is what says which
+/// session and folder a call comes from. A key is minted when a session starts
+/// or resumes and revoked when it stops, so a process an agent left running
+/// cannot go on calling as that agent.
+/// </remarks>
 public interface IAgentMcpServers
 {
-    IReadOnlyList<McpServer> For(string cwd);
+    /// <summary>A fresh key for a session in a folder. The session is null until <c>session/new</c> names it.</summary>
+    McpGrant Grant(string cwd, string? sessionId);
 
-    /// <summary>
-    /// Variables the agent process needs for those servers, such as a key a
-    /// header names. Kept out of the server list, which the SDK puts on the
-    /// CLI's command line where any process can read it.
-    /// </summary>
-    IReadOnlyDictionary<string, string> Environment { get; }
+    /// <summary>Names the session a key was granted for, once the agent has said it.</summary>
+    void Bind(string key, string sessionId);
+
+    /// <summary>Ends a key. Calls with it are refused from then on.</summary>
+    void Revoke(string key);
 }
 
 /// <summary>A conversation the agent knows about, from <c>session/list</c>.</summary>
@@ -103,12 +121,21 @@ public sealed class AcpClient(JsonRpcConnection rpc)
             })]
             : [];
 
+    /// <summary>
+    /// The variables a session's CLI needs, where the Claude bridge takes them
+    /// for one session rather than the whole process: every session shares the
+    /// bridge, so its own environment cannot hold anything one session's alone.
+    /// An agent that is not Claude ignores it.
+    /// </summary>
+    private static object? Meta(McpGrant? grant) =>
+        grant is { Environment.Count: > 0 } ? new { claudeCode = new { options = new { env = grant.Environment } } } : null;
+
     public async Task<(string SessionId, IReadOnlyList<AcpConfigOption> Options)> NewSessionAsync(
         string cwd,
         CancellationToken ct = default,
-        IReadOnlyList<McpServer>? servers = null)
+        McpGrant? mcp = null)
     {
-        var result = await rpc.RequestAsync("session/new", new { cwd, mcpServers = Servers(servers) }, ct)
+        var result = await rpc.RequestAsync("session/new", new { cwd, mcpServers = Servers(mcp?.Servers), _meta = Meta(mcp) }, ct)
             .ConfigureAwait(false);
 
         return (result.GetProperty("sessionId").GetString()!, ReadOptions(result));
@@ -122,11 +149,11 @@ public sealed class AcpClient(JsonRpcConnection rpc)
         string sessionId,
         string cwd,
         CancellationToken ct = default,
-        IReadOnlyList<McpServer>? servers = null)
+        McpGrant? mcp = null)
     {
         var result = await rpc.RequestAsync(
             "session/resume",
-            new { sessionId, cwd, mcpServers = Servers(servers) },
+            new { sessionId, cwd, mcpServers = Servers(mcp?.Servers), _meta = Meta(mcp) },
             ct).ConfigureAwait(false);
 
         return ReadOptions(result);

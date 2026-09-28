@@ -42,9 +42,21 @@ public interface IAgentTool
 
 /// <summary>One call of an agent tool.</summary>
 /// <param name="Arguments">The arguments the agent passed, an object, empty when it passed none.</param>
-/// <param name="Cwd">The folder the calling agent works in, when the app knows it.</param>
+/// <param name="Cwd">
+/// The folder the calling agent works in, when the app knows it. Each agent
+/// session calls with a key of its own, and this is the folder the key was made
+/// for, not anything the caller said, so an agent cannot pass for one in
+/// another worktree.
+/// </param>
 public sealed record AgentToolCall(JsonElement Arguments, string? Cwd)
 {
+    /// <summary>
+    /// The session id of the calling agent, as the app knows it by, from the
+    /// same key. Null when the call arrives before the agent has named its new
+    /// session. Since API 1.6.
+    /// </summary>
+    public string? AgentId { get; init; }
+
     /// <summary>A string argument, or null when it is missing or not a string.</summary>
     public string? Text(string name) =>
         Arguments.ValueKind == JsonValueKind.Object
