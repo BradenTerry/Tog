@@ -70,8 +70,10 @@ file as a tab in that window's editor, such as a long report you wrote to your
 data folder, and `IAgentOffers` (API 1.5) opens the New agent dialog filled
 in with an `AgentOffer` (repository, worktree or new worktree name, prompt).
 It never starts the agent: the user presses Start. Call it from a click.
+`OfferAsync` (API 1.7) also returns the started session id, or null if none
+was started.
 
-`ISecrets` (API 1.7) is only in your own container: a service's constructor
+`ISecrets` (API 1.8) is only in your own container: a service's constructor
 or `Context.Get<ISecrets>()` in a view, never `@inject`. Ask for a secret by
 name (`github`, `jira`, `linear`); the user approves your extension, per
 build, before it gets anything, and the call waits until they answer, so pass

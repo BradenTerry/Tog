@@ -134,9 +134,12 @@
 
         @* How many agents are in each state, the waiting ones first. A click on a
            count lists those agents, and picking one opens its conversation. Only the
-           agents this app hosts are counted, since those are the ones it can open. *@
+           agents this app hosts are counted, since those are the ones it can open.
+           Unread, the agents that finished a turn you have not looked at, comes
+           second: after an answer, a look is the next most expensive thing to miss.
+           Those agents are counted in their state as well. *@
         @{
-            var groups = Groups(Directory.Targets(Snapshot.Value));
+            var groups = Groups(Directory.Targets(Snapshot.Value), Bench.IsUnread);
         }
         @if (groups.Count > 0)
         {
@@ -179,12 +182,12 @@
             @LayoutButton((PanelSide.Right, "Right panel", "M9.5 3.5h4v9h-4z", "M9.5 2.5v11"))
         </div>
 
-        <button type="button" class="icon-btn @(InFront(EditorDoc.WorktreesKey) ? "active" : "")" @onclick="() => Open(EditorDoc.WorktreesKey)"
+        <button type="button" class="icon-btn @(InFront(EditorDoc.WorktreesKey) ? "active" : "")" @onclick="OpenWorktrees"
                 title="Worktrees: every worktree, what it takes on disk, and cleaning up" aria-label="Worktrees">
             <WorktreesGlyph Size="16" />
         </button>
 
-        <button type="button" class="icon-btn @(InFront(EditorDoc.SettingsKey) ? "active" : "")" @onclick="() => Open(EditorDoc.SettingsKey)" title="@Keys.Title("Settings", Commands.OpenSettings)" aria-label="Settings">
+        <button type="button" class="icon-btn @(Bench.SettingsOpen ? "active" : "")" @onclick="() => Bench.OpenSettings()" title="@Keys.Title("Settings", Commands.OpenSettings)" aria-label="Settings">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"
                  stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <circle cx="12" cy="12" r="3" />
@@ -237,7 +240,7 @@
     /// The agents by state, the ones needing you first. Failed goes in with
     /// stopped: either way a message is what brings it back.
     /// </summary>
-    private static List<AgentGroup> Groups(IReadOnlyList<ChatTarget> targets)
+    private static List<AgentGroup> Groups(IReadOnlyList<ChatTarget> targets, Func<ChatTarget, bool> unread)
     {
         AgentGroup Group(string name, string dot, params ChatState[] states) =>
             new(name, dot, targets.Where(t => states.Contains(t.State)).ToList());
@@ -245,6 +248,7 @@
         return new[]
             {
                 Group("Waiting", "waiting", ChatState.Waiting),
+                new AgentGroup("Unread", "unread", targets.Where(unread).ToList()),
                 Group("Working", "active", ChatState.Active),
                 Group("Idle", "", ChatState.Idle),
                 Group("Stopped", "stopped", ChatState.Parked, ChatState.Failed),
@@ -265,21 +269,12 @@
     private bool InFront(string key) => Bench.Editors(Bench.WorktreeInView(Snapshot.Value) ?? "").ActiveKey == key;
 
     /// <summary>
-    /// Settings and Worktrees open as tabs beside the agent's files. From a page
-    /// that has no editor, New agent's address for one, it goes back to the agent
-    /// first.
+    /// Worktrees opens as a tab beside the agent's files. From a page that has
+    /// no editor, New agent's address for one, it goes back to the agent first.
     /// </summary>
-    private void Open(string key)
+    private void OpenWorktrees()
     {
-        if (key == EditorDoc.WorktreesKey)
-        {
-            Bench.OpenWorktrees(Bench.WorktreeInView(Snapshot.Value));
-        }
-        else
-        {
-            Bench.OpenSettings(Bench.WorktreeInView(Snapshot.Value));
-        }
-
+        Bench.OpenWorktrees(Bench.WorktreeInView(Snapshot.Value));
         BackToEditor();
     }
 

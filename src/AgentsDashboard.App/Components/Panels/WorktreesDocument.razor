@@ -159,9 +159,6 @@
              @ref="_dialogRef" @onclick:stopPropagation @onkeydown="OnDialogKey">
             @switch (dialog.Kind)
             {
-                case DialogKind.Remove:
-                    @RemoveDialog(dialog)
-                    break;
                 case DialogKind.Bulk:
                     @BulkDialog(dialog)
                     break;
@@ -192,8 +189,6 @@
     private Dialog? _dialog;
     private ElementReference _dialogRef;
     private bool _focusDialog;
-    private ElementReference _confirmRef;
-    private bool _focusConfirm;
 
     private sealed record Notice(bool Ok, string Message);
 
@@ -206,7 +201,7 @@
         DateTimeOffset? LastActive,
         IReadOnlyList<HostedAgent> Parked);
 
-    private enum DialogKind { Remove, Bulk, Prune, Agents, Leftover }
+    private enum DialogKind { Bulk, Prune, Agents, Leftover }
 
     private sealed class Dialog(DialogKind kind)
     {
@@ -217,9 +212,6 @@
         public HashSet<string> Picked { get; init; } = new(StringComparer.Ordinal);
         public bool DeleteBranch { get; set; }
         public bool ForgetAgents { get; set; } = true;
-        public string Typed { get; set; } = "";
-        public IReadOnlyList<string>? LostFiles { get; set; }
-        public IReadOnlyList<string>? LostCommits { get; set; }
         public bool Busy { get; set; }
         public string? Error { get; set; }
     }
@@ -229,53 +221,12 @@
         base.OnInitialized();
         Inventory.Changed += OnInventoryChanged;
         State.Changed += OnSnapshot;
-        Bench.Changed += OnBench;
 
         // Opening the view is when stale sizes are worth measuring again. After
         // that only worktrees never measured are, as they appear.
         Inventory.Refresh(Snapshot.Repos, Remeasure.Stale);
         ScanLeftovers(force: true);
-        _ = TakeRemoveRequest();
     }
-
-    private void OnBench() => _ = InvokeAsync(TakeRemoveRequest);
-
-    /// <summary>
-    /// The agent list's "Remove" lands here: it opens this tab with the worktree
-    /// named, and the same dialog as the row's button comes up, so the offer
-    /// never removes anything without the dialog in between.
-    /// </summary>
-    private async Task TakeRemoveRequest()
-    {
-        if (Bench.RemoveRequest is not { } path)
-        {
-            return;
-        }
-
-        // A worktree not measured yet cannot be judged, so the request waits
-        // for its measurement rather than being dropped; the key in the agent
-        // list can ask about one nobody has looked at.
-        var row = Rows().FirstOrDefault(r => r.View.Worktree.Path == path);
-        if (row?.State == CleanupState.Checking)
-        {
-            return;
-        }
-
-        Bench.RemoveRequest = null;
-        if (row is not null && Removable(row.State))
-        {
-            await OpenRemove(row);
-            StateHasChanged();
-        }
-    }
-
-    /// <summary>
-    /// Whether Remove is offered. A running agent does not stop it: the dialog
-    /// says which agents it stops first. The main checkout, the dashboard's own
-    /// worktree and one not measured yet are the exceptions.
-    /// </summary>
-    private static bool Removable(CleanupState state) =>
-        state is CleanupState.SafeToRemove or CleanupState.NotMerged or CleanupState.HasWork or CleanupState.AgentRunning;
 
     /// <summary>
     /// The agents in a worktree, running or stopped, as the agent list shows
@@ -290,11 +241,7 @@
 
     private static string AgentName(AgentSession agent) => agent.Summary ?? agent.Name ?? agent.SessionId[..8];
 
-    private void OnInventoryChanged() => _ = InvokeAsync(async () =>
-    {
-        await TakeRemoveRequest();
-        StateHasChanged();
-    });
+    private void OnInventoryChanged() => _ = InvokeAsync(StateHasChanged);
 
     private void OnSnapshot()
     {
@@ -356,18 +303,18 @@
             {
                 var path = view.Worktree.Path;
                 var facts = Inventory.Facts(path);
-                var hostsDashboard = OwnDirectories.Any(d => Owner(d, paths) == path);
+                var hostsDashboard = OwnDirectories.Any(d => RemoveWorktreeDialog.Owner(d, paths) == path);
                 var state = WorktreeCleanup.Classify(view.Worktree, facts, view.Agents.Count > 0, hostsDashboard);
 
                 // Stopped agents are kept on the agent list; once their worktree is
                 // gone they cannot be resumed there, so removing offers to forget them.
-                var parked = hosted.Where(a => a.State == HostedState.Stopped && Owner(a.Cwd, paths) == path).ToList();
+                var parked = hosted.Where(a => a.State == HostedState.Stopped && RemoveWorktreeDialog.Owner(a.Cwd, paths) == path).ToList();
 
                 DateTimeOffset?[] times =
                 [
                     facts?.LastCommitAt,
                     view.Agents.Select(a => (DateTimeOffset?)a.LastActivity).Max(),
-                    hosted.Where(a => Owner(a.Cwd, paths) == path).Select(a => (DateTimeOffset?)a.StateSince).Max(),
+                    hosted.Where(a => RemoveWorktreeDialog.Owner(a.Cwd, paths) == path).Select(a => (DateTimeOffset?)a.StateSince).Max(),
                 ];
 
                 rows.Add(new Row(repo, view, facts, state, times.Max(), parked));
@@ -380,14 +327,6 @@
             .OrderBy(r => r.View.Worktree.IsPrimary)
             .ThenByDescending(r => r.Facts?.TotalBytes ?? -1)
             .ToList();
-    }
-
-    /// <summary>The worktree a directory belongs to: the deepest one it is under, as the monitor places agents.</summary>
-    private static string? Owner(string directory, IReadOnlyList<string> worktrees)
-    {
-        return worktrees
-            .Where(w => AgentsDashboard.Core.Repos.RealPaths.IsUnder(directory, w))
-            .MaxBy(w => w.Length);
     }
 
     private static string Label(CleanupState state) => state switch
@@ -412,24 +351,7 @@
         _ => "",
     };
 
-    /// <summary>Why a worktree is in the state it is, in a sentence, for the row's detail.</summary>
-    private static string Why(Row row) => row.State switch
-    {
-        CleanupState.Primary => "The repository's main checkout, shown for reference. It is never removed here.",
-        CleanupState.Dashboard => "The dashboard is running from this worktree, so it is not offered for removal.",
-        CleanupState.Orphaned => "The folder was deleted outside git. Git still lists it and still holds its branch, so that branch cannot be checked out anywhere else until it is pruned.",
-        CleanupState.AgentRunning => "An agent is working here. Removing the worktree stops it first, so it is not left working in a folder that is gone.",
-        CleanupState.HasWork => "There is work here that exists nowhere else. Removing it would lose that work, so push or commit it first, or remove it knowingly.",
-        CleanupState.NotMerged => "Clean, and every commit is on a remote, so removing it loses nothing. Its branch is not merged yet, so it is not included in bulk cleanup.",
-        CleanupState.SafeToRemove => row.Facts?.Merge switch
-        {
-            MergeState.NoOwnCommits => "Clean, and it never had commits of its own. Nothing would be lost.",
-            MergeState.SquashMerged => $"Clean, and {row.Facts.Base} already has its changes (squash or rebase merged). Nothing would be lost.",
-            _ => $"Clean, and merged into {row.Facts?.Base}. Nothing would be lost.",
-        },
-        CleanupState.Checking => "Being measured.",
-        _ => row.Facts?.Error ?? "Git could not be asked about this worktree.",
-    };
+    private static string Why(Row row) => RemoveWorktreeDialog.Why(row.State, row.Facts);
 
     private RenderFragment FilterChip(CleanupState? state, string label, int count) => __builder =>
     {
@@ -495,7 +417,7 @@
         var wt = row.View.Worktree;
         var facts = row.Facts;
         var open = _open.Contains(wt.Path);
-        var canRemove = Removable(row.State);
+        var canRemove = RemoveWorktreeDialog.Removable(row.State);
 
         <div class="wt-row @(open ? "open" : "") @(wt.Prunable ? "orphan" : "")" @key="wt.Path">
             <button type="button" class="icon-btn wt-caret" aria-expanded="@(open ? "true" : "false")" aria-label="Details for @wt.Name"
@@ -558,7 +480,7 @@
                             title="Start a new agent in this worktree">New agent</button>
                     @if (!wt.IsPrimary && row.State != CleanupState.Dashboard)
                     {
-                        <button class="small" disabled="@(!canRemove)" @onclick="() => OpenRemove(row)"
+                        <button class="small" disabled="@(!canRemove)" @onclick="() => Bench.AskRemoveWorktree(wt.Path)"
                                 title="@(canRemove ? "Remove this worktree" : Why(row))">Remove</button>
                     }
                 }
@@ -713,35 +635,6 @@
             _focusDialog = false;
             await _dialogRef.FocusAsync();
         }
-
-        if (_focusConfirm && _dialog is not null)
-        {
-            _focusConfirm = false;
-            await _confirmRef.FocusAsync();
-        }
-    }
-
-    private async Task OpenRemove(Row row)
-    {
-        var dialog = new Dialog(DialogKind.Remove)
-        {
-            Target = row,
-            DeleteBranch = row.State == CleanupState.SafeToRemove && row.View.Worktree.Branch is not null,
-        };
-        Show(dialog);
-
-        // Read fresh for a running agent too: it may have changed files since the
-        // worktree was measured, and the dialog must list what would be lost now.
-        if (row.State is CleanupState.HasWork or CleanupState.AgentRunning)
-        {
-            var (files, commits) = await Cleanup.LossesAsync(row.View.Worktree.Path, row.Facts?.Base);
-            dialog.LostFiles = files;
-            dialog.LostCommits = commits;
-        }
-
-        // The name box only appears once the read is back, after the dialog took
-        // focus, so it is focused then: typing the name is the one thing to do.
-        _focusConfirm = _dialog == dialog && Loses(dialog);
     }
 
     private void OpenBulk(List<Row> rows) => Show(new Dialog(DialogKind.Bulk)
@@ -765,51 +658,8 @@
         }
     }
 
-    /// <summary>
-    /// Removes one worktree. The branch goes with it only when asked, and is
-    /// deleted past git's merged check only when that check cannot see the
-    /// merge (a squash) or when the dialog already made you confirm the loss.
-    /// </summary>
-    /// <summary>
-    /// Removes one worktree, stopping any agent working in it first. The branch
-    /// goes with it only when asked, and is deleted past git's merged check only
-    /// when that check cannot see the merge (a squash) or when the dialog already
-    /// made you confirm the loss.
-    /// </summary>
-    private async Task<CleanupResult> Remove(Row row, bool force, bool deleteBranch, bool forgetAgents)
-    {
-        foreach (var agent in row.View.Agents)
-        {
-            await Host.StopAsync(agent.SessionId);
-        }
-
-        var result = await Cleanup.RemoveAsync(
-            row.Repo.Root,
-            row.View.Worktree,
-            force: force,
-            deleteBranch: deleteBranch,
-            forceBranch: force || row.Facts?.Merge == MergeState.SquashMerged);
-
-        if (result.Ok)
-        {
-            Inventory.Forget(row.View.Worktree.Path);
-            if (forgetAgents)
-            {
-                foreach (var id in row.Parked.Select(a => a.SessionId).Concat(row.View.Agents.Select(a => a.SessionId)))
-                {
-                    await Host.RemoveAsync(id);
-                }
-            }
-        }
-
-        return result;
-    }
-
-    /// <summary>Whether removing the dialog's worktree loses work: known from its state, or found when the dialog read it fresh.</summary>
-    private static bool Loses(Dialog dialog) =>
-        dialog.Target!.State == CleanupState.HasWork
-        || dialog.LostFiles is { Count: > 0 }
-        || dialog.LostCommits is { Count: > 0 };
+    private Task<CleanupResult> Remove(Row row, bool force, bool deleteBranch, bool forgetAgents) =>
+        RemoveWorktreeDialog.RemoveAsync(Host, Cleanup, Inventory, row.Repo, row.View, row.Facts, row.Parked, force, deleteBranch, forgetAgents);
 
     private async Task Run(Dialog dialog, Func<Task<Notice>> work)
     {
@@ -830,18 +680,6 @@
             Monitor.InvalidateWorktrees();
         }
     }
-
-    private Task ConfirmRemove(Dialog dialog) => Run(dialog, async () =>
-    {
-        var result = await Remove(dialog.Target!, Loses(dialog), dialog.DeleteBranch, dialog.ForgetAgents);
-        if (!result.Ok)
-        {
-            throw new InvalidOperationException(result.Message);
-        }
-
-        // Removed, but with a folder left on disk: said as a problem, not a success.
-        return new Notice(result.Leftover is null, result.Message);
-    });
 
     private Task ConfirmBulk(Dialog dialog) => Run(dialog, async () =>
     {
@@ -937,113 +775,6 @@
                 </span>
             </label>
         }
-    };
-
-    private RenderFragment RemoveDialog(Dialog dialog) => __builder =>
-    {
-        var row = dialog.Target!;
-        var wt = row.View.Worktree;
-        var running = row.View.Agents;
-        var reading = row.State is CleanupState.HasWork or CleanupState.AgentRunning && dialog.LostFiles is null;
-        var hasWork = Loses(dialog);
-        var confirmed = !reading && (!hasWork || dialog.Typed.Trim() == wt.Name);
-
-        @DialogHead(hasWork ? $"Remove {wt.Name}? This loses work." : $"Remove {wt.Name}?")
-        @DialogError(dialog)
-        <div class="wt-dialog-body">
-            @if (running.Count > 0)
-            {
-                <div class="banner info">
-                    @(running.Count == 1 ? "An agent is" : $"{running.Count} agents are") working here:
-                    <strong>@string.Join(", ", running.Select(AgentName))</strong>.
-                    Removing the worktree stops @(running.Count == 1 ? "it" : "them") first.
-                </div>
-            }
-            @if (reading)
-            {
-                <p class="faint">Checking for work that would be lost...</p>
-            }
-            else if (hasWork)
-            {
-                <p>This worktree has changes that exist nowhere else:</p>
-                <div class="wt-loss mono">
-                    @if (dialog.LostFiles is null)
-                    {
-                        <div class="faint">Reading...</div>
-                    }
-                    else
-                    {
-                        @foreach (var line in dialog.LostFiles.Take(40))
-                        {
-                            <div>@line</div>
-                        }
-                        @foreach (var commit in dialog.LostCommits!.Take(20))
-                        {
-                            <div>@commit <span class="faint">(on no remote)</span></div>
-                        }
-                        @if (dialog.LostFiles.Count > 40 || dialog.LostCommits!.Count > 20)
-                        {
-                            <div class="faint">and more</div>
-                        }
-                    }
-                </div>
-                <p>Type <strong class="mono">@wt.Name</strong> to remove it anyway.</p>
-                @* No placeholder: the name drawn in grey in an empty box reads as
-                   already typed, and the button then looks broken. *@
-                <input type="text" aria-label="Worktree name" value="@dialog.Typed" @ref="_confirmRef"
-                       autocomplete="off" spellcheck="false"
-                       @oninput="e => dialog.Typed = e.Value?.ToString() ?? string.Empty" />
-            }
-            else
-            {
-                <p>
-                    @(row.State == CleanupState.AgentRunning
-                        ? "It has no changes or commits that exist only here, so nothing would be lost."
-                        : Why(row))
-                    @if (row.Facts is { TotalBytes: > 0 } f)
-                    {
-                        <span> Frees @Fmt.Bytes(f.TotalBytes).</span>
-                    }
-                </p>
-            }
-
-            @if (wt.Branch is { } branch)
-            {
-                <label class="wt-option">
-                    <input type="checkbox" checked="@dialog.DeleteBranch" @onchange="e => dialog.DeleteBranch = e.Value is true" />
-                    <span>
-                        Also delete branch <span class="mono">@branch</span>
-                        <small>
-                            @(hasWork
-                                ? "Its commits that are on no remote are lost with it."
-                                : row.Facts?.Merge == MergeState.SquashMerged
-                                    ? "Git does not see a squash merge, so this deletes it past git's merged check. The base has its changes."
-                                    : "Git keeps it if it does not count it as merged.")
-                        </small>
-                    </span>
-                </label>
-            }
-
-            @ForgetOption(dialog, row.Parked.Count + running.Count)
-
-            <div class="wt-cmd mono">
-                @if (wt.Locked)
-                {
-                    <div>git worktree unlock @wt.Path</div>
-                }
-                <div>git worktree remove @(hasWork ? "--force " : "")@wt.Path</div>
-                @if (dialog.DeleteBranch && wt.Branch is not null)
-                {
-                    <div>git branch @(hasWork || row.Facts?.Merge == MergeState.SquashMerged ? "-D" : "-d") @wt.Branch</div>
-                }
-            </div>
-        </div>
-        <footer class="wt-dialog-foot">
-            <button class="ghost" @onclick="CloseDialog" disabled="@dialog.Busy">Cancel</button>
-            <button class="@(hasWork ? "wt-danger" : "primary")" disabled="@(dialog.Busy || !confirmed)" @onclick="() => ConfirmRemove(dialog)">
-                @(dialog.Busy ? "Removing..." : hasWork ? "Remove and lose changes" : "Remove")
-            </button>
-        </footer>
     };
 
     private RenderFragment BulkDialog(Dialog dialog) => __builder =>
@@ -1200,7 +931,6 @@
         {
             Inventory.Changed -= OnInventoryChanged;
             State.Changed -= OnSnapshot;
-            Bench.Changed -= OnBench;
         }
 
         base.Dispose(disposing);

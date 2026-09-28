@@ -81,6 +81,7 @@ builder.Services.AddSingleton<Shortcuts>();
 builder.Services.AddSingleton<ReviewDraftStore>();
 builder.Services.AddSingleton<LastViewStore>();
 builder.Services.AddSingleton<PanelLayoutStore>();
+builder.Services.AddSingleton<SeenTurnsStore>();
 builder.Services.AddSingleton<WindowBoundsStore>();
 
 // Claude

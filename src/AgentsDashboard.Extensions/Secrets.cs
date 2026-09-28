@@ -2,7 +2,7 @@ namespace AgentsDashboard.Extensions;
 
 /// <summary>
 /// Secrets the user keeps in the dashboard, such as a GitHub, Jira or Linear
-/// token, which an extension asks for by name. Since API 1.7.
+/// token, which an extension asks for by name. Since API 1.8.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -63,7 +63,7 @@ public interface ISecrets
         CancellationToken ct = default);
 }
 
-/// <summary>Where <see cref="ISecrets.SendAsync"/> puts the secret. Since API 1.7.</summary>
+/// <summary>Where <see cref="ISecrets.SendAsync"/> puts the secret. Since API 1.8.</summary>
 /// <param name="Header">The header it goes in.</param>
 /// <param name="Scheme">Written before it with a space, as in <c>Bearer</c>, or null for the value alone.</param>
 /// <param name="Base64">Base64-encode the value first, as Basic authentication wants for <c>user:token</c>.</param>

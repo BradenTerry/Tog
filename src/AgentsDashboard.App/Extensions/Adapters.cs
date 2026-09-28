@@ -99,13 +99,15 @@ public sealed class EditorTabs(Workbench bench, DashboardState state) : IEditorT
 /// </summary>
 public sealed class AgentOffers(Workbench bench) : IAgentOffers
 {
-    public void Offer(AgentOffer offer)
+    public void Offer(AgentOffer offer) => _ = OfferAsync(offer);
+
+    public Task<string?> OfferAsync(AgentOffer offer)
     {
         ArgumentNullException.ThrowIfNull(offer);
 
         // A relative folder would resolve against the app's working directory,
         // which means nothing to the extension; drop it rather than guess.
-        bench.OpenNewAgent(new NewAgentPreset(
+        return bench.OfferNewAgent(new NewAgentPreset(
             Folder(offer.Repository),
             Folder(offer.Worktree),
             Blank(offer.WorktreeName),

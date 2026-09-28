@@ -18,10 +18,12 @@ namespace AgentsDashboard.App.Services;
 /// title bar folds the panels away. Documents are kept per worktree, so switching
 /// agents swaps the editor's tabs and switching back finds them as they were.
 /// Memory only, like <see cref="WorktreeViews"/>: where you were looking, not a
-/// preference. Two exceptions: the panels' layout, kept in
-/// <see cref="PanelLayoutStore"/> because it is how you like the window, and the
+/// preference. Three exceptions: the panels' layout, kept in
+/// <see cref="PanelLayoutStore"/> because it is how you like the window, the
 /// agent and worktree in view, kept in <see cref="LastViewStore"/> so the app
-/// reopens on them.
+/// reopens on them, and which finished turns you have read, kept in
+/// <see cref="SeenTurnsStore"/> so an agent that finished while the app was
+/// shut, or while you were elsewhere, is still marked when you come back.
 /// </remarks>
 public sealed class Workbench : IDisposable
 {
@@ -29,13 +31,15 @@ public sealed class Workbench : IDisposable
     private readonly AgentDirectory _directory;
     private readonly LastViewStore _lastViewStore;
     private readonly PanelLayoutStore _layoutStore;
+    private readonly SeenTurnsStore _seenTurns;
     private LastView? _lastView;
 
     /// <summary>The agent open when the app was last used, until a page has had the chance to reopen it.</summary>
     private string? _reopen;
 
-    public Workbench(IServiceProvider services, AgentDirectory directory, LastViewStore lastViewStore, PanelLayoutStore layoutStore)
+    public Workbench(IServiceProvider services, AgentDirectory directory, LastViewStore lastViewStore, PanelLayoutStore layoutStore, SeenTurnsStore seenTurns)
     {
+        _seenTurns = seenTurns;
         _services = services;
         _directory = directory;
         _lastViewStore = lastViewStore;
@@ -371,8 +375,16 @@ public sealed class Workbench : IDisposable
     /// </summary>
     public int NewAgentGeneration { get; private set; }
 
+    /// <summary>
+    /// How the offer the dialog holds ended, for the extension that made it.
+    /// Settled with null by anything that takes the offer off the dialog without
+    /// starting it, so an extension waiting on it is never left hanging.
+    /// </summary>
+    private TaskCompletionSource<string?>? _offer;
+
     public void OpenNewAgent()
     {
+        SettleOffer(null);
         NewAgentIn = null;
         if (!NewAgentOpen)
         {
@@ -388,14 +400,41 @@ public sealed class Workbench : IDisposable
     /// <summary>Opens the New agent dialog filled in, replacing whatever it held.</summary>
     public void OpenNewAgent(NewAgentPreset preset)
     {
+        SettleOffer(null);
         NewAgentIn = preset;
         NewAgentGeneration++;
         NewAgentOpen = true;
         Raise();
     }
 
+    /// <summary>
+    /// Opens the dialog filled in with an extension's offer, and completes with
+    /// the session it started, or null if it started none.
+    /// </summary>
+    public Task<string?> OfferNewAgent(NewAgentPreset preset)
+    {
+        OpenNewAgent(preset);
+
+        // Continuations run off the circuit's thread, so an extension's await
+        // never runs inside the dialog's own event handler.
+        var offer = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _offer = offer;
+        return offer.Task;
+    }
+
+    /// <summary>The dialog started an agent: whatever offer it held is taken up.</summary>
+    public void NewAgentStarted(string sessionId) => SettleOffer(sessionId);
+
+    private void SettleOffer(string? sessionId)
+    {
+        var offer = _offer;
+        _offer = null;
+        offer?.TrySetResult(sessionId);
+    }
+
     public void CloseNewAgent()
     {
+        SettleOffer(null);
         if (NewAgentOpen)
         {
             NewAgentOpen = false;
@@ -412,6 +451,28 @@ public sealed class Workbench : IDisposable
 
         SessionId = sessionId;
         Raise();
+    }
+
+    /// <summary>
+    /// Whether an agent finished a turn you have not had on screen since: done,
+    /// and waiting for a look rather than an answer. Only once it has stopped
+    /// working, since a working agent's dot already says more.
+    /// </summary>
+    public bool IsUnread(ChatTarget target) =>
+        target.State is ChatState.Idle or ChatState.Parked or ChatState.Failed
+        && _seenTurns.IsUnread(target.SessionId, target.TurnEndedAt);
+
+    /// <summary>
+    /// The chat panel is showing this agent's conversation, so its last turn has
+    /// been read. Called on every render in view; only a newly seen turn redraws.
+    /// </summary>
+    public void MarkSeen(ChatTarget target)
+    {
+        if (target.TurnEndedAt is { } ended
+            && _seenTurns.MarkSeen(target.SessionId, ended, _directory.Host.Agents.Select(a => a.SessionId)))
+        {
+            Raise();
+        }
     }
 
     public void Toggle(PanelSide side)
@@ -676,31 +737,47 @@ public sealed class Workbench : IDisposable
     }
 
     /// <summary>
-    /// Opens Settings as a tab among the agent's documents, so it closes like one
-    /// and leaves you on the agent. Without an agent in view the tabs are kept
-    /// under the empty worktree, which is where the editor looks then.
+    /// Opens Settings as a dialog over the window, like New agent: it belongs to
+    /// no file and no worktree, so it has no place among an agent's tabs, and
+    /// closing it leaves you where you were.
     /// </summary>
-    public void OpenSettings(string? worktreePath, string? section = null)
+    public void OpenSettings(string? section = null)
     {
         SettingsSection = section ?? SettingsSection;
-        OpenPage(worktreePath, EditorDoc.SettingsKey, DocKind.Settings);
+        SettingsOpen = true;
+        Raise();
+    }
+
+    public bool SettingsOpen { get; private set; }
+
+    public void CloseSettings()
+    {
+        if (SettingsOpen)
+        {
+            SettingsOpen = false;
+            Raise();
+        }
     }
 
     /// <summary>A section Settings should turn to, taken once by the page: Open Keyboard Shortcuts asks for "keys".</summary>
     public string? SettingsSection { get; set; }
 
-    /// <summary>
-    /// Opens the Worktrees view, every worktree of every repo, the way Settings
-    /// opens. With <paramref name="remove"/> it opens straight onto the dialog
-    /// that removes that worktree, which is how the agent list's offer lands.
-    /// </summary>
-    public void OpenWorktrees(string? worktreePath, string? remove = null)
-    {
-        RemoveRequest = remove;
+    /// <summary>Opens the Worktrees view, every worktree of every repo, the way Settings opens.</summary>
+    public void OpenWorktrees(string? worktreePath) =>
         OpenPage(worktreePath, EditorDoc.WorktreesKey, DocKind.Worktrees);
+
+    /// <summary>
+    /// Asks to remove a worktree: <c>RemoveWorktreeDialog</c> takes the request
+    /// and comes up over whatever is on screen, rather than switching to the
+    /// Worktrees view, so asking from the agent list leaves the agent in view.
+    /// </summary>
+    public void AskRemoveWorktree(string worktreePath)
+    {
+        RemoveRequest = worktreePath;
+        Raise();
     }
 
-    /// <summary>A worktree whose remove dialog the Worktrees view should open, taken once.</summary>
+    /// <summary>A worktree whose remove dialog should open, taken once.</summary>
     public string? RemoveRequest { get; set; }
 
     private void OpenPage(string? worktreePath, string key, DocKind kind)
@@ -933,6 +1010,7 @@ public sealed class Workbench : IDisposable
 
     public void Dispose()
     {
+        SettleOffer(null);
         foreach (var model in _changes.Values)
         {
             model.Dispose();
@@ -950,9 +1028,6 @@ public enum DocKind
 
     /// <summary>One file's changes.</summary>
     Diff,
-
-    /// <summary>The app's settings, which belong to no file.</summary>
-    Settings,
 
     /// <summary>Every worktree of every repo, and cleaning them up.</summary>
     Worktrees,
@@ -1114,7 +1189,6 @@ public sealed class EditorGroup
 public sealed class EditorDoc(string key, DocKind kind, string? path)
 {
     public const string ChangesKey = "changes";
-    public const string SettingsKey = "settings";
     public const string WorktreesKey = "worktrees";
 
     public static string FileKey(string path) => "file:" + path;
@@ -1149,7 +1223,6 @@ public sealed class EditorDoc(string key, DocKind kind, string? path)
     public string Title => Kind switch
     {
         DocKind.Changes => "Changes",
-        DocKind.Settings => "Settings",
         DocKind.Worktrees => "Worktrees",
         DocKind.External => System.IO.Path.GetFileName(Path!),
         _ => Path![(Path!.LastIndexOf('/') + 1)..],

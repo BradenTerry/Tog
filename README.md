@@ -32,7 +32,7 @@ picked. See [docs/workbench.md](docs/workbench.md).
 
 - **Title bar** shows the selected agent's repository and branch, who is
   waiting on you, three buttons that fold the left, bottom and right panels,
-  and the gear, which opens **Settings** as a tab in the editor.
+  and the gear, which opens **Settings** as a dialog over the window.
 - **Go to File** (the search box in the middle of the title bar, or Cmd+P, Ctrl+P
   or Ctrl+T) finds a file in the worktree in view by a few letters of its name,
   as VS Code's quick open does. Every shortcut can be rebound in Settings.

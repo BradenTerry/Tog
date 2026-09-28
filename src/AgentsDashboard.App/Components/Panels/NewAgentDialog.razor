@@ -113,6 +113,7 @@
     /// <summary>Opens the agent just started, or resumed, with the dialog done.</summary>
     private void Open(string sessionId)
     {
+        Bench.NewAgentStarted(sessionId);
         Bench.CloseNewAgent();
         Nav.NavigateTo(Urls.Chat(sessionId));
     }

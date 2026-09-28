@@ -104,7 +104,7 @@ A script or test that loads a page has to start from the printed address.
 `DesktopWindow` sets Photino's log verbosity to 0, since at its default it
 prints `Load(url)`, key included, to stdout.
 
-**Secrets never reach an agent.** Extensions ask `ISecrets` (API 1.7) by name;
+**Secrets never reach an agent.** Extensions ask `ISecrets` (API 1.8) by name;
 values live in the OS store (`ISecretVault`), names and grants in
 `secrets.json`, never `settings.json`. No agent tool serves them, no session's
 environment carries them, and `SecretBroker.ForAgent` wraps every MCP

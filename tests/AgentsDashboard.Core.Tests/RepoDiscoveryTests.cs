@@ -66,6 +66,37 @@ public class RepoDiscoveryTests
     }
 
     [Fact]
+    public void A_path_ending_in_a_star_is_every_repository_directly_inside_the_folder()
+    {
+        using var dir = new TempDir();
+        var one = dir.Dir("one");
+        dir.Dir("one/.git");
+        var two = dir.Dir("two");
+        dir.File("two/.git", "gitdir: elsewhere\n");
+        dir.Dir("notes");
+        dir.Dir("nested/deeper/.git");
+
+        // A plain path passes through untouched, in its place in the list.
+        Assert.Equal(
+            ["/by/hand", one, two],
+            RepoDiscovery.Expand(["/by/hand", Path.Combine(dir.Path, "*")]));
+    }
+
+    [Theory]
+    [InlineData("/code/*", "/code")]
+    [InlineData("  /code/*  ", "/code")]
+    [InlineData(@"C:\code\*", @"C:\code")]
+    [InlineData("/*", "/")]
+    [InlineData("/code", null)]
+    [InlineData("/code/a*", null)]
+    public void Only_a_last_segment_of_star_is_a_wildcard(string path, string? folder) =>
+        Assert.Equal(folder, RepoDiscovery.WildcardFolder(path));
+
+    [Fact]
+    public void A_wildcard_on_a_missing_folder_is_nothing() =>
+        Assert.Empty(RepoDiscovery.Expand(["/no/such/folder/anywhere/*"]));
+
+    [Fact]
     public async Task Leaves_out_a_repository_the_user_hid()
     {
         using var repo = new TempRepo();
