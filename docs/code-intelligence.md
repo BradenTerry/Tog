@@ -6,7 +6,10 @@ server running beside the editor. Here it comes from an extension, one per
 language, through `ICodeIntelligence`; the app itself has no language support
 beyond Monaco's colouring, and carries no Roslyn or MSBuild.
 
-The one that exists is C#, in `extensions/CSharpCode`. The dashboard is already
+The one that exists is C#, kept outside this repository in the user's
+extension folder (`agents-dashboard-extensions/CSharpCode`, with its tests in
+`CSharpCode.Tests` beside it), built against the SDK like any other
+extension. The dashboard is already
 a .NET process, so it runs Roslyn in-process, which means no second process to
 install, start or keep alive. Other languages keep what Monaco does on its own,
 which is colouring and, for TypeScript and JavaScript, symbols within the open

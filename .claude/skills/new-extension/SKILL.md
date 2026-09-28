@@ -28,7 +28,7 @@ From the request, settle:
     a folder the user names, or a sibling of the repository. It compiles
     against the SDK the app copies to `~/.agents-dashboard/sdk/<major>.<minor>/`.
   - Inside it, under `extensions/<Name>/`, only if the user wants it to live
-    with the dashboard like `DotnetTests` and `CSharpCode`. It then references
+    with the dashboard like `DotnetTests`. It then references
     the API project directly (see step 3).
 
 Ask only if the request leaves the contribution or the location genuinely

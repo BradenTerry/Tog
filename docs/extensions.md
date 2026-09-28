@@ -4,7 +4,8 @@ The app keeps to what is about agents: the conversation, the diff, the files.
 Anything else, such as following a language's test runs, is an extension: a
 small Razor project, built on its own, that the running app loads and adds a tab
 for. The Tests tab is one, in `extensions/DotnetTests`, and C# navigation in
-the editor is another, in `extensions/CSharpCode`. Neither is shipped with the
+the editor is another, kept outside this repository in the user's extension
+folder (`agents-dashboard-extensions/CSharpCode`). Neither is shipped with the
 app.
 
 The design and its rationale are in [design/extensions.md](design/extensions.md).

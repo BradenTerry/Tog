@@ -10,7 +10,6 @@ reviewing their diffs. Anything else is an extension.
   extension host.
 - `src/AgentsDashboard.Extensions` - the extension API. Versioned: 1.x only adds.
 - `extensions/DotnetTests` - the Tests tab, an extension, not shipped.
-- `extensions/CSharpCode` - C# navigation from Roslyn, an extension, not shipped.
 - `templates/extension` - the `dotnet new` template extensions start from.
 - `tests/*` - xUnit v3 on Microsoft.Testing.Platform.
 
