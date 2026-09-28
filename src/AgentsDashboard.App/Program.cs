@@ -43,6 +43,21 @@ Environment.SetEnvironmentVariable(ReloadSwitch, "false");
 var builder = WebApplication.CreateBuilder(args);
 Environment.SetEnvironmentVariable(ReloadSwitch, reload);
 
+// A dotnet build leaves the compiler server and MSBuild's worker nodes running
+// for the next one, for ten minutes or more. Started under the app (an agent's
+// build, an extension's test run), macOS counts them as the app's own, so after
+// the window closes the Dock keeps it as Running in Background until they time
+// out. Everything the app starts inherits these, and builds leave nothing
+// behind, a second or two slower each. Set in the shell, they are left alone.
+foreach (var (name, value) in (ReadOnlySpan<(string, string)>)
+         [("MSBUILDDISABLENODEREUSE", "1"), ("DOTNET_CLI_USE_MSBUILD_SERVER", "0"), ("UseSharedCompilation", "false")])
+{
+    if (Environment.GetEnvironmentVariable(name) is null)
+    {
+        Environment.SetEnvironmentVariable(name, value);
+    }
+}
+
 // Every process the app starts (git above all, many times a second) resolves
 // its program with the working folder in hand, and once that folder is gone
 // every start throws. The app is often started from inside a worktree, and

@@ -50,6 +50,15 @@ prompts it. **Resume** in the chat header (`AgentHost.WakeAsync`) sends only
 live before you decide what to send. A turn in progress when the app closed is
 the only thing that stops.
 
+Closing ends the app's own processes, but not what they leave running. A
+`dotnet build` keeps its compiler server and MSBuild nodes alive for the next
+build, ten minutes or more, and macOS counts anything started under the app as
+the app, so the Dock would keep showing it as Running in Background. `Program.cs`
+sets `MSBUILDDISABLENODEREUSE=1`, `DOTNET_CLI_USE_MSBUILD_SERVER=0` and
+`UseSharedCompilation=false` for everything the app starts, unless already set.
+An agent's build is a second or two slower (1.3s to 2.8s for an edit to Core
+here) and leaves nothing behind.
+
 A conversation can only be resumed in the folder it started in: the transcript
 lives under a directory named after that path, and the agent refuses a `cwd` that
 does not exist. When a worktree is removed with its agent still on the list, the
