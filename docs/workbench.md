@@ -245,7 +245,14 @@ defaults, and a key bound twice is marked.
 - **Select Agent** (Shift+Cmd+A, Ctrl+Shift+A elsewhere) opens the title bar's
   agent list under its button, with focus on the agent in view. Up and down
   walk it and Enter picks: every `ContextMenu` takes the arrows, from
-  `bindMenuKeys` in `app.js`, starting at its checked item.
+  `bindMenuKeys` in `app.js`, starting at its checked item. Delete (Backspace
+  on a Mac) on an agent opens the Worktrees view on the remove dialog for its
+  worktree, the same one the list's Remove offer opens: sizes, what would be
+  lost, the branch, and a confirmation. A worktree not measured yet holds the
+  request until it is, rather than dropping it.
+- **Focus Chat** (Shift+Cmd+C, Ctrl+Shift+C elsewhere) brings up the bottom
+  panel on the conversation and puts the caret in its box, from anywhere,
+  Settings included.
 - **A new command** needs an entry in `Commands.All` and a case in
   `MainLayout.RunCommand`.
 

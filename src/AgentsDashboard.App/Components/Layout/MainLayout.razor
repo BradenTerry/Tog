@@ -165,6 +165,10 @@
             case Commands.NewAgent:
                 Bench.OpenNewAgent();
                 break;
+            case Commands.FocusChat:
+                Bench.FocusChat();
+                BackToEditor();
+                break;
         }
     }
 

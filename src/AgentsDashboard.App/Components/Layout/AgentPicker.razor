@@ -11,7 +11,8 @@
    agent, like a messaging app's list of conversations, with New agent at the
    top; picking one moves every panel to it. It used to be a column down the
    right of the bottom panel, which cost the conversation a third of its width
-   to show a list you look at only when switching. *@
+   to show a list you look at only when switching. Delete on an agent in the
+   list asks to remove its worktree, through the same dialog as Remove. *@
 
 @{
     var targets = Targets;
@@ -56,6 +57,7 @@
                 var open = target.WorktreePath is { } home && home == inView;
                 <button type="button" class="context-item agent-menu-item @(current ? "current" : "")" role="menuitemradio"
                         aria-checked="@(current ? "true" : "false")" @onclick="() => GoTo(target)"
+                        @onkeydown="e => OnItemKey(e, target)"
                         title="@($"{target.Label} ({target.Where}, {AgentDirectory.StateWord(target)})")">
                     <span class="dot @AgentDirectory.DotClass(target.State)" aria-hidden="true"></span>
                     <span class="chat-item-body">
@@ -218,6 +220,21 @@
     {
         _menu = null;
         Bench.OpenWorktrees(Bench.WorktreeInView(Snapshot.Value), target.WorktreePath);
+    }
+
+    /// <summary>
+    /// Delete, or Backspace, which is what the Mac's delete key sends, on an
+    /// agent asks to remove its worktree and branch. It only opens the remove
+    /// dialog, which shows what is there and waits for a confirmation, and says
+    /// why when a worktree cannot be removed (the main checkout, the one the
+    /// dashboard runs from).
+    /// </summary>
+    private void OnItemKey(KeyboardEventArgs e, ChatTarget target)
+    {
+        if (e.Key is "Delete" or "Backspace" && !e.CtrlKey && !e.AltKey && !e.MetaKey && target.WorktreePath is not null)
+        {
+            AskRemove(target);
+        }
     }
 
     private void Keep(ChatTarget target)
