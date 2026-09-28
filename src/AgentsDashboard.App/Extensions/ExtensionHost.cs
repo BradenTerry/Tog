@@ -1,5 +1,6 @@
 using System.Reflection;
 using AgentsDashboard.Core.Extensions;
+using AgentsDashboard.Core.Platform;
 using AgentsDashboard.Core.Repos;
 using AgentsDashboard.Extensions;
 using Microsoft.Extensions.DependencyInjection;
@@ -45,8 +46,8 @@ public sealed class ExtensionHost : IDisposable
 
     private readonly Dictionary<string, Loaded> _loaded = new(StringComparer.Ordinal);
     private readonly Dictionary<string, (ExtensionStatus Status, string? Message)> _states = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, FileSystemWatcher> _watchers = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, FileSystemWatcher> _folderWatchers = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, PathWatcher> _watchers = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, PathWatcher> _folderWatchers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Timer> _debounce = new(StringComparer.Ordinal);
     private IReadOnlyList<FoundExtension> _found = [];
     private IReadOnlyList<ExtensionPath> _settingsPaths = [];
@@ -791,17 +792,7 @@ public sealed class ExtensionHost : IDisposable
                 return;
             }
 
-            var watcher = new FileSystemWatcher(found.Directory)
-            {
-                IncludeSubdirectories = true,
-                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size,
-            };
-
-            watcher.Changed += (_, e) => OnDevChange(found.Id, e.FullPath);
-            watcher.Created += (_, e) => OnDevChange(found.Id, e.FullPath);
-            watcher.Renamed += (_, e) => OnDevChange(found.Id, e.FullPath);
-            watcher.EnableRaisingEvents = true;
-            _watchers[found.Id] = watcher;
+            _watchers[found.Id] = PathWatcher.Watch(found.Directory, recursive: true, path => OnDevChange(found.Id, path));
         }
     }
 
@@ -822,21 +813,7 @@ public sealed class ExtensionHost : IDisposable
 
             foreach (var folder in folders.Where(f => !_folderWatchers.ContainsKey(f) && Directory.Exists(f)))
             {
-                var watcher = new FileSystemWatcher(folder)
-                {
-                    IncludeSubdirectories = true,
-                    NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName,
-                };
-
-                watcher.Created += (_, e) => OnFolderChange(folder, e.FullPath);
-                watcher.Deleted += (_, e) => OnFolderChange(folder, e.FullPath);
-                watcher.Renamed += (_, e) =>
-                {
-                    OnFolderChange(folder, e.OldFullPath);
-                    OnFolderChange(folder, e.FullPath);
-                };
-                watcher.EnableRaisingEvents = true;
-                _folderWatchers[folder] = watcher;
+                _folderWatchers[folder] = PathWatcher.Watch(folder, recursive: true, path => OnFolderChange(folder, path));
             }
         }
     }

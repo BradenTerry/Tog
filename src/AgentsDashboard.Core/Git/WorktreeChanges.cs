@@ -1,3 +1,5 @@
+using AgentsDashboard.Core.Platform;
+
 namespace AgentsDashboard.Core.Git;
 
 /// <summary>
@@ -36,7 +38,7 @@ public sealed class WorktreeChanges : IDisposable
 
     private readonly string _root;
     private readonly Action<IReadOnlySet<string>> _changed;
-    private readonly List<FileSystemWatcher> _watchers = [];
+    private readonly List<PathWatcher> _watchers = [];
     private readonly HashSet<string> _pending = new(StringComparer.Ordinal);
     private readonly Lock _gate = new();
     private readonly Timer _timer;
@@ -115,40 +117,14 @@ public sealed class WorktreeChanges : IDisposable
     {
         try
         {
-            var watcher = new FileSystemWatcher(path)
-            {
-                IncludeSubdirectories = recursive,
-                NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite | NotifyFilters.Size,
-                // Past this the watcher reports an overflow rather than dropping
-                // events quietly, and an overflow is handled as "everything".
-                InternalBufferSize = 64 * 1024,
-            };
-
-            watcher.Changed += OnEvent;
-            watcher.Created += OnEvent;
-            watcher.Deleted += OnEvent;
-            watcher.Renamed += OnRenamed;
-            watcher.Error += OnError;
-            watcher.EnableRaisingEvents = true;
-            _watchers.Add(watcher);
+            // A lost event is handled as "everything".
+            _watchers.Add(PathWatcher.Watch(path, recursive, Note, () => Mark(".git")));
         }
-        catch (Exception e) when (e is ArgumentException or IOException or PlatformNotSupportedException)
+        catch (IOException)
         {
-            // A worktree that was removed, or a platform with no watcher. The
-            // refresh button still works.
+            // A worktree that was removed. The refresh button still works.
         }
     }
-
-    private void OnEvent(object sender, FileSystemEventArgs e) => Note(e.FullPath);
-
-    private void OnRenamed(object sender, RenamedEventArgs e)
-    {
-        Note(e.OldFullPath);
-        Note(e.FullPath);
-    }
-
-    /// <summary>The watcher lost track, so anything may have changed: reported as the git directory, which refreshes everything.</summary>
-    private void OnError(object sender, ErrorEventArgs e) => Mark(".git");
 
     private void Note(string fullPath)
     {
@@ -201,7 +177,6 @@ public sealed class WorktreeChanges : IDisposable
 
         foreach (var watcher in _watchers)
         {
-            watcher.EnableRaisingEvents = false;
             watcher.Dispose();
         }
 

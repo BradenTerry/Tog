@@ -45,7 +45,7 @@ public sealed class OpenRequests : IDisposable
     private readonly List<Action<OpenRequest>> _listeners = [];
     private readonly List<OpenRequest> _held = [];
     private readonly HashSet<string> _taking = new(StringComparer.Ordinal);
-    private FileSystemWatcher? _watcher;
+    private PathWatcher? _watcher;
 
     public OpenRequests(AppPaths paths, IClock clock)
     {
@@ -57,10 +57,13 @@ public sealed class OpenRequests : IDisposable
     public void Start()
     {
         Directory.CreateDirectory(_dir);
-        _watcher = new FileSystemWatcher(_dir, "*.json") { NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite };
-        _watcher.Created += (_, e) => _ = TakeAsync(e.FullPath);
-        _watcher.Renamed += (_, e) => _ = TakeAsync(e.FullPath);
-        _watcher.EnableRaisingEvents = true;
+        _watcher = PathWatcher.Watch(_dir, recursive: false, path =>
+        {
+            if (path.EndsWith(".json", StringComparison.Ordinal) && File.Exists(path))
+            {
+                _ = TakeAsync(path);
+            }
+        });
 
         foreach (var file in Directory.EnumerateFiles(_dir, "*.json"))
         {
