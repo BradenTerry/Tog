@@ -134,10 +134,32 @@ public sealed class Workbench : IDisposable
                 SaveLastView();
             }
 
-            return agent.WorktreePath;
+            if (agent.WorktreePath is not null)
+            {
+                _created.Remove(agent.SessionId);
+                return agent.WorktreePath;
+            }
+
+            return _created.GetValueOrDefault(agent.SessionId);
         }
 
         return _lastWorktree is { } last ? Resolve(snapshot, last) : null;
+    }
+
+    /// <summary>
+    /// Worktrees made for an agent as it started, by session, until the snapshot
+    /// lists them. The monitor only sees a new worktree on its next pass, and
+    /// until then the agent looks like one outside git, whose editor holds the
+    /// tabs opened with no worktree in view (Settings, Worktrees). Those showed
+    /// up over a new agent for a second, so its worktree is taken on trust.
+    /// </summary>
+    private readonly Dictionary<string, string> _created = new(StringComparer.Ordinal);
+
+    /// <summary>Shows <paramref name="worktreePath"/> for an agent just started in it, before the monitor has listed it.</summary>
+    public void StartedIn(string sessionId, string worktreePath)
+    {
+        _created[sessionId] = worktreePath;
+        Raise();
     }
 
     /// <summary>A worktree in the snapshot, with its repository.</summary>
