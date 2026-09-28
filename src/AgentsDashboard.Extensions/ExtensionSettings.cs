@@ -3,7 +3,7 @@ namespace AgentsDashboard.Extensions;
 /// <summary>
 /// A setting the user changes under the extension in Settings, Extensions.
 /// Declared with <see cref="IExtensionBuilder.AddSetting"/> and read with
-/// <see cref="IExtensionSettings"/>. Since API 1.8.
+/// <see cref="IExtensionSettings"/>. Since API 1.9.
 /// </summary>
 /// <remarks>
 /// Values are strings, kept in the app's settings file under the extension's
@@ -51,7 +51,7 @@ public sealed record ExtensionSetting(
 public sealed record SettingChoice(string Value, string Label, string? Description = null);
 
 /// <summary>
-/// The current values of the extension's own settings. Since API 1.8. A
+/// The current values of the extension's own settings. Since API 1.9. A
 /// singleton in the extension's container, so a service can hold it.
 /// </summary>
 /// <remarks>Answers from memory, so it is safe to call on every render.</remarks>

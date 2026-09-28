@@ -245,6 +245,27 @@ public class AgentHostTests
     }
 
     [Fact]
+    public async Task When_the_last_turn_ended_is_kept_across_a_restart()
+    {
+        var dir = new TempDir();
+        using var _ = dir;
+        var store = new HostedAgentStore(new AppPaths(dir.Path));
+
+        DateTimeOffset ended;
+        await using (var first = new AgentHost(Backend, new FakeAcpAgent(), store))
+        {
+            var id = (await first.StartAsync(new AgentStart("/repo"), Ct)).SessionId!;
+            Assert.Null(first.Find(id)!.TurnEndedAt);
+
+            await first.SendAsync(id, "go", Ct);
+            ended = (await Until(first, id, a => a.TurnEndedAt is not null)).TurnEndedAt!.Value;
+        }
+
+        await using var second = new AgentHost(Backend, new FakeAcpAgent(), store);
+        Assert.Equal(ended, Assert.Single(second.Agents).TurnEndedAt);
+    }
+
+    [Fact]
     public async Task Agents_come_back_as_stopped_after_a_restart()
     {
         var dir = new TempDir();

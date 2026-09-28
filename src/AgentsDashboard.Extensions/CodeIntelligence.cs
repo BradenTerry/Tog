@@ -53,7 +53,7 @@ public interface ICodeIntelligence
     /// load it, rather than wait for Load. False unless the provider says
     /// otherwise, which it should only do when the user asked for it in one of
     /// its settings. Answer from memory: it is asked on the window's thread.
-    /// Since API 1.8.
+    /// Since API 1.9.
     /// </summary>
     bool LoadsOnOpen(string worktreePath) => false;
 

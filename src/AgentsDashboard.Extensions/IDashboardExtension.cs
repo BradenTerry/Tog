@@ -95,7 +95,7 @@ public interface IExtensionBuilder
 
     /// <summary>
     /// Adds a setting the user changes under this extension in Settings,
-    /// Extensions. Read it through <see cref="IExtensionSettings"/>. Since API 1.8.
+    /// Extensions. Read it through <see cref="IExtensionSettings"/>. Since API 1.9.
     /// </summary>
     void AddSetting(ExtensionSetting setting);
 }

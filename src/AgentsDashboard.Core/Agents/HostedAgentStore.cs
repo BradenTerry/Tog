@@ -7,6 +7,7 @@ namespace AgentsDashboard.Core.Agents;
 /// <param name="Prompt">Its first prompt, shown in place of a title until the agent names it.</param>
 /// <param name="Context">How full its context window was last reported, so a stopped agent still shows it.</param>
 /// <param name="Commands">The slash commands it last listed, so a stopped agent still offers them after a restart.</param>
+/// <param name="TurnEndedAt">When its last turn ended, so one finished while you were away is still unread after a restart.</param>
 public sealed record HostedAgentRecord(
     string SessionId,
     string Cwd,
@@ -14,7 +15,8 @@ public sealed record HostedAgentRecord(
     DateTimeOffset AddedAt,
     string? Prompt = null,
     ContextUsage? Context = null,
-    IReadOnlyList<AcpCommand>? Commands = null);
+    IReadOnlyList<AcpCommand>? Commands = null,
+    DateTimeOffset? TurnEndedAt = null);
 
 /// <summary>
 /// The agents in the agent list, kept across restarts.

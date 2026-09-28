@@ -18,10 +18,12 @@ namespace AgentsDashboard.App.Services;
 /// title bar folds the panels away. Documents are kept per worktree, so switching
 /// agents swaps the editor's tabs and switching back finds them as they were.
 /// Memory only, like <see cref="WorktreeViews"/>: where you were looking, not a
-/// preference. Two exceptions: the panels' layout, kept in
-/// <see cref="PanelLayoutStore"/> because it is how you like the window, and the
+/// preference. Three exceptions: the panels' layout, kept in
+/// <see cref="PanelLayoutStore"/> because it is how you like the window, the
 /// agent and worktree in view, kept in <see cref="LastViewStore"/> so the app
-/// reopens on them.
+/// reopens on them, and which finished turns you have read, kept in
+/// <see cref="SeenTurnsStore"/> so an agent that finished while the app was
+/// shut, or while you were elsewhere, is still marked when you come back.
 /// </remarks>
 public sealed class Workbench : IDisposable
 {
@@ -29,13 +31,15 @@ public sealed class Workbench : IDisposable
     private readonly AgentDirectory _directory;
     private readonly LastViewStore _lastViewStore;
     private readonly PanelLayoutStore _layoutStore;
+    private readonly SeenTurnsStore _seenTurns;
     private LastView? _lastView;
 
     /// <summary>The agent open when the app was last used, until a page has had the chance to reopen it.</summary>
     private string? _reopen;
 
-    public Workbench(IServiceProvider services, AgentDirectory directory, LastViewStore lastViewStore, PanelLayoutStore layoutStore)
+    public Workbench(IServiceProvider services, AgentDirectory directory, LastViewStore lastViewStore, PanelLayoutStore layoutStore, SeenTurnsStore seenTurns)
     {
+        _seenTurns = seenTurns;
         _services = services;
         _directory = directory;
         _lastViewStore = lastViewStore;
@@ -447,6 +451,28 @@ public sealed class Workbench : IDisposable
 
         SessionId = sessionId;
         Raise();
+    }
+
+    /// <summary>
+    /// Whether an agent finished a turn you have not had on screen since: done,
+    /// and waiting for a look rather than an answer. Only once it has stopped
+    /// working, since a working agent's dot already says more.
+    /// </summary>
+    public bool IsUnread(ChatTarget target) =>
+        target.State is ChatState.Idle or ChatState.Parked or ChatState.Failed
+        && _seenTurns.IsUnread(target.SessionId, target.TurnEndedAt);
+
+    /// <summary>
+    /// The chat panel is showing this agent's conversation, so its last turn has
+    /// been read. Called on every render in view; only a newly seen turn redraws.
+    /// </summary>
+    public void MarkSeen(ChatTarget target)
+    {
+        if (target.TurnEndedAt is { } ended
+            && _seenTurns.MarkSeen(target.SessionId, ended, _directory.Host.Agents.Select(a => a.SessionId)))
+        {
+            Raise();
+        }
     }
 
     public void Toggle(PanelSide side)

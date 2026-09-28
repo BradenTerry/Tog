@@ -94,6 +94,23 @@ takes its folder from a header and has no agent id. Nothing may write to stdout
 in the `mcp` path of `Program.cs`, it is the MCP channel. See
 `docs/extensions.md`.
 
+**Pages need this start's key.** `UiAccess` refuses every request but
+`/_mcp` without a cookie it sets when the address carries `?ui-key=`, which
+only the window and the `--browser` printout have. The port is in
+`mcp-link.json`, so without it an agent could drive this window's app in a
+headless browser and approve its own requests. It does not stop an agent
+starting a second copy of the app and driving that; see `docs/extensions.md`.
+A script or test that loads a page has to start from the printed address.
+`DesktopWindow` sets Photino's log verbosity to 0, since at its default it
+prints `Load(url)`, key included, to stdout.
+
+**Secrets never reach an agent.** Extensions ask `ISecrets` (API 1.8) by name;
+values live in the OS store (`ISecretVault`), names and grants in
+`secrets.json`, never `settings.json`. No agent tool serves them, no session's
+environment carries them, and `SecretBroker.ForAgent` wraps every MCP
+request, so the broker and the OS store itself throw on any secret read or
+write made while answering one. See `docs/extensions.md`.
+
 **Grid columns in the diff need `minmax(0, 1fr)`.** A bare `1fr` has an `auto`
 minimum, so one long line pushes the column past its share and scrolls the whole
 page sideways. `.main` also pins `overflow-x: hidden`.

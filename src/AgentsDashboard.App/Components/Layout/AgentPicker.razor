@@ -14,7 +14,9 @@
    to show a list you look at only when switching. Delete on an agent in the
    list asks to remove its worktree, through the same dialog as Remove. Left
    and Right step through the status filters above the list, so with a dozen
-   agents the waiting or stopped ones are one key away. *@
+   agents the waiting or stopped ones are one key away. An agent that finished
+   a turn you have not had on screen carries a blue dot, like an unread message:
+   waiting agents need an answer, these need a look. *@
 
 @{
     var targets = Targets;
@@ -72,10 +74,11 @@
             {
                 var current = target.SessionId == Bench.SessionId && IsAtAgent;
                 var open = target.WorktreePath is { } home && home == inView;
-                <button type="button" class="context-item agent-menu-item @(current ? "current" : "")" role="menuitemradio"
+                var unread = Bench.IsUnread(target);
+                <button type="button" class="context-item agent-menu-item @(current ? "current" : "") @(unread ? "unread" : "")" role="menuitemradio"
                         aria-checked="@(current ? "true" : "false")" @onclick="() => GoTo(target)"
                         @onkeydown="e => OnItemKey(e, target)"
-                        title="@($"{target.Label} ({target.Where}, {AgentDirectory.StateWord(target)})")">
+                        title="@($"{target.Label} ({target.Where}, {AgentDirectory.StateWord(target)}{(unread ? ", finished and not read yet" : "")})")">
                     <span class="dot @AgentDirectory.DotClass(target.State)" aria-hidden="true"></span>
                     <span class="chat-item-body">
                         <span class="chat-item-top">
@@ -88,6 +91,10 @@
                                     ? Fmt.At(target.Since, Snapshot.Value.TakenAt)
                                     : Fmt.Duration(Snapshot.Value.TakenAt - target.Since))
                             </span>
+                            @if (unread)
+                            {
+                                <span class="unread-dot" role="img" aria-label="Unread"></span>
+                            }
                         </span>
                         @* Marks the agents whose files are the ones open, which with a
                            worktree picked in the title bar need not be the agent picked. *@

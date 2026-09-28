@@ -109,7 +109,7 @@ stateDiagram-v2
 - **Unless the user says otherwise.** The extension's one setting, "Load a
   worktree's solution" in Settings, Extensions, is "When I press Load" by
   default and can be "When a C# file opens". The provider says which through
-  `ICodeIntelligence.LoadsOnOpen` (API 1.8, false unless implemented), and
+  `ICodeIntelligence.LoadsOnOpen` (API 1.9, false unless implemented), and
   `FileDocument` asks it when the file opens and when a provider arrives, and
   starts the load itself if the worktree is not loaded. A query still never
   loads. A worktree the user unloaded answers false until Load is pressed

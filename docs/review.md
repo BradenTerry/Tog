@@ -30,6 +30,14 @@ sequenceDiagram
 | **Whole branch** | The merge base with the repository's default branch, so it reads like the pull request this would become. Working-tree changes are included, because an agent's work is usually a mix of committed and not. |
 | **Against a ref** | Any ref you name. |
 
+Beside the base picker, Source control shows where the branch stands against
+its upstream: an up arrow with the commits not pushed yet and a down arrow with
+the commits on the remote not pulled yet. Both come from the `git status` the
+monitor already reads, so the pull count is only as fresh as the last fetch.
+Pressing it runs `git fetch --prune` for that worktree, which moves the
+remote-tracking refs and nothing else, and asks the monitor to re-read status on
+its next pass. A branch with no upstream shows nothing.
+
 Untracked files are folded in as all-additions. Git will not diff them, but a
 file the agent just created is exactly the kind of change worth reviewing, and
 leaving it out would hide the most interesting part of the work.

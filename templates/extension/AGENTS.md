@@ -73,8 +73,18 @@ It never starts the agent: the user presses Start. Call it from a click.
 `OfferAsync` (API 1.7) also returns the started session id, or null if none
 was started.
 
+`ISecrets` (API 1.8) is only in your own container: a service's constructor
+or `Context.Get<ISecrets>()` in a view, never `@inject`. Ask for a secret by
+name (`github`, `jira`, `linear`); the user approves your extension, per
+build, before it gets anything, and the call waits until they answer, so pass
+a cancellation token. Prefer `SendAsync(name, request, SecretAuth.Bearer)`:
+the dashboard sends the https request with the secret added and you never hold
+it. `GetAsync(name)` hands you the value, for a library that wants it. Never
+give a secret to an agent: not in a tool result, a prompt or a file. A secret
+asked for while answering an agent tool call throws.
+
 Settings the user changes under your extension in Settings, Extensions (API
-1.8): declare each in `Configure` with `builder.AddSetting(ExtensionSetting.Toggle(...))`
+1.9): declare each in `Configure` with `builder.AddSetting(ExtensionSetting.Toggle(...))`
 or `ExtensionSetting.Choice(...)`, and read them with `IExtensionSettings`,
 taken in your services' constructors or with `Context.Get<IExtensionSettings>()`
 in a view (not `@inject`: it is the extension's own). Values are strings; its
