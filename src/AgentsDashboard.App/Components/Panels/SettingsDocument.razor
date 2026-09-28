@@ -116,6 +116,17 @@
                                     Options="@ThemeChoices"
                                     ValueChanged="SetTheme" />
                         </div>
+                        <label class="row setting-row">
+                            <div class="stack" style="flex: 1;">
+                                <strong>24-hour clock</strong>
+                                <span class="faint">
+                                    Show times of day as 14:05 rather than 2:05 PM.
+                                </span>
+                            </div>
+                            <input type="checkbox" class="switch" role="switch" checked="@_settings.TwentyFourHourClock"
+                                   @onchange="SetClock"
+                                   aria-label="24-hour clock" />
+                        </label>
                     </div>
                     break;
 
@@ -446,6 +457,12 @@
     /// </summary>
     private static string? Blank(object? value) =>
         value?.ToString() is { Length: > 0 } chosen ? chosen : null;
+
+    private void SetClock(ChangeEventArgs e)
+    {
+        Fmt.TwentyFourHourClock = (bool)e.Value!;
+        Set(_settings with { TwentyFourHourClock = Fmt.TwentyFourHourClock });
+    }
 
     private void Set(Settings next)
     {

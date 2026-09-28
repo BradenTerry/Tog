@@ -138,6 +138,11 @@ builder.Services.AddHostedService<MonitorHost>();
 
 var app = builder.Build();
 
+// The clock is a static on Fmt rather than a service, so it is read once here and
+// the Settings page sets it again when it changes.
+AgentsDashboard.Core.Presentation.Fmt.TwentyFourHourClock =
+    app.Services.GetRequiredService<SettingsStore>().Load().TwentyFourHourClock;
+
 // MapStaticAssets rather than UseStaticFiles: it serves from the build-time
 // asset manifest, so the framework's own files (blazor.web.js above all) are
 // there whether the app is run from bin or from a publish output. UseStaticFiles
