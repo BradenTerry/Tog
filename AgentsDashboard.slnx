@@ -1,7 +1,4 @@
 <Solution>
-  <Folder Name="/extensions/">
-    <Project Path="extensions/DotnetTests/AgentsDashboard.Extensions.DotnetTests.csproj" />
-  </Folder>
   <Folder Name="/src/">
     <Project Path="src/AgentsDashboard.App/AgentsDashboard.App.csproj" />
     <Project Path="src/AgentsDashboard.Core/AgentsDashboard.Core.csproj" />
@@ -9,6 +6,5 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/AgentsDashboard.Core.Tests/AgentsDashboard.Core.Tests.csproj" />
-    <Project Path="tests/AgentsDashboard.Extensions.DotnetTests.Tests/AgentsDashboard.Extensions.DotnetTests.Tests.csproj" />
   </Folder>
 </Solution>

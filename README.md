@@ -117,10 +117,9 @@ group together. Add or hide one under **Repositories**.
 | `src/AgentsDashboard.Core` | Everything that is not UI: the ACP agent host, the Claude transcript readers, the git layer and its parsers, the monitor loop, extension discovery. No ASP.NET dependency, so all of it is testable without a host. |
 | `src/AgentsDashboard.App` | The Blazor Server UI and the Photino window. `Program.cs` starts the host on a free loopback port, then opens the window at it. |
 | `src/AgentsDashboard.Extensions` | The extension API (1.0), the one assembly an extension compiles against. No reference to Core. |
-| `extensions/DotnetTests` | The Tests tab, as an extension. Not shipped with the app; link it in Settings. |
 | `templates/extension` | `dotnet new agents-dashboard-extension`, with an `AGENTS.md` for writing one. |
 | `templates/skill` | The skill that teaches an agent to write one, shipped in the app and added from Settings. |
-| `tests/*` | xUnit v3 on Microsoft.Testing.Platform, for Core and for both extensions. |
+| `tests/*` | xUnit v3 on Microsoft.Testing.Platform, for Core. |
 
 Blazor Server rather than a hybrid webview because its circuit is the push
 channel this app needs: a file watcher on a background thread publishes a
@@ -157,7 +156,7 @@ dotnet run --project src/AgentsDashboard.App              # native window
 dotnet run --project src/AgentsDashboard.App -- --browser # print a URL, with this start's key, instead
 dotnet run --project src/AgentsDashboard.App -- --port 5000
 dotnet run --project src/AgentsDashboard.App -- --data-dir /tmp/dash # settings kept elsewhere
-dotnet run --project src/AgentsDashboard.App -- --extension "$PWD/extensions/DotnetTests"
+dotnet run --project src/AgentsDashboard.App -- --extension ../my-extension
 dotnet run --project src/AgentsDashboard.App -- --no-extensions
 ```
 
@@ -180,13 +179,7 @@ dotnet test
 
 The git layer is tested against the real `git` in throwaway repositories, because
 it is a parser over git's own output and a faked process would only prove the
-parser agrees with the fake. The Tests extension's TRX reader is tested against
-reports that are half-written, since that is the state it spends most of a run
-reading.
+parser agrees with the fake.
 
 CI (`.github/workflows/ci.yml`) builds and runs the tests on Windows, macOS and
 Linux for every pull request and every push to `main`.
-
-To watch the Tests extension follow its own suite: start the dashboard with
-`--extension` pointing at `extensions/DotnetTests`, open **Tests** for this
-repository, and run `dotnet test` in another terminal.

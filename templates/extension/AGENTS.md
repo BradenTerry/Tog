@@ -111,5 +111,5 @@ dark: `card`, `card-head`, `card-body`, `row`, `stack`, `inline`, `spacer`,
 `--surface`, `--surface-2`, `--border`, `--accent`, `--active`, `--danger`,
 `--waiting`. Your own styles go in `assets/extension.css`.
 
-The dashboard's own Tests tab is an extension built this way:
-`extensions/DotnetTests` in the dashboard repository.
+The test explorer and C# code intelligence in
+`agents-dashboard-extensions` are extensions built this way.

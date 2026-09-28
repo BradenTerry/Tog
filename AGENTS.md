@@ -9,7 +9,6 @@ reviewing their diffs. Anything else is an extension.
 - `src/AgentsDashboard.App` - Blazor Server UI, the Photino window, the
   extension host.
 - `src/AgentsDashboard.Extensions` - the extension API. Versioned: 1.x only adds.
-- `extensions/DotnetTests` - the Tests tab, an extension, not shipped.
 - `templates/extension` - the `dotnet new` template extensions start from.
 - `tests/*` - xUnit v3 on Microsoft.Testing.Platform.
 
@@ -23,8 +22,6 @@ twice:
 
 - `docs/extensions.md` - loading, the shared assemblies, reload, consent,
   the skill and the MCP tools that let an agent write one
-- `docs/test-monitoring.md` - the Tests extension: streaming TRX, the process
-  signal, the two clocks, the telemetry installer
 - `docs/review.md` - Source control and diffs: always uncommitted, which sides
   each diff tab compares, the model URI query, restoring a blob's trailing
   newlines, push and pull counts
@@ -57,8 +54,7 @@ assets in the Development environment, and without them `_framework/blazor.web.j
 
 **`dotnet test` and `--nologo`.** In Microsoft.Testing.Platform mode `dotnet test`
 forwards `--nologo` to the test application, which rejects it and reports zero
-tests with exit code 5. Never pass it. `TestRunner` in the Tests extension has a
-comment saying so.
+tests with exit code 5. Never pass it.
 
 **xunit.v3 needs `UseMicrosoftTestingPlatformRunner`.** Without it the generated
 entry point is the console runner, the TRX extension is never registered, and
@@ -156,7 +152,7 @@ open diff tabs share. A folded panel keeps its grid column at zero width
 rather than leaving the grid, or every column after it shifts.
 
 **The app stays minimal; features that are not about agents are extensions.**
-Tests moved out for that reason. A new tab for one language or tool belongs in an
+Extensions live outside this repository. Tests moved out for that reason. A new tab for one language or tool belongs in an
 extension, and if the API cannot express it, the API grows (a minor version).
 
 **Extension types must come from the app's copy.** `ExtensionLoadContext` sends

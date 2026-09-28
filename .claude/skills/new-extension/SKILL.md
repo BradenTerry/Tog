@@ -23,13 +23,10 @@ From the request, settle:
   language (`AddCodeIntelligence`, see `docs/code-intelligence.md`).
 - **Which panel** the view is a tab in: `RightPanel` (default, beside Source
   control), `LeftPanel` (beside Files), `BottomPanel` (beside Chat).
-- **Where the project lives**:
-  - Outside this repository (the default, and what a user's own extension is):
-    a folder the user names, or a sibling of the repository. It compiles
-    against the SDK the app copies to `~/.agents-dashboard/sdk/<major>.<minor>/`.
-  - Inside it, under `extensions/<Name>/`, only if the user wants it to live
-    with the dashboard like `DotnetTests`. It then references
-    the API project directly (see step 3).
+- **Where the project lives**: outside this repository, never in it. A folder
+  the user names, or their extension folder
+  (`agents-dashboard-extensions`). It compiles against the SDK the app copies
+  to `~/.agents-dashboard/sdk/<major>.<minor>/`.
 
 Ask only if the request leaves the contribution or the location genuinely
 unclear. Do not ask about the name; pick one.
@@ -62,18 +59,6 @@ once if the folder is missing).
   `AgentsDashboardSdk` default at the matching `sdk/<major>.<minor>` folder.
   Compiling against `sdk/1.0` fails on those members.
 - Never set `apiVersion` newer than the app's: it will not load.
-
-For an extension inside this repository, replace the SDK `<Reference>` with the
-same reference `extensions/DotnetTests` uses, and drop the `AgentsDashboardSdk`
-property:
-
-```
-<ProjectReference Include="..\..\src\AgentsDashboard.Extensions\AgentsDashboard.Extensions.csproj"
-                  Private="false" ExcludeAssets="runtime" />
-```
-
-Then add the project to `AgentsDashboard.slnx` under `/extensions/`, and add
-`"author": "Agents Dashboard"` to the manifest like the other two.
 
 ## 4. Write it
 
@@ -128,9 +113,8 @@ If the user wants to see it running, use the `run` skill with `--extension`.
 
 ## 6. Tests, if it has logic
 
-For an in-repository extension with logic beyond drawing, add
-`tests/AgentsDashboard.Extensions.<Name>.Tests` the way the DotnetTests tests
-are set up (xUnit v3 on Microsoft.Testing.Platform, with
+For an extension with logic beyond drawing, add a `<Name>.Tests` project
+beside it (xUnit v3 on Microsoft.Testing.Platform, with
 `UseMicrosoftTestingPlatformRunner`), and `InternalsVisibleTo` in the
 extension's csproj. Run with `dotnet test`, never with `--nologo`.
 

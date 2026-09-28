@@ -5,8 +5,9 @@ described in [../extensions.md](../extensions.md); this is the rationale.
 
 Where the implementation differs from this design:
 
-- Tests is **not bundled**. It lives in `extensions/DotnetTests` and is linked
-  like anyone else's, so the published app carries no test code.
+- Tests is **not bundled**. It lives outside this repository (now the test
+  explorer in `agents-dashboard-extensions`) and is linked like anyone else's,
+  so the published app carries no test code.
 - `AddAgentTab` became `AddView(id, title, defaultLocation, ...)` with a
   `ViewLocation` enum, so side and bottom panels can be added without breaking
   extensions. The location is a default; placement is meant to be the user's.

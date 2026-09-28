@@ -3,10 +3,10 @@
 The app keeps to what is about agents: the conversation, the diff, the files.
 Anything else, such as following a language's test runs, is an extension: a
 small Razor project, built on its own, that the running app loads and adds a tab
-for. The Tests tab is one, in `extensions/DotnetTests`, and C# navigation in
-the editor is another, kept outside this repository in the user's extension
-folder (`agents-dashboard-extensions/CSharpCode`). Neither is shipped with the
-app.
+for. The test explorer and C# navigation in the editor are two, kept outside
+this repository in the user's extension folder
+(`agents-dashboard-extensions/DotnetTestExplorer` and `CSharpCode`). None is
+shipped with the app.
 
 The design and its rationale are in [design/extensions.md](design/extensions.md).
 This file is what exists and what is easy to get wrong.
@@ -70,20 +70,17 @@ flowchart TD
   prompt says so: accepting trusts what the agent writes there next, too.
   Requests live in memory and go with the app.
 
-The repository's own `.claude/skills/new-extension` covers extensions that
-live in this repository (`extensions/`), which the shipped skill does not.
-
 ## What an extension is
 
 A folder with an `extension.json`:
 
 ```json
 {
-  "id": "dotnet-tests",
-  "name": "Tests (.NET)",
-  "version": "1.0.0",
+  "id": "dotnet-test-explorer",
+  "name": "Test explorer (.NET)",
+  "version": "0.1.0",
   "apiVersion": "1.4",
-  "entry": "AgentsDashboard.Extensions.DotnetTests.dll",
+  "entry": "DotnetTestExplorer.dll",
   "output": "bin/dashboard"
 }
 ```
@@ -194,7 +191,7 @@ The C# extension uses one to choose when a worktree's solution is loaded; see
 An `AddView` view is about an agent: it is only listed while an agent is
 picked, and gets that agent's `AgentContext`. A worktree outlasts its agents
 and can be opened from the title bar with none picked, so a view about what is
-on disk (the Tests tab) is added with `AddWorktreeView` (API 1.4) instead and
+on disk (a test explorer) is added with `AddWorktreeView` (API 1.4) instead and
 written against `WorktreeViewBase`. It is listed whenever a worktree is in
 view, gets that `WorktreeContext`, and follows a worktree picked in the title
 bar rather than the agent's. Its `Agent` is the agent on screen only when that
