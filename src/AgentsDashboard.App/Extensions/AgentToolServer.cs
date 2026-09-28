@@ -26,13 +26,14 @@ namespace AgentsDashboard.App.Extensions;
 /// </para>
 /// <para>
 /// A tool can start processes in a worktree, so who may call matters. Every
-/// request needs a key made fresh each time the app starts, sent as a bearer
-/// token. The key is never in the server's address or headers as handed to the
-/// agent: the SDK puts those on the Claude CLI's command line, which any process
-/// on the machine can list. The header names an environment variable instead,
-/// <c>${AGENTS_DASHBOARD_MCP_KEY}</c>, which the CLI expands, and the value is
-/// set only in the agent process's environment (<see cref="Environment"/>), which
-/// only the same user can read. On top of that, only loopback callers are
+/// request needs a bearer key, and every session has its own, minted when it
+/// starts or resumes and revoked when it stops. The key is never in the server's
+/// address or headers as handed to the agent: the SDK puts those on the Claude
+/// CLI's command line, which any process on the machine can list. The header
+/// names an environment variable instead, <c>${AGENTS_DASHBOARD_MCP_KEY}</c>,
+/// which the CLI expands, and the value is set only in that session's CLI
+/// process (<see cref="McpGrant.Environment"/>), which only the same user can
+/// read. On top of that, only loopback callers are
 /// answered, and a request with an Origin header or a body that is not JSON is
 /// refused before it is read: that is what a web page's request looks like, and
 /// the CLI never sends one. The app binds to loopback whatever its options, so a
@@ -40,8 +41,12 @@ namespace AgentsDashboard.App.Extensions;
 /// the key is the only guard.
 /// </para>
 /// <para>
-/// The folder the agent works in rides in the address: ACP gives an MCP server
-/// nothing else to tell one session's calls from another's.
+/// The key is also who is calling. ACP gives an MCP server nothing to tell one
+/// session's calls from another's, and anything in the address could be edited
+/// by the caller, so the folder and the session a tool sees are the ones the key
+/// was minted for. A process the agent runs inherits the key and can call as
+/// that agent, which is no more than the agent could do itself, but not as any
+/// other.
 /// </para>
 /// </remarks>
 public sealed class AgentToolServer(
@@ -65,34 +70,56 @@ public sealed class AgentToolServer(
 
     private static readonly string[] Versions = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
-    private readonly string _key = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+    /// <summary>
+    /// The live keys, by their SHA-256 rather than themselves, so finding one
+    /// takes the same time however much of a guess is right.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, Caller> _callers = new(StringComparer.Ordinal);
+
+    /// <summary>Who a key was minted for. The session is null between <c>session/new</c> being sent and answered.</summary>
+    private sealed record Caller(string Cwd, string? SessionId);
 
     private readonly IReadOnlyList<IAgentTool> _builtIn = [.. builtIn];
 
     /// <summary>Clashes already logged: the list is read on every request.</summary>
     private readonly ConcurrentDictionary<(string, string), bool> _clashes = new();
 
-    public IReadOnlyList<McpServer> For(string cwd) =>
-        [new McpServer(
-            Name,
-            $"http://127.0.0.1:{endpoint.Port}/_mcp?cwd={Uri.EscapeDataString(cwd)}",
-            [new("Authorization", $"Bearer ${{{KeyVariable}}}")])];
+    private string Url => $"http://127.0.0.1:{endpoint.Port}/_mcp";
 
-    public IReadOnlyDictionary<string, string> Environment => new Dictionary<string, string> { [KeyVariable] = _key };
+    public McpGrant Grant(string cwd, string? sessionId)
+    {
+        var key = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+        _callers[Hash(key)] = new Caller(cwd, sessionId);
+
+        // Only with --verbose, which is for debugging: enough to call a tool by hand.
+        log.LogInformation("Agent tools for {Cwd} are served at {Url} with the header Authorization: Bearer {Key}", cwd, Url, key);
+
+        return new McpGrant(
+            key,
+            [new McpServer(Name, Url, [new("Authorization", $"Bearer ${{{KeyVariable}}}")])],
+            new Dictionary<string, string> { [KeyVariable] = key });
+    }
+
+    public void Bind(string key, string sessionId)
+    {
+        var hash = Hash(key);
+        if (_callers.TryGetValue(hash, out var caller))
+        {
+            _callers.TryUpdate(hash, caller with { SessionId = sessionId }, caller);
+        }
+    }
+
+    public void Revoke(string key) => _callers.TryRemove(Hash(key), out _);
+
+    private static string Hash(string key) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key)));
 
     public static void Map(WebApplication app)
     {
-        // Only with --verbose, which is for debugging: enough to call a tool by hand.
-        app.Services.GetRequiredService<AgentToolServer>().LogAddress();
-
         app.MapPost("/_mcp", (HttpContext http, AgentToolServer server) => server.HandleAsync(http));
 
         // No event stream is offered; the spec's answer to a GET for one is 405.
         app.MapMethods("/_mcp", ["GET", "DELETE"], () => Results.StatusCode(StatusCodes.Status405MethodNotAllowed));
     }
-
-    private void LogAddress() =>
-        log.LogInformation("Agent tools are served at {Url} with the header Authorization: Bearer {Key}", For("<cwd>")[0].Url, _key);
 
     private async Task<IResult> HandleAsync(HttpContext http)
     {
@@ -105,12 +132,11 @@ public sealed class AgentToolServer(
 
         var auth = http.Request.Headers.Authorization.ToString();
         var given = auth.StartsWith("Bearer ", StringComparison.Ordinal) ? auth["Bearer ".Length..].Trim() : "";
-        if (!CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(given), Encoding.ASCII.GetBytes(_key)))
+        if (given.Length == 0 || !_callers.TryGetValue(Hash(given), out var caller))
         {
             return Results.StatusCode(StatusCodes.Status401Unauthorized);
         }
 
-        var cwd = http.Request.Query["cwd"].FirstOrDefault();
         JsonNode? body;
         try
         {
@@ -131,7 +157,7 @@ public sealed class AgentToolServer(
             var answers = new JsonArray();
             foreach (var message in batch)
             {
-                if (message is JsonObject one && await DispatchAsync(one, cwd, http.RequestAborted) is { } answer)
+                if (message is JsonObject one && await DispatchAsync(one, caller, http.RequestAborted) is { } answer)
                 {
                     answers.Add(answer);
                 }
@@ -145,13 +171,13 @@ public sealed class AgentToolServer(
             return Results.Json(Error(null, -32600, "Expected a JSON-RPC message."));
         }
 
-        return await DispatchAsync(request, cwd, http.RequestAborted) is { } response
+        return await DispatchAsync(request, caller, http.RequestAborted) is { } response
             ? Results.Json(response)
             : Results.Accepted();
     }
 
     /// <summary>The answer to one message, or null for a notification, which gets none.</summary>
-    private async Task<JsonObject?> DispatchAsync(JsonObject request, string? cwd, CancellationToken ct)
+    private async Task<JsonObject?> DispatchAsync(JsonObject request, Caller caller, CancellationToken ct)
     {
         var id = request["id"]?.DeepClone();
         var method = Str(request["method"]);
@@ -166,7 +192,7 @@ public sealed class AgentToolServer(
             "initialize" => Result(id, Initialize(parameters)),
             "ping" => Result(id, new JsonObject()),
             "tools/list" => Result(id, new JsonObject { ["tools"] = ListTools() }),
-            "tools/call" => await CallAsync(id, parameters, cwd, ct),
+            "tools/call" => await CallAsync(id, parameters, caller, ct),
             _ => Error(id, -32601, $"{method} is not offered."),
         };
     }
@@ -205,7 +231,7 @@ public sealed class AgentToolServer(
         return list;
     }
 
-    private async Task<JsonObject> CallAsync(JsonNode id, JsonObject? parameters, string? cwd, CancellationToken ct)
+    private async Task<JsonObject> CallAsync(JsonNode id, JsonObject? parameters, Caller caller, CancellationToken ct)
     {
         var name = Str(parameters?["name"]);
         if (name is null || !Tools().TryGetValue(name, out var found))
@@ -217,7 +243,8 @@ public sealed class AgentToolServer(
         AgentToolResult result;
         try
         {
-            result = await found.Tool.CallAsync(new AgentToolCall(arguments.RootElement.Clone(), cwd), ct);
+            var call = new AgentToolCall(arguments.RootElement.Clone(), caller.Cwd) { AgentId = caller.SessionId };
+            result = await found.Tool.CallAsync(call, ct);
         }
         catch (Exception e) when (e is not OperationCanceledException || !ct.IsCancellationRequested)
         {

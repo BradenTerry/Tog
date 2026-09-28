@@ -44,7 +44,7 @@ public interface IAgentLauncher
 }
 
 /// <inheritdoc />
-public sealed class ProcessAgentLauncher(IAgentMcpServers? mcpServers = null) : IAgentLauncher
+public sealed class ProcessAgentLauncher : IAgentLauncher
 {
     public IAgentProcess Launch(AgentBackend backend)
     {
@@ -67,11 +67,6 @@ public sealed class ProcessAgentLauncher(IAgentMcpServers? mcpServers = null) : 
         foreach (var argument in backend.Arguments)
         {
             psi.ArgumentList.Add(argument);
-        }
-
-        foreach (var (name, value) in mcpServers?.Environment ?? new Dictionary<string, string>())
-        {
-            psi.Environment[name] = value;
         }
 
         var process = new Process { StartInfo = psi };

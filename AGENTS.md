@@ -85,7 +85,10 @@ capabilities without reading what the agent will then route through us.
 `agents-dashboard`, which serves the tools extensions add with `AddAgentTool`
 (API 1.2). The key is never in the server entry, which ends up on the CLI's
 command line: a header names `${AGENTS_DASHBOARD_MCP_KEY}` and the value is only
-in the agent process's environment. See `docs/extensions.md`.
+in that session's CLI environment, sent in `session/new`'s `_meta`. Each session
+has its own key, and the key alone says which agent and worktree a call is
+from; never trust anything the caller puts in the request for that. See
+`docs/extensions.md`.
 
 **Grid columns in the diff need `minmax(0, 1fr)`.** A bare `1fr` has an `auto`
 minimum, so one long line pushes the column past its share and scrolls the whole

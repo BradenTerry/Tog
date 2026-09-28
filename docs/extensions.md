@@ -171,14 +171,14 @@ in `session/new` and `session/resume`, so a tool shows up in the agent as
 ```mermaid
 sequenceDiagram
     participant A as Agent (claude-agent-acp)
-    participant S as AgentToolServer (/_mcp/key)
+    participant S as AgentToolServer (/_mcp)
     participant H as ExtensionHost
     participant T as Extension's IAgentTool
     A->>S: tools/list
     S->>H: AgentTools()
     H-->>S: every loaded extension's tools
     A->>S: tools/call tests_run {filter}
-    S->>T: CallAsync(arguments, cwd)
+    S->>T: CallAsync(arguments, cwd, agent id from the key)
     T-->>S: text, or an error
     S-->>A: result
 ```
@@ -189,19 +189,29 @@ sequenceDiagram
   request, so a rebuilt extension's tools are live at once, but an agent that
   already listed them sees a new tool only after its next resume: with no
   stream there is no way to say the list changed.
-- **Who can call.** Every request needs a bearer key made each time the app
-  starts. The server entry handed to the agent carries no key: the SDK puts
-  it on the Claude CLI's command line, which any process can list. Its
-  `Authorization` header names `${AGENTS_DASHBOARD_MCP_KEY}` instead, which
-  the CLI expands, and the value is only in the agent process's environment,
-  readable by the same user alone. Only loopback callers are answered, and a
+- **Who can call.** Every request needs a bearer key, and every session has
+  its own: minted when it starts or resumes, revoked when it stops, is
+  removed, or the bridge exits. The server entry handed to the agent carries
+  no key: the SDK puts it on the Claude CLI's command line, which any process
+  can list. Its `Authorization` header names `${AGENTS_DASHBOARD_MCP_KEY}`
+  instead, which the CLI expands. The bridge runs every session in one
+  process, so the value cannot go in its environment; it goes in the
+  session's `_meta.claudeCode.options.env`, which the bridge hands the SDK and
+  the SDK sets only in that session's CLI process, readable by the same user
+  alone. Only loopback callers are answered, and a
   request with an `Origin` header or a non-JSON body (what a web page sends,
   and the CLI never does) is refused unread. The app binds to loopback
   whatever its options; a tunnel to the port makes every caller loopback, and
   then the key is the only guard.
-- **Which agent.** ACP gives an MCP server nothing to tell sessions apart, so
-  the agent's folder rides in the address and reaches the tool as
-  `AgentToolCall.Cwd`.
+- **Which agent.** ACP gives an MCP server nothing to tell sessions apart, and
+  anything in the address the caller could edit, so the key is the identity.
+  The server keeps each key's folder and session (by the key's SHA-256) and a
+  tool gets them as `AgentToolCall.Cwd` and `AgentToolCall.AgentId` (API
+  1.6). A process the agent runs inherits the key and can call as that agent,
+  no more than the agent could itself, but not as an agent in another
+  worktree. `AgentId` is null for a call that arrives before `session/new`
+  has answered, and the key of a session being created is bound to its id
+  as soon as it has.
 - **The app's own tools** are served beside them, prefixed `dashboard_`
   (`dashboard_open_file`, see `docs/editor.md`). An extension tool with the
   same name as one of the app's is dropped and logged.
