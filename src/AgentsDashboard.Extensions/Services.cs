@@ -85,6 +85,16 @@ public interface IAgentOffers
 {
     /// <summary>Opens the New agent dialog with the offer filled in, replacing whatever it held.</summary>
     void Offer(AgentOffer offer);
+
+    /// <summary>
+    /// <see cref="Offer"/>, and learn how it ended. Since API 1.7.
+    /// </summary>
+    /// <returns>
+    /// The started agent's session id once the user presses Start and it starts,
+    /// or null when the dialog is closed, a later offer replaces this one, or the
+    /// window goes away. It can take as long as the user leaves the dialog open.
+    /// </returns>
+    Task<string?> OfferAsync(AgentOffer offer);
 }
 
 /// <summary>What the New agent dialog is filled in with. Anything left null keeps the dialog's own default.</summary>

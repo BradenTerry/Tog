@@ -371,8 +371,16 @@ public sealed class Workbench : IDisposable
     /// </summary>
     public int NewAgentGeneration { get; private set; }
 
+    /// <summary>
+    /// How the offer the dialog holds ended, for the extension that made it.
+    /// Settled with null by anything that takes the offer off the dialog without
+    /// starting it, so an extension waiting on it is never left hanging.
+    /// </summary>
+    private TaskCompletionSource<string?>? _offer;
+
     public void OpenNewAgent()
     {
+        SettleOffer(null);
         NewAgentIn = null;
         if (!NewAgentOpen)
         {
@@ -388,14 +396,41 @@ public sealed class Workbench : IDisposable
     /// <summary>Opens the New agent dialog filled in, replacing whatever it held.</summary>
     public void OpenNewAgent(NewAgentPreset preset)
     {
+        SettleOffer(null);
         NewAgentIn = preset;
         NewAgentGeneration++;
         NewAgentOpen = true;
         Raise();
     }
 
+    /// <summary>
+    /// Opens the dialog filled in with an extension's offer, and completes with
+    /// the session it started, or null if it started none.
+    /// </summary>
+    public Task<string?> OfferNewAgent(NewAgentPreset preset)
+    {
+        OpenNewAgent(preset);
+
+        // Continuations run off the circuit's thread, so an extension's await
+        // never runs inside the dialog's own event handler.
+        var offer = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _offer = offer;
+        return offer.Task;
+    }
+
+    /// <summary>The dialog started an agent: whatever offer it held is taken up.</summary>
+    public void NewAgentStarted(string sessionId) => SettleOffer(sessionId);
+
+    private void SettleOffer(string? sessionId)
+    {
+        var offer = _offer;
+        _offer = null;
+        offer?.TrySetResult(sessionId);
+    }
+
     public void CloseNewAgent()
     {
+        SettleOffer(null);
         if (NewAgentOpen)
         {
             NewAgentOpen = false;
@@ -933,6 +968,7 @@ public sealed class Workbench : IDisposable
 
     public void Dispose()
     {
+        SettleOffer(null);
         foreach (var model in _changes.Values)
         {
             model.Dispose();
