@@ -95,6 +95,7 @@ builder.Services.AddSingleton<AgentDirectory>();
 builder.Services.AddSingleton<ChatDrafts>();
 builder.Services.AddSingleton<WorktreeViews>();
 builder.Services.AddScoped<Workbench>();
+builder.Services.AddScoped<Toasts>();
 
 // Agents
 // Run over the Agent Client Protocol, inside this process. Claude is one agent
