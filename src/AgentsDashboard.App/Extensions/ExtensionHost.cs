@@ -78,7 +78,8 @@ public sealed class ExtensionHost : IDisposable
         public required ServiceProvider Services { get; init; }
         public required ExtensionContext Context { get; init; }
         public required IReadOnlyList<ExtensionView> Views { get; init; }
-        public required IReadOnlyDictionary<string, IAgentIndicator> Indicators { get; init; }
+        /// <summary>Each an <see cref="IAgentIndicator"/> or an <see cref="IWorktreeIndicator"/>.</summary>
+        public required IReadOnlyDictionary<string, object> Indicators { get; init; }
         public required IReadOnlyList<ICodeIntelligence> CodeIntelligence { get; init; }
         public required IReadOnlyList<IAgentTool> AgentTools { get; init; }
         public required CancellationTokenSource Stopping { get; init; }
@@ -299,9 +300,14 @@ public sealed class ExtensionHost : IDisposable
     /// value, so a slow provider costs a late count and a hung one a stale
     /// count, never the window.
     /// </remarks>
-    public Indicator? IndicatorFor(ExtensionView view, AgentContext agent)
+    public Indicator? IndicatorFor(ExtensionView view, AgentContext agent) => IndicatorFor(view, agent, agent.AgentId);
+
+    /// <summary>The indicator on a worktree view, worked out as <see cref="IndicatorFor(ExtensionView, AgentContext)"/> is.</summary>
+    public Indicator? IndicatorFor(ExtensionView view, WorktreeContext worktree) => IndicatorFor(view, worktree, worktree.Path);
+
+    private Indicator? IndicatorFor(ExtensionView view, object subject, string subjectKey)
     {
-        IAgentIndicator? provider;
+        object? provider;
         lock (_gate)
         {
             provider = _loaded.GetValueOrDefault(view.ExtensionId)?.Indicators.GetValueOrDefault(view.ViewId);
@@ -312,7 +318,7 @@ public sealed class ExtensionHost : IDisposable
             return null;
         }
 
-        var key = (view.Key, agent.AgentId);
+        var key = (view.Key, subjectKey);
         var now = DateTime.UtcNow;
         IndicatorCache cached;
         lock (_indicators)
@@ -320,7 +326,7 @@ public sealed class ExtensionHost : IDisposable
             cached = _indicators.GetValueOrDefault(key) ?? new IndicatorCache();
             _indicators[key] = cached;
             if (cached.Running
-                || (ReferenceEquals(cached.Provider, provider) && cached.Agent == agent && now - cached.At < IndicatorAge))
+                || (ReferenceEquals(cached.Provider, provider) && Equals(cached.Subject, subject) && now - cached.At < IndicatorAge))
             {
                 return ReferenceEquals(cached.Provider, provider) ? cached.Value : null;
             }
@@ -333,7 +339,14 @@ public sealed class ExtensionHost : IDisposable
             Indicator? value = null;
             try
             {
-                value = provider.For(agent);
+                // A worktree indicator on an agent view is asked about the agent's worktree.
+                value = (provider, subject) switch
+                {
+                    (IAgentIndicator p, AgentContext a) => p.For(a),
+                    (IWorktreeIndicator p, WorktreeContext w) => p.For(w),
+                    (IWorktreeIndicator p, AgentContext { Worktree: { } w }) => p.For(w),
+                    _ => null,
+                };
             }
             catch (Exception e)
             {
@@ -343,7 +356,7 @@ public sealed class ExtensionHost : IDisposable
             lock (_indicators)
             {
                 cached.Provider = provider;
-                cached.Agent = agent;
+                cached.Subject = subject;
                 cached.Value = value;
                 cached.At = DateTime.UtcNow;
                 cached.Running = false;
@@ -356,12 +369,13 @@ public sealed class ExtensionHost : IDisposable
     /// <summary>How long a worked-out indicator is shown before it is asked again.</summary>
     private static readonly TimeSpan IndicatorAge = TimeSpan.FromSeconds(1);
 
-    private readonly Dictionary<(string View, string Agent), IndicatorCache> _indicators = [];
+    /// <summary>Keyed by the view and the agent's id or the worktree's path.</summary>
+    private readonly Dictionary<(string View, string Subject), IndicatorCache> _indicators = [];
 
     private sealed class IndicatorCache
     {
-        public IAgentIndicator? Provider { get; set; }
-        public AgentContext? Agent { get; set; }
+        public object? Provider { get; set; }
+        public object? Subject { get; set; }
         public Indicator? Value { get; set; }
         public DateTime At { get; set; }
         public bool Running { get; set; }
@@ -578,7 +592,7 @@ public sealed class ExtensionHost : IDisposable
             services = BuildServices(builder, info);
             var indicators = builder.Indicators.ToDictionary(
                 i => i.ViewId,
-                i => (IAgentIndicator)services.GetRequiredService(i.Provider),
+                i => services.GetRequiredService(i.Provider),
                 StringComparer.Ordinal);
 
             var loaded = new Loaded

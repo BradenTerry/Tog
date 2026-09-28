@@ -12,7 +12,9 @@ public sealed record ExtensionView(
     Type Component,
     ViewLocation DefaultLocation,
     int Order,
-    Func<AgentContext, bool>? AppliesTo)
+    Func<AgentContext, bool>? AppliesTo,
+    Func<WorktreeContext, bool>? WorktreeAppliesTo = null,
+    bool ForWorktree = false)
 {
     /// <summary>The view's address as a panel tab and in the URL, namespaced by the extension.</summary>
     public string Key => ExtensionId + "." + ViewId;
@@ -37,17 +39,35 @@ internal sealed class ExtensionBuilder(ExtensionInfo info) : IExtensionBuilder
         ViewLocation defaultLocation = ViewLocation.RightPanel,
         int order = 100,
         Func<AgentContext, bool>? appliesTo = null)
-        where TComponent : IComponent
+        where TComponent : IComponent =>
+        Add(new ExtensionView(Info.Id, id, title, typeof(TComponent), defaultLocation, order, appliesTo));
+
+    public void AddWorktreeView<TComponent>(
+        string id,
+        string title,
+        ViewLocation defaultLocation = ViewLocation.RightPanel,
+        int order = 100,
+        Func<WorktreeContext, bool>? appliesTo = null)
+        where TComponent : IComponent =>
+        Add(new ExtensionView(Info.Id, id, title, typeof(TComponent), defaultLocation, order, null, appliesTo, ForWorktree: true));
+
+    private void Add(ExtensionView view)
     {
-        if (Views.Any(v => v.ViewId == id))
+        if (Views.Any(v => v.ViewId == view.ViewId))
         {
-            throw new InvalidOperationException($"{Info.Id} adds the view \"{id}\" twice.");
+            throw new InvalidOperationException($"{Info.Id} adds the view \"{view.ViewId}\" twice.");
         }
 
-        Views.Add(new ExtensionView(Info.Id, id, title, typeof(TComponent), defaultLocation, order, appliesTo));
+        Views.Add(view);
     }
 
     public void AddIndicator<TProvider>(string viewId) where TProvider : class, IAgentIndicator
+    {
+        Services.AddSingleton<TProvider>();
+        Indicators.Add((viewId, typeof(TProvider)));
+    }
+
+    public void AddWorktreeIndicator<TProvider>(string viewId) where TProvider : class, IWorktreeIndicator
     {
         Services.AddSingleton<TProvider>();
         Indicators.Add((viewId, typeof(TProvider)));

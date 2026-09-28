@@ -2,9 +2,9 @@
   "id": "dotnet-tests",
   "name": "Tests (.NET)",
   "version": "1.0.0",
-  "apiVersion": "1.0",
+  "apiVersion": "1.4",
   "entry": "AgentsDashboard.Extensions.DotnetTests.dll",
   "output": "bin/dashboard",
   "author": "Agents Dashboard",
-  "description": "Live pass and fail for dotnet test runs in each agent's worktree, whoever started them."
+  "description": "Live pass and fail for dotnet test runs in each worktree, whoever started them."
 }

@@ -27,11 +27,15 @@ public static class ApiModel
         snapshot.Repos.SelectMany(r => r.Worktrees.Select(w => Worktree(w, r.Name))).ToList(),
         snapshot.TakenAt);
 
+    /// <summary>A worktree in the latest snapshot, or null when it is not in it.</summary>
+    public static WorktreeContext? Worktree(string path, DashboardState state, string? repoName = null) =>
+        state.Worktree(path) is { } view
+            ? Worktree(view, state.Repo(view.RepoRoot)?.Name ?? repoName ?? "")
+            : null;
+
     public static AgentContext Agent(ChatTarget agent, DashboardState state)
     {
-        var worktree = agent.WorktreePath is { } path && state.Worktree(path) is { } view
-            ? Worktree(view, state.Repo(view.RepoRoot)?.Name ?? agent.RepoName ?? "")
-            : null;
+        var worktree = agent.WorktreePath is { } path ? Worktree(path, state, agent.RepoName) : null;
 
         return new AgentContext(agent.SessionId, agent.Label, "claude", State(agent.State), worktree);
     }
@@ -108,6 +112,10 @@ public sealed class TextLinker : ITextLinker
                     s.Text,
                     Urls.AgentFile(agentId, r.Path, r.Line),
                     WorktreeFiles.Resolve(worktreePath, r.Path) is { } absolute ? EditorLinks.VsCode(absolute, r.Line) : null)
+                {
+                    Path = WorktreeFiles.Resolve(worktreePath, r.Path),
+                    Line = r.Line,
+                }
                 : new LinkedRun(s.Text))
             .ToList();
     }

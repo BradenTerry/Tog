@@ -26,8 +26,13 @@
     [Parameter, EditorRequired]
     public LiveView Live { get; set; } = default!;
 
-    [Parameter, EditorRequired]
-    public AgentContext Agent { get; set; } = default!;
+    /// <summary>Null for a worktree view with no agent in its worktree.</summary>
+    [Parameter]
+    public AgentContext? Agent { get; set; }
+
+    /// <summary>Set for a worktree view only.</summary>
+    [Parameter]
+    public WorktreeContext? Worktree { get; set; }
 
     [Parameter]
     public bool IsVisible { get; set; }
@@ -46,6 +51,11 @@
             if (Declares(nameof(AgentViewBase.Agent)))
             {
                 parameters[nameof(AgentViewBase.Agent)] = Agent;
+            }
+
+            if (Declares(nameof(WorktreeViewBase.Worktree)))
+            {
+                parameters[nameof(WorktreeViewBase.Worktree)] = Worktree;
             }
 
             if (Declares(nameof(AgentViewBase.IsVisible)))

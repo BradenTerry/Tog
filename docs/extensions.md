@@ -40,7 +40,7 @@ A folder with an `extension.json`:
   "id": "dotnet-tests",
   "name": "Tests (.NET)",
   "version": "1.0.0",
-  "apiVersion": "1.0",
+  "apiVersion": "1.4",
   "entry": "AgentsDashboard.Extensions.DotnetTests.dll",
   "output": "bin/dashboard"
 }
@@ -57,7 +57,9 @@ does not load.
 | Call | Adds |
 | --- | --- |
 | `AddView<T>(id, title, defaultLocation, order, appliesTo)` | A tab in one of the three panels, after the app's own |
+| `AddWorktreeView<T>(id, title, defaultLocation, order, appliesTo)` | The same, about the worktree in view rather than an agent. Since 1.4; see below |
 | `AddIndicator<T>(viewId)` | A short count on that tab, such as failing tests |
+| `AddWorktreeIndicator<T>(viewId)` | The same, worked out from a worktree. Since 1.4 |
 | `AddWorker<T>(id)` | Background work while loaded, restarted with backoff if it throws |
 | `AddCodeIntelligence<T>()` | Navigation for a language in the editor: hover, definition, references, callers, colouring. See [code-intelligence.md](code-intelligence.md) |
 | `AddAgentTool<T>()` | A tool the agents the dashboard runs can call. Since 1.2; see below |
@@ -84,6 +86,25 @@ folder, which the user can then edit and save like any other. It is scoped to th
 extension's own services are shared by every window and cannot. It shipped in
 the app's 1.2 at first and moved to 1.3, since a 1.2 app without it accepted
 extensions that injected it; declare `"apiVersion": "1.3"` to use it.
+
+## Agent views and worktree views
+
+An `AddView` view is about an agent: it is only listed while an agent is
+picked, and gets that agent's `AgentContext`. A worktree outlasts its agents
+and can be opened from the title bar with none picked, so a view about what is
+on disk (the Tests tab) is added with `AddWorktreeView` (API 1.4) instead and
+written against `WorktreeViewBase`. It is listed whenever a worktree is in
+view, gets that `WorktreeContext`, and follows a worktree picked in the title
+bar rather than the agent's. Its `Agent` is the agent on screen only when that
+agent works in the same worktree, and null otherwise. `appliesTo` and
+`IWorktreeIndicator` are asked about the worktree. `LinkedText` takes a
+`Worktree` in place of an `Agent`; its links then open the file in the
+window's editor, since there is no agent page to link to.
+
+These are separate calls rather than a flag on `AddView` because an extension
+built against 1.0 binds to `AddView`'s exact signature, and because an
+agent view handed a stand-in agent with no id would build links to an agent
+that does not exist.
 
 ## Agent tools
 

@@ -1,12 +1,24 @@
 @* Text with the files it mentions as links into the agent's editor, and a
    small one into VS Code. The scan reads the disk, so it is done when the text
-   changes rather than on every render. *@
+   changes rather than on every render. Given a worktree rather than an agent,
+   a link opens the file in the window's editor, since there is no agent's
+   page to go to. *@
 @inject ITextLinker Linker
+@inject IEditorTabs Editor
 
 <span class="file-links">
     @foreach (var run in _runs)
     {
-        if (run.Href is { } href)
+        if (Agent is null && run.Path is { } path)
+        {
+            var line = run.Line;
+            <a class="file-link" href="" title="Open in the editor" @onclick="() => Editor.OpenFile(path, line)" @onclick:preventDefault>@run.Text</a>
+            if (run.EditorHref is { } editor)
+            {
+                <a class="file-link-vscode" href="@editor" title="Open in VS Code" aria-label="Open in VS Code">code</a>
+            }
+        }
+        else if (Agent is not null && run.Href is { } href)
         {
             <a class="file-link" href="@href" title="Open in the editor">@run.Text</a>
             if (run.EditorHref is { } editor)
@@ -26,25 +38,30 @@
     [Parameter, EditorRequired]
     public string Text { get; set; } = "";
 
-    /// <summary>The agent whose worktree the paths are relative to.</summary>
-    [Parameter, EditorRequired]
-    public AgentContext Agent { get; set; } = default!;
+    /// <summary>The agent whose worktree the paths are relative to. Set this or <see cref="Worktree"/>.</summary>
+    [Parameter]
+    public AgentContext? Agent { get; set; }
+
+    /// <summary>The worktree the paths are relative to, when there is no agent. Since API 1.4.</summary>
+    [Parameter]
+    public WorktreeContext? Worktree { get; set; }
 
     private IReadOnlyList<LinkedRun> _runs = [];
-    private (string, string?, string)? _for;
+    private (string, string?, string?)? _for;
 
     /// <inheritdoc />
     protected override void OnParametersSet()
     {
-        var key = (Text, Agent.Worktree?.Path, Agent.AgentId);
+        var worktree = Agent is null ? Worktree : Agent.Worktree;
+        var key = (Text, worktree?.Path, Agent?.AgentId);
         if (_for == key)
         {
             return;
         }
 
         _for = key;
-        _runs = Agent.Worktree is { } worktree
-            ? Linker.Link(Text, worktree.Path, Agent.AgentId)
+        _runs = worktree is not null
+            ? Linker.Link(Text, worktree.Path, Agent?.AgentId ?? "")
             : [new LinkedRun(Text)];
     }
 }
