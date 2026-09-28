@@ -119,7 +119,6 @@ group together. Add or hide one under **Repositories**.
 | `src/AgentsDashboard.App` | The Blazor Server UI and the Photino window. `Program.cs` starts the host on a free loopback port, then opens the window at it. |
 | `src/AgentsDashboard.Extensions` | The extension API (1.0), the one assembly an extension compiles against. No reference to Core. |
 | `extensions/DotnetTests` | The Tests tab, as an extension. Not shipped with the app; link it in Settings. |
-| `extensions/CSharpCode` | C# navigation in the editor from Roslyn, as an extension. The app carries no Roslyn or MSBuild of its own. |
 | `templates/extension` | `dotnet new agents-dashboard-extension`, with an `AGENTS.md` for writing one. |
 | `templates/skill` | The skill that teaches an agent to write one, shipped in the app and added from Settings. |
 | `tests/*` | xUnit v3 on Microsoft.Testing.Platform, for Core and for both extensions. |
