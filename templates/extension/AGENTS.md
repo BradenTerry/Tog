@@ -71,6 +71,16 @@ data folder, and `IAgentOffers` (API 1.5) opens the New agent dialog filled
 in with an `AgentOffer` (repository, worktree or new worktree name, prompt).
 It never starts the agent: the user presses Start. Call it from a click.
 
+`ISecrets` (API 1.7) is only in your own container: a service's constructor
+or `Context.Get<ISecrets>()` in a view, never `@inject`. Ask for a secret by
+name (`github`, `jira`, `linear`); the user approves your extension, per
+build, before it gets anything, and the call waits until they answer, so pass
+a cancellation token. Prefer `SendAsync(name, request, SecretAuth.Bearer)`:
+the dashboard sends the https request with the secret added and you never hold
+it. `GetAsync(name)` hands you the value, for a library that wants it. Never
+give a secret to an agent: not in a tool result, a prompt or a file. A secret
+asked for while answering an agent tool call throws.
+
 ## Rules
 
 - The view re-renders about once a second, because the page does. If it draws a

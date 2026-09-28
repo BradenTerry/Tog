@@ -2,6 +2,7 @@ using System.Reflection;
 using AgentsDashboard.Core.Extensions;
 using AgentsDashboard.Core.Platform;
 using AgentsDashboard.Core.Repos;
+using AgentsDashboard.Core.Secrets;
 using AgentsDashboard.Extensions;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -87,6 +88,9 @@ public sealed class ExtensionHost : IDisposable
         public required IReadOnlyList<IAgentTool> AgentTools { get; init; }
         public required CancellationTokenSource Stopping { get; init; }
         public required string CopyDirectory { get; init; }
+
+        /// <summary>The SHA-256 of the entry assembly this generation runs, what a secret grant is bound to.</summary>
+        public required string Hash { get; init; }
 
         /// <summary>The entry assembly's write time and size when this copy was taken.</summary>
         public required (DateTime, long) EntryStamp { get; init; }
@@ -251,6 +255,19 @@ public sealed class ExtensionHost : IDisposable
     /// writes, and an extension loaded at runtime is not in it.
     /// </summary>
     public const string AssetsFolder = "assets";
+
+    /// <summary>
+    /// The hash of the build of an extension running now, or null when it is
+    /// not loaded. Settings compares it with a secret grant's to say whether
+    /// the grant still applies.
+    /// </summary>
+    public string? LoadedHash(string id)
+    {
+        lock (_gate)
+        {
+            return _loaded.GetValueOrDefault(id)?.Hash;
+        }
+    }
 
     /// <summary>Every code intelligence provider of the extensions loaded now, in load order.</summary>
     public IReadOnlyList<ICodeIntelligence> CodeIntelligence()
@@ -567,6 +584,7 @@ public sealed class ExtensionHost : IDisposable
         {
             CopyDirectory(found.OutputDirectory!, copy);
             var copiedEntry = Path.Combine(copy, manifest.Entry);
+            var hash = HashFile(copiedEntry);
 
             context = new ExtensionLoadContext(copiedEntry, $"extension:{found.Id}:{generation}");
             var assembly = context.LoadFromAssemblyPath(copiedEntry);
@@ -592,7 +610,7 @@ public sealed class ExtensionHost : IDisposable
             var builder = new ExtensionBuilder(info);
             ((IDashboardExtension)Activator.CreateInstance(entryTypes[0])!).Configure(builder);
 
-            services = BuildServices(builder, info);
+            services = BuildServices(builder, info, hash);
             var indicators = builder.Indicators.ToDictionary(
                 i => i.ViewId,
                 i => services.GetRequiredService(i.Provider),
@@ -611,6 +629,7 @@ public sealed class ExtensionHost : IDisposable
                 AgentTools = [.. builder.AgentTools.Select(t => (IAgentTool)services.GetRequiredService(t))],
                 Stopping = new CancellationTokenSource(),
                 CopyDirectory = copy,
+                Hash = hash,
                 EntryStamp = Stamp(entry),
             };
 
@@ -688,7 +707,7 @@ public sealed class ExtensionHost : IDisposable
     /// from the app. Built per load, because the app's container is fixed once
     /// the app has started.
     /// </summary>
-    private ServiceProvider BuildServices(ExtensionBuilder builder, ExtensionInfo info)
+    private ServiceProvider BuildServices(ExtensionBuilder builder, ExtensionInfo info, string hash)
     {
         var services = builder.Services;
         services.AddSingleton(info);
@@ -696,6 +715,8 @@ public sealed class ExtensionHost : IDisposable
         services.AddSingleton(_app.GetRequiredService<INavigation>());
         services.AddSingleton(_app.GetRequiredService<ITextLinker>());
         services.AddSingleton<IExtensionStorage>(new ExtensionStorage(_paths, info.Id));
+        services.AddSingleton<ISecrets>(new ExtensionSecrets(
+            _app.GetRequiredService<SecretBroker>(), new SecretCaller(info.Id, info.Name, hash)));
         services.AddSingleton(_app.GetRequiredService<ILoggerFactory>());
         services.AddSingleton(typeof(ILogger<>), typeof(Logger<>));
         return services.BuildServiceProvider();
@@ -987,6 +1008,12 @@ public sealed class ExtensionHost : IDisposable
         {
             _log.LogInformation(e, "Could not clear the extension cache");
         }
+    }
+
+    private static string HashFile(string path)
+    {
+        using var stream = File.OpenRead(path);
+        return Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(stream));
     }
 
     private static (DateTime, long) Stamp(string path)
