@@ -413,6 +413,19 @@ public sealed class Workbench : IDisposable
 
     public event Action? AgentPickerRequested;
 
+    /// <summary>
+    /// Brings the conversation up and puts the caret in its box. The chat
+    /// panel is only built once its tab has been opened, and a new one takes
+    /// focus as it appears, so the event is for the one already built.
+    /// </summary>
+    public void FocusChat()
+    {
+        Show(PanelSide.Bottom, ChatTab);
+        ChatFocusRequested?.Invoke();
+    }
+
+    public event Action? ChatFocusRequested;
+
     /// <summary>How many recently opened files are kept per worktree.</summary>
     private const int RecentLimit = 50;
 

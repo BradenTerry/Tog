@@ -252,9 +252,17 @@
             return;
         }
 
+        // A worktree not measured yet cannot be judged, so the request waits
+        // for its measurement rather than being dropped; the key in the agent
+        // list can ask about one nobody has looked at.
+        var row = Rows().FirstOrDefault(r => r.View.Worktree.Path == path);
+        if (row?.State == CleanupState.Checking)
+        {
+            return;
+        }
+
         Bench.RemoveRequest = null;
-        if (Rows().FirstOrDefault(r => r.View.Worktree.Path == path) is { } row
-            && Removable(row.State))
+        if (row is not null && Removable(row.State))
         {
             await OpenRemove(row);
             StateHasChanged();
@@ -282,7 +290,11 @@
 
     private static string AgentName(AgentSession agent) => agent.Summary ?? agent.Name ?? agent.SessionId[..8];
 
-    private void OnInventoryChanged() => _ = InvokeAsync(StateHasChanged);
+    private void OnInventoryChanged() => _ = InvokeAsync(async () =>
+    {
+        await TakeRemoveRequest();
+        StateHasChanged();
+    });
 
     private void OnSnapshot()
     {

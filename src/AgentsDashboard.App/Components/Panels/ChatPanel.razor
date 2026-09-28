@@ -530,6 +530,7 @@ else
         State.Changed += OnSnapshot;
         Directory.Changed += OnDirectoryChanged;
         Bench.Changed += OnBenchChanged;
+        Bench.ChatFocusRequested += OnFocusRequested;
 
         // Each agent keeps what you had typed to it.
         _draft = Drafts.Get(SessionId);
@@ -538,6 +539,13 @@ else
     }
 
     private void OnBenchChanged() => _ = InvokeAsync(StateHasChanged);
+
+    /// <summary>Focus Chat's key. Taken on the next render the panel is showing, which may not be this one.</summary>
+    private void OnFocusRequested() => _ = InvokeAsync(() =>
+    {
+        _focusBox = true;
+        StateHasChanged();
+    });
 
     protected override void OnParametersSet()
     {
@@ -806,6 +814,7 @@ else
             State.Changed -= OnSnapshot;
             Directory.Changed -= OnDirectoryChanged;
             Bench.Changed -= OnBenchChanged;
+            Bench.ChatFocusRequested -= OnFocusRequested;
         }
 
         base.Dispose(disposing);

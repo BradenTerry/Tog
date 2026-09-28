@@ -32,6 +32,7 @@ public static class Commands
     public const string OpenKeybindings = "workbench.action.openGlobalKeybindings";
     public const string NewAgent = "agentsDashboard.newAgent";
     public const string SelectAgent = "agentsDashboard.selectAgent";
+    public const string FocusChat = "agentsDashboard.focusChat";
 
     public static IReadOnlyList<Command> All { get; } =
     [
@@ -45,6 +46,7 @@ public static class Commands
         new(OpenSettings, "Open Settings", "Preferences", ["cmd+,"], ["ctrl+,"]),
         new(OpenKeybindings, "Open Keyboard Shortcuts", "Preferences", [], []),
         new(SelectAgent, "Select Agent...", "Agents", ["shift+cmd+a"], ["ctrl+shift+a"]),
+        new(FocusChat, "Focus Chat", "Agents", ["shift+cmd+c"], ["ctrl+shift+c"]),
         new(NewAgent, "New Agent", "Agents", [], []),
     ];
 
