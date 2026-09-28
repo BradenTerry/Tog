@@ -50,6 +50,13 @@ public sealed class TestRunTracker(IClock? clock = null) : IDisposable
     private readonly ConcurrentDictionary<string, byte> _dirty = new(StringComparer.Ordinal);
     private readonly List<string> _worktrees = [];
 
+    /// <summary>
+    /// Reports the user cleared, with the length and last write they had then.
+    /// The scan keeps finding them on disk, so they are skipped until they change,
+    /// which is a new run writing to the same file.
+    /// </summary>
+    private readonly Dictionary<string, (long Length, DateTime Written)> _cleared = new(StringComparer.Ordinal);
+
     private bool _disposed;
     private DateTimeOffset _lastScan = DateTimeOffset.MinValue;
 
@@ -72,10 +79,7 @@ public sealed class TestRunTracker(IClock? clock = null) : IDisposable
                 _watchers[gone].Dispose();
                 _watchers.Remove(gone);
 
-                foreach (var run in _runs.Where(r => r.Value.WorktreePath == gone).Select(r => r.Key).ToList())
-                {
-                    _runs.Remove(run);
-                }
+                RemoveRuns(gone);
             }
 
             foreach (var worktree in wanted.Where(w => !_watchers.ContainsKey(w)))
@@ -102,6 +106,67 @@ public sealed class TestRunTracker(IClock? clock = null) : IDisposable
                 .Take(HistoryPerWorktree)
                 .Select(r => r.ToModel())
                 .ToList();
+        }
+    }
+
+    /// <summary>
+    /// Forgets every run in a worktree, so the explorer starts empty. The reports
+    /// stay on disk (they are the user's files, not ours to delete) and are
+    /// ignored until something writes to them again, so the next run shows up as
+    /// usual.
+    /// </summary>
+    public void Clear(string worktreePath)
+    {
+        lock (_gate)
+        {
+            var known = _runs.Values
+                .Where(r => r.WorktreePath == worktreePath && r.TrxPath is not null)
+                .Select(r => r.TrxPath!);
+
+            foreach (var path in known.Concat(TrxLocator.Find(worktreePath)).Distinct(StringComparer.Ordinal))
+            {
+                if (Stamp(path) is { } stamp)
+                {
+                    _cleared[path] = stamp;
+                }
+            }
+
+            RemoveRuns(worktreePath);
+        }
+
+        Changed?.Invoke();
+    }
+
+    /// <summary>
+    /// Forgets every run in a worktree and reads every report in it again from the
+    /// start, cleared ones included. The way back from <see cref="Clear"/>, and a
+    /// fresh start when the tree has drifted from what is on disk.
+    /// </summary>
+    public void Reload(string worktreePath)
+    {
+        lock (_gate)
+        {
+            RemoveRuns(worktreePath);
+
+            foreach (var path in _cleared.Keys.Where(p => WorktreeFor(p) == worktreePath).ToList())
+            {
+                _cleared.Remove(path);
+            }
+
+            foreach (var path in TrxLocator.Find(worktreePath))
+            {
+                _dirty[path] = 0;
+            }
+        }
+
+        Changed?.Invoke();
+    }
+
+    private void RemoveRuns(string worktreePath)
+    {
+        foreach (var key in _runs.Where(r => r.Value.WorktreePath == worktreePath).Select(r => r.Key).ToList())
+        {
+            _runs.Remove(key);
         }
     }
 
@@ -209,6 +274,16 @@ public sealed class TestRunTracker(IClock? clock = null) : IDisposable
 
         if (!_runs.TryGetValue(trxPath, out var state))
         {
+            if (_cleared.TryGetValue(trxPath, out var cleared))
+            {
+                if (Stamp(trxPath) == cleared)
+                {
+                    return false;
+                }
+
+                _cleared.Remove(trxPath);
+            }
+
             state = new RunState
             {
                 TrxPath = trxPath,
@@ -412,6 +487,19 @@ public sealed class TestRunTracker(IClock? clock = null) : IDisposable
         try
         {
             return new DateTimeOffset(File.GetLastWriteTimeUtc(path)).ToLocalTime();
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    private static (long Length, DateTime Written)? Stamp(string path)
+    {
+        try
+        {
+            var info = new FileInfo(path);
+            return info.Exists ? (info.Length, info.LastWriteTimeUtc) : null;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {

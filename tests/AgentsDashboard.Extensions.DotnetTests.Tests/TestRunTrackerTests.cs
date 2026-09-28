@@ -228,4 +228,72 @@ public class TestRunTrackerTests
         tracker.SetWorktrees([]);
         Assert.Empty(tracker.RunsFor(worktree));
     }
+
+    [Fact]
+    public void Clear_forgets_the_runs_and_does_not_read_the_same_reports_back()
+    {
+        using var dir = new TempDir();
+        var worktree = dir.Path;
+        var trx = Path.Combine(dir.Dir("TestResults"), "My.Tests_net10.0_arm64.trx");
+        File.WriteAllText(trx, Head + Result("A.One", "Passed") + Tail);
+
+        var clock = new FakeClock();
+        using var tracker = new TestRunTracker(clock);
+        tracker.SetWorktrees([worktree]);
+        tracker.Poll(new FakeScanner());
+        Assert.Single(tracker.RunsFor(worktree));
+
+        tracker.Clear(worktree);
+        Assert.Empty(tracker.RunsFor(worktree));
+
+        // The periodic scan finds the report again, and it has not changed.
+        clock.Advance(TimeSpan.FromSeconds(6));
+        tracker.Poll(new FakeScanner());
+        Assert.Empty(tracker.RunsFor(worktree));
+    }
+
+    [Fact]
+    public void A_cleared_report_comes_back_when_a_new_run_writes_it()
+    {
+        using var dir = new TempDir();
+        var worktree = dir.Path;
+        var trx = Path.Combine(dir.Dir("TestResults"), "My.Tests_net10.0_arm64.trx");
+        File.WriteAllText(trx, Head + Result("A.One", "Passed") + Tail);
+
+        var clock = new FakeClock();
+        using var tracker = new TestRunTracker(clock);
+        tracker.SetWorktrees([worktree]);
+        tracker.Poll(new FakeScanner());
+        tracker.Clear(worktree);
+
+        File.WriteAllText(trx, Head + Result("A.One", "Failed") + Result("A.Two", "Passed") + Tail);
+        clock.Advance(TimeSpan.FromSeconds(6));
+        tracker.Poll(new FakeScanner());
+
+        var run = Assert.Single(tracker.RunsFor(worktree));
+        Assert.Equal(2, run.Completed);
+    }
+
+    [Fact]
+    public void Reload_reads_every_report_again_including_cleared_ones()
+    {
+        using var dir = new TempDir();
+        var worktree = dir.Path;
+        var results = dir.Dir("TestResults");
+        File.WriteAllText(Path.Combine(results, "One.Tests_net10.0_arm64.trx"), Head + Result("A.One", "Passed") + Tail);
+
+        using var tracker = new TestRunTracker(new FakeClock());
+        tracker.SetWorktrees([worktree]);
+        tracker.Poll(new FakeScanner());
+        tracker.Clear(worktree);
+        File.WriteAllText(Path.Combine(results, "Two.Tests_net10.0_arm64.trx"), Head + Result("B.One", "Passed") + Tail);
+
+        tracker.Reload(worktree);
+        tracker.Poll(new FakeScanner());
+
+        Assert.Equal(2, tracker.RunsFor(worktree).Count);
+        Assert.Equal(
+            ["A.One", "B.One"],
+            TestExplorer.Latest(tracker.RunsFor(worktree)).Select(t => t.Name));
+    }
 }

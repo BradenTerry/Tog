@@ -32,6 +32,14 @@
             @(mtp ? "Microsoft.Testing.Platform" : "VSTest")
         </span>
     }
+    <button class="ghost small @(report.Projects.Count == 0 ? "spacer" : "")" @onclick="Reload"
+            title="Forget what is shown and read every test report in this worktree again">
+        Reload
+    </button>
+    <button class="ghost small" @onclick="Clear" disabled="@(runs.Count == 0)"
+            title="Empty the explorer. The reports stay on disk, and the next run shows up as usual">
+        Clear
+    </button>
 </div>
 
 @if (_startedCommand is { Length: > 0 })
@@ -292,11 +300,7 @@ else
         if (_worktreePath != Worktree.Path)
         {
             _worktreePath = Worktree.Path;
-            _picked.Clear();
-            _toggled.Clear();
-            _anchor = null;
-            _startedCommand = null;
-            _message = null;
+            Forget();
         }
     }
 
@@ -423,6 +427,29 @@ else
                 _picked.Clear();
                 break;
         }
+    }
+
+    private void Clear()
+    {
+        Tracker.Clear(Worktree.Path);
+        Forget();
+    }
+
+    private void Reload()
+    {
+        Tracker.Reload(Worktree.Path);
+        Telemetry.Invalidate(Worktree.RepoRoot);
+        Forget();
+    }
+
+    /// <summary>The picks and folds name nodes of the tree being dropped.</summary>
+    private void Forget()
+    {
+        _picked.Clear();
+        _toggled.Clear();
+        _anchor = null;
+        _startedCommand = null;
+        _message = null;
     }
 
     private Task RunAll(bool mtp) => Start(() => Runner.Start(Worktree.Path, mtp));
