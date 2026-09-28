@@ -322,6 +322,15 @@
                     <ExtensionsCard />
                     break;
 
+                case "mcp":
+                    <header class="settings-section-head">
+                        <h2>MCP server</h2>
+                        <p class="muted">The dashboard's tools, for agents you start outside it.</p>
+                    </header>
+
+                    <McpServerCard />
+                    break;
+
                 default:
                     <header class="settings-section-head">
                         <h2>Repositories</h2>
@@ -446,6 +455,7 @@
         new("keys", "Keyboard shortcuts", "M2 4.5h12v7H2zM4.5 7h0M7 7h0M9.5 7h0M12 7h0M5 9.5h6"),
         new("notifications", "Notifications", "M4 11V7.5a4 4 0 0 1 8 0V11l1 1.5H3zM6.5 14h3"),
         new("extensions", "Extensions", "M6 2.5h4v3h3v4h-3v4H6v-4H3v-4h3z"),
+        new("mcp", "MCP server", "M5.5 2.5v3M10.5 2.5v3M3.5 5.5h9v2.5a4.5 4.5 0 0 1-9 0zM8 12.5v1.5"),
     ];
 
     /// <summary>Up and down move between sections, the way a vertical tab list is walked.</summary>

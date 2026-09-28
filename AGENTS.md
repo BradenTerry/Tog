@@ -87,7 +87,11 @@ capabilities without reading what the agent will then route through us.
 command line: a header names `${AGENTS_DASHBOARD_MCP_KEY}` and the value is only
 in that session's CLI environment, sent in `session/new`'s `_meta`. Each session
 has its own key, and the key alone says which agent and worktree a call is
-from; never trust anything the caller puts in the request for that. See
+from; never trust anything the caller puts in the request for that. The one
+exception is the terminal key in `mcp-link.json`, used by the stdio bridge
+(`agents-dashboard mcp`) that Settings adds to Claude for terminal agents: it
+takes its folder from a header and has no agent id. Nothing may write to stdout
+in the `mcp` path of `Program.cs`, it is the MCP channel. See
 `docs/extensions.md`.
 
 **Grid columns in the diff need `minmax(0, 1fr)`.** A bare `1fr` has an `auto`
@@ -170,7 +174,8 @@ services are registered there. An extension's own services come from
   decision over a line-by-line narration.
 - Nothing the dashboard or an agent does on its own writes into `~/.claude`;
   the app only reads it. You can still open and edit a file there yourself,
-  and it is saved when you press Save, like any file. The one write the app
-  makes there is the extension skill, from its button in Settings.
+  and it is saved when you press Save, like any file. The only changes the app
+  makes to Claude's config are the extension skill and the MCP server entry
+  (through `claude mcp`), each from its button in Settings.
 - Anything that edits the user's repository is offered, never done on its own.
 - Don't commit unless asked.

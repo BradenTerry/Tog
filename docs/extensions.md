@@ -222,8 +222,34 @@ sequenceDiagram
   first and logs the other.
 - **Answer quickly.** Start long work and return an id, and offer a second
   tool to ask how it is going, rather than holding a call open.
-- Only agents the dashboard runs get the tools. The dashboard never writes an
-  agent's own MCP configuration, so an agent in a terminal does not.
+- **Agents in a terminal** get the tools once the user presses Add in Settings,
+  MCP server. That runs `claude mcp add-json --scope user`, giving Claude a stdio
+  server that is the app itself started with `mcp` (`McpStdioBridge`). Claude's
+  config is written once but the port changes every start, so the bridge finds
+  the running app on every message through `~/.agents-dashboard/mcp-link.json`
+  (`McpLink`): the URL and a terminal key minted per start, readable by the user
+  alone, removed when the app exits. The terminal key cannot say which agent is
+  calling, so it is the one caller whose folder comes from the request (the
+  folder the bridge started in, in a header) and whose calls have no agent id.
+  With the dashboard closed the bridge answers with no tools, and it sends
+  `tools/list_changed` when the app opens or closes. A session the dashboard
+  started has its own key in the environment, and the bridge uses that first.
+  The entry is added through Claude's own command rather than by editing
+  `~/.claude.json`, which every Claude session rewrites, and at user scope,
+  since a project's `.mcp.json` would be a change to the user's repository.
+
+```mermaid
+sequenceDiagram
+    participant C as claude (terminal)
+    participant B as agents-dashboard mcp (stdio)
+    participant L as mcp-link.json
+    participant S as AgentToolServer (/_mcp)
+    C->>B: tools/list
+    B->>L: read URL and terminal key
+    B->>S: POST, Bearer terminal key, X-Agents-Dashboard-Cwd
+    S-->>B: tools
+    B-->>C: tools (listChanged: true)
+```
 
 ## Where they come from
 

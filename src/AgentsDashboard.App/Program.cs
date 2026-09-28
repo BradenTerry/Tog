@@ -18,6 +18,16 @@ using AgentsDashboard.Extensions;
 // a file watcher on a background thread publishes a snapshot and every open view
 // re-renders, with no polling from the browser. It also means --browser works
 // with no extra code, which is how you check on agents from another device.
+// `mcp` is not the app: it is the stdio server Claude starts for an agent in a
+// terminal, which forwards to the running app and exits with its stdin. It
+// returns before anything else here runs, since whatever it writes to stdout
+// is read as MCP. See McpStdioBridge.
+if (args is ["mcp", .. var bridgeArgs])
+{
+    await McpStdioBridge.RunConsoleAsync(new AppPaths(CliOptions.Parse(bridgeArgs).DataDir).McpLinkFile);
+    return;
+}
+
 var options = CliOptions.Parse(args);
 
 // By default the builder watches the content root to reload appsettings.json,
@@ -100,6 +110,9 @@ builder.Services.AddSingleton<IAgentTool, ExtensionAddTool>();
 builder.Services.AddSingleton(new AgentToolServer.Endpoint(port));
 builder.Services.AddSingleton<AgentToolServer>();
 builder.Services.AddSingleton<IAgentMcpServers>(sp => sp.GetRequiredService<AgentToolServer>());
+// The same tools for agents started in a terminal, added to Claude from Settings.
+builder.Services.AddSingleton(BridgeCommand(options.DataDir));
+builder.Services.AddSingleton<ClaudeMcpConfig>();
 builder.Services.AddSingleton<AgentHost>();
 builder.Services.AddSingleton<IAgentSessionSource>(sp => sp.GetRequiredService<AgentHost>());
 
@@ -172,6 +185,11 @@ app.Services.GetRequiredService<OpenRequests>().Start();
 
 await app.StartAsync();
 
+// Written once the server answers, so a bridge never finds a link to nothing.
+var mcpLinkFile = app.Services.GetRequiredService<AppPaths>().McpLinkFile;
+app.Services.GetRequiredService<AgentToolServer>().Link().Write(mcpLinkFile);
+app.Lifetime.ApplicationStopping.Register(() => McpLink.Withdraw(mcpLinkFile, Environment.ProcessId));
+
 var url = $"http://127.0.0.1:{port}";
 
 if (options.Browser)
@@ -205,6 +223,23 @@ else
 }
 
 await app.StopAsync();
+
+static McpCommand BridgeCommand(string? dataDir)
+{
+    // The command that started this copy, so the entry follows whichever copy
+    // added it. Run through `dotnet app.dll`, the process is dotnet itself and
+    // the app is its first argument.
+    var exe = Environment.ProcessPath ?? "AgentsDashboard.App";
+    List<string> args = Path.GetFileNameWithoutExtension(exe).Equals("dotnet", StringComparison.OrdinalIgnoreCase)
+        ? [typeof(Program).Assembly.Location, "mcp"]
+        : ["mcp"];
+    if (dataDir is not null)
+    {
+        args.AddRange(["--data-dir", dataDir]);
+    }
+
+    return new McpCommand(exe, args);
+}
 
 static int FreePort()
 {

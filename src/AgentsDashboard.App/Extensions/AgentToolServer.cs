@@ -48,6 +48,13 @@ namespace AgentsDashboard.App.Extensions;
 /// that agent, which is no more than the agent could do itself, but not as any
 /// other.
 /// </para>
+/// <para>
+/// An agent started in a terminal reaches the server through
+/// <see cref="McpStdioBridge"/>, with one more key minted per start and left
+/// in <see cref="McpLink"/>, readable by the user alone. That key says nothing
+/// about who is calling, so it is the one caller whose folder comes from the
+/// request: the folder the bridge was started in. Its calls have no agent id.
+/// </para>
 /// </remarks>
 public sealed class AgentToolServer(
     AgentToolServer.Endpoint endpoint,
@@ -60,10 +67,10 @@ public sealed class AgentToolServer(
     public sealed record Endpoint(int Port);
 
     /// <summary>What agents see the server as: its tools are <c>mcp__agents-dashboard__{name}</c>.</summary>
-    public const string Name = "agents-dashboard";
+    public const string Name = McpStdioBridge.Name;
 
     /// <summary>The variable the agent process holds the key in, which the header names.</summary>
-    public const string KeyVariable = "AGENTS_DASHBOARD_MCP_KEY";
+    public const string KeyVariable = McpStdioBridge.KeyVariable;
 
     /// <summary>Messages served from one request. A batch is answered in order, and a call can wait minutes.</summary>
     private const int MaxBatch = 16;
@@ -76,8 +83,14 @@ public sealed class AgentToolServer(
     /// </summary>
     private readonly ConcurrentDictionary<string, Caller> _callers = new(StringComparer.Ordinal);
 
-    /// <summary>Who a key was minted for. The session is null between <c>session/new</c> being sent and answered.</summary>
-    private sealed record Caller(string Cwd, string? SessionId);
+    /// <summary>
+    /// Who a key was minted for. The session is null between <c>session/new</c>
+    /// being sent and answered, and always for the terminal key, whose folder
+    /// is each request's own.
+    /// </summary>
+    private sealed record Caller(string Cwd, string? SessionId, bool Terminal = false);
+
+    private readonly string _terminalKey = NewKey();
 
     private readonly IReadOnlyList<IAgentTool> _builtIn = [.. builtIn];
 
@@ -86,9 +99,18 @@ public sealed class AgentToolServer(
 
     private string Url => $"http://127.0.0.1:{endpoint.Port}/_mcp";
 
+    /// <summary>What <see cref="McpStdioBridge"/> needs to reach this server, for as long as the app runs.</summary>
+    public McpLink Link()
+    {
+        _callers[Hash(_terminalKey)] = new Caller("", null, Terminal: true);
+        return new McpLink(Url, _terminalKey, Environment.ProcessId);
+    }
+
+    private static string NewKey() => Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+
     public McpGrant Grant(string cwd, string? sessionId)
     {
-        var key = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+        var key = NewKey();
         _callers[Hash(key)] = new Caller(cwd, sessionId);
 
         // Only with --verbose, which is for debugging: enough to call a tool by hand.
@@ -135,6 +157,17 @@ public sealed class AgentToolServer(
         if (given.Length == 0 || !_callers.TryGetValue(Hash(given), out var caller))
         {
             return Results.StatusCode(StatusCodes.Status401Unauthorized);
+        }
+
+        if (caller.Terminal)
+        {
+            var cwd = Uri.UnescapeDataString(http.Request.Headers[McpStdioBridge.CwdHeader].ToString());
+            if (!Path.IsPathFullyQualified(cwd) || !Directory.Exists(cwd))
+            {
+                return Results.StatusCode(StatusCodes.Status400BadRequest);
+            }
+
+            caller = caller with { Cwd = cwd };
         }
 
         JsonNode? body;

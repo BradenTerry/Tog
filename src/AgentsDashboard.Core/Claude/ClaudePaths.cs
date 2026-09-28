@@ -22,7 +22,16 @@ public sealed class ClaudePaths
         Root = !string.IsNullOrWhiteSpace(configured)
             ? configured!
             : Path.Combine(_home, ".claude");
+
+        // Claude keeps its user settings, MCP servers among them, beside the
+        // config tree by default and inside it when the tree is moved.
+        UserConfigFile = !string.IsNullOrWhiteSpace(configured)
+            ? Path.Combine(configured!, ".claude.json")
+            : Path.Combine(_home, ".claude.json");
     }
+
+    /// <summary>Claude's user-wide config file, which holds the MCP servers added with <c>--scope user</c>.</summary>
+    public string UserConfigFile { get; }
 
     /// <summary>Claude's config tree.</summary>
     public string Root { get; }

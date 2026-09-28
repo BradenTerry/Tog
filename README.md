@@ -58,7 +58,8 @@ picked. See [docs/workbench.md](docs/workbench.md).
 - **New agent** starts one in a repository from Settings, in a new worktree or an
   existing one.
 - **Settings** holds the repositories New agent offers, the preferences (the
-  colour theme among them), and the extensions.
+  colour theme among them), the extensions, and the MCP server: one button gives
+  agents you start in a terminal the tools agents in the dashboard already have.
 - The mouse's back and forward buttons (or Ctrl+- and Ctrl+Shift+-) walk back and
   forth through the jumps go to definition and references have made.
 
