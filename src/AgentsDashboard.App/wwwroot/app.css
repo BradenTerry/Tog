@@ -1138,6 +1138,15 @@ input[type="checkbox"].switch:checked::after { transform: translateX(14px); back
 .chat-title { font-size: 13px; min-width: 0; }
 .chat-state { font-size: 12px; flex: 0 1 auto; }
 .chip.worktree-open { flex: none; color: var(--accent); }
+button.chat-more {
+    flex: none;
+    width: 24px;
+    height: 24px;
+    display: grid;
+    place-items: center;
+    border-radius: var(--radius-sm);
+    color: var(--text-dim);
+}
 .chat-notice { margin: 8px 14px 0; }
 .chat-panel { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 
@@ -1322,6 +1331,8 @@ input[type="checkbox"].switch:checked::after { transform: translateX(14px); back
 }
 
 .composer-row button { height: 40px; padding: 0 18px; }
+.composer-row button.chat-stop { color: var(--danger); border-color: var(--danger); background: none; }
+.composer-row button.chat-stop:hover:not(:disabled) { background: var(--danger-bg); }
 /* A subagent's conversation shown in the chat in place of the agent's. */
 .subagent-bar {
     display: flex;

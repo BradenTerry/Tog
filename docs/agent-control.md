@@ -137,7 +137,7 @@ uses its own tools for both, exactly as in a terminal: the dashboard watches the
 work, it does not perform it. When a tool call needs your approval, the agent
 sends `session/request_permission`; the chat shows the call's title and
 description with the options the agent offered (typically Yes and No), and the
-agent list marks the agent as waiting on you. **Stop turn** declines an open prompt
+agent list marks the agent as waiting on you. **Stop** declines an open prompt
 and cancels the turn.
 
 Every session is also given the dashboard's own MCP server, when the agent
@@ -235,7 +235,7 @@ sequenceDiagram
   else Skip
     H-->>B: { action: decline }
     B->>B: empty answers, the model is told you skipped
-  else Stop turn, End session, process died, turn ended
+  else Stop, End session, process died, turn ended
     H-->>B: { action: cancel }
     B->>B: the tool call is aborted
   end
@@ -279,8 +279,9 @@ something you said, or a notice when they were skipped.
   the ones the agent reported for its last session, and a value is matched to
   the agent's own name for it ("opus" finds "opus[1m]"); one it does not offer is
   left out rather than failing the start.
-- **Stop turn** sends `session/cancel`. **End session** closes it
-  (`session/close`) and marks it stopped. **Remove** takes it off the list; the
+- **Stop**, beside Send while a turn runs, sends `session/cancel`. **End
+  session**, in the header's menu, closes it (`session/close`) and marks it
+  stopped. **Remove from list**, in the same menu, takes it off the list; the
   conversation stays saved and can be resumed.
 - A message sent while the agent is working does not interrupt it. The CLI
   queues it and hands it to the agent between two steps of the running turn.
