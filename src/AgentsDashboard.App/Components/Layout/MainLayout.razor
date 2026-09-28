@@ -11,7 +11,7 @@
 @* The window, laid out like VS Code: files on the left, source control on the
    right, the editor in the middle with the conversation under it. The agents
    are listed from the title bar. The page is what the editor
-   shows: an agent's documents, or Settings. The borders between the parts are
+   shows: an agent's documents; Settings is a dialog over it. The borders between the parts are
    dragged in app.js; their sizes are CSS variables it sets on the root. *@
 
 <ExtensionStyles />
@@ -47,7 +47,9 @@
     <StatusBar />
 </div>
 
+<SettingsDialog />
 <NewAgentDialog />
+<RemoveWorktreeDialog />
 <QuickOpen />
 <ExtensionRequestDialog />
 
@@ -143,12 +145,10 @@
                 Bench.Toggle(PanelSide.Bottom);
                 break;
             case Commands.OpenSettings:
-                Bench.OpenSettings(Bench.WorktreeInView(State.Snapshot));
-                BackToEditor();
+                Bench.OpenSettings();
                 break;
             case Commands.OpenKeybindings:
-                Bench.OpenSettings(Bench.WorktreeInView(State.Snapshot), "keys");
-                BackToEditor();
+                Bench.OpenSettings("keys");
                 break;
             case Commands.SelectAgent:
                 Bench.ToggleAgentPicker();
