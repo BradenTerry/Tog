@@ -263,6 +263,9 @@ defaults, and a key bound twice is marked.
   `Workbench.AskRemoveWorktree`): sizes, what would be lost, the branch, and a
   confirmation. It does not switch the editor to the Worktrees view. A
   worktree not measured yet is measured then, and the dialog waits on it.
+  Once the removal goes through the dialog closes and a toast in the bottom
+  right says what was removed (`Toasts`, one per window, drawn by
+  `ToastHost`). Only a folder left on disk keeps the dialog open.
 - **Focus Chat** (Shift+Cmd+C, Ctrl+Shift+C elsewhere) brings up the
   conversation, in whichever panel it was put, and puts the caret in its box,
   from anywhere, Settings included.

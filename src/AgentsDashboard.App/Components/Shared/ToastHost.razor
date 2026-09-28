@@ -1,0 +1,28 @@
+@implements IDisposable
+@inject Toasts Notes
+
+@* The toasts of this window, stacked in the bottom right over the status bar.
+   A live region, so a screen reader says each one as it appears. *@
+
+<div class="toasts" role="status" aria-live="polite">
+    @foreach (var toast in Notes.Shown)
+    {
+        <div class="toast @(toast.Danger ? "danger" : "")" @key="toast.Id">
+            <span class="toast-text">@toast.Message</span>
+            <button type="button" class="icon-btn" @onclick="() => Notes.Close(toast.Id)" title="Dismiss" aria-label="Dismiss">
+                <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+                    <path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                </svg>
+            </button>
+        </div>
+    }
+</div>
+
+@code {
+    protected override void OnInitialized() => Notes.Changed += OnChanged;
+
+    // Expiry raises Changed from a timer, off the circuit's thread.
+    private void OnChanged() => _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Notes.Changed -= OnChanged;
+}
