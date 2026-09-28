@@ -795,6 +795,7 @@ input[type="checkbox"].switch:checked::after { transform: translateX(14px); back
     text-align: left;
 }
 .context-item:hover:not(:disabled), .context-item:focus-visible { background: var(--accent-bg); }
+.context-item:focus-visible { outline: none; box-shadow: inset 2px 0 0 var(--accent); }
 .context-item.destructive { color: var(--danger); }
 .context-item .faint { margin-left: auto; }
 .context-sep { margin: 4px 2px; border: none; border-top: 1px solid var(--border-soft); }

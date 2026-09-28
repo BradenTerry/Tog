@@ -31,6 +31,7 @@ public static class Commands
     public const string OpenSettings = "workbench.action.openSettings";
     public const string OpenKeybindings = "workbench.action.openGlobalKeybindings";
     public const string NewAgent = "agentsDashboard.newAgent";
+    public const string SelectAgent = "agentsDashboard.selectAgent";
 
     public static IReadOnlyList<Command> All { get; } =
     [
@@ -43,6 +44,7 @@ public static class Commands
         new(ToggleBottom, "Toggle Bottom Panel", "View", ["cmd+j"], ["ctrl+j"]),
         new(OpenSettings, "Open Settings", "Preferences", ["cmd+,"], ["ctrl+,"]),
         new(OpenKeybindings, "Open Keyboard Shortcuts", "Preferences", [], []),
+        new(SelectAgent, "Select Agent...", "Agents", ["shift+cmd+a"], ["ctrl+shift+a"]),
         new(NewAgent, "New Agent", "Agents", [], []),
     ];
 

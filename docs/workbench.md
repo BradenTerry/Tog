@@ -242,6 +242,10 @@ defaults, and a key bound twice is marked.
   is sent from `Shortcuts` (a singleton) to every window, again whenever the
   Settings page changes it. The recorder is marked `data-keybinding-recorder`,
   which the listener skips, or recording Cmd+P would open Go to File.
+- **Select Agent** (Shift+Cmd+A, Ctrl+Shift+A elsewhere) opens the title bar's
+  agent list under its button, with focus on the agent in view. Up and down
+  walk it and Enter picks: every `ContextMenu` takes the arrows, from
+  `bindMenuKeys` in `app.js`, starting at its checked item.
 - **A new command** needs an entry in `Commands.All` and a case in
   `MainLayout.RunCommand`.
 

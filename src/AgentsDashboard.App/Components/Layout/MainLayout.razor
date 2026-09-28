@@ -158,6 +158,9 @@
                 Bench.OpenSettings(Bench.WorktreeInView(State.Snapshot), "keys");
                 BackToEditor();
                 break;
+            case Commands.SelectAgent:
+                Bench.ToggleAgentPicker();
+                break;
             case Commands.NewAgent:
                 Bench.OpenNewAgent();
                 break;
