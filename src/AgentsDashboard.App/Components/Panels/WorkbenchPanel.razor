@@ -125,19 +125,15 @@
                         }
 
                         @* Drawn only while a view is dragged, over the section, so the
-                           views under it (Monaco among them) never take the drop. *@
-                        @if (dragging && !folded)
+                           views under it (Monaco among them) never take the drop. The
+                           body has one target: the section stays where it is and the
+                           view takes the bottom half. Joining the strip is the strip's
+                           drop. A section holding only the dragged view has nothing
+                           to split from. *@
+                        @if (dragging && !folded && !(section.Views.Count == 1 && section.Views[0] == Bench.DraggingView))
                         {
                             <div class="view-drops">
-                                <div class="view-drop top" data-view-drop
-                                     @ondragover:preventDefault="true" @ondrop="() => Bench.DropViewSplit(Side, index, below: false)" @ondrop:preventDefault="true">
-                                    <span class="drop-label">Split up</span>
-                                </div>
-                                <div class="view-drop middle" data-view-drop
-                                     @ondragover:preventDefault="true" @ondrop="() => Bench.DropView(Side, index, null)" @ondrop:preventDefault="true">
-                                    <span class="drop-label">Move here</span>
-                                </div>
-                                <div class="view-drop bottom" data-view-drop
+                                <div class="view-drop split" data-view-drop
                                      @ondragover:preventDefault="true" @ondrop="() => Bench.DropViewSplit(Side, index, below: true)" @ondrop:preventDefault="true">
                                     <span class="drop-label">Split down</span>
                                 </div>
