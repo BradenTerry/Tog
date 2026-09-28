@@ -340,12 +340,19 @@ flowchart TB
   a new section below it, the two sharing the height, as VS Code does. There
   is one target, not a choice of zones, so where it lands never depends on how
   far down the pointer was. Joining a strip is the strip's drop: on a tab it
-  goes in before that tab, on a strip's empty end after the last. They are drawn only during a drag, like the editor's, so Monaco or
+  goes in before that tab, on a strip's empty end after the last.
+- **Only the top section is tabbed.** Every section below a panel's first holds
+  one view, so a split panel is one set of tabs over single rows, never strips
+  nested in strips. A view dropped onto a lower section's strip gets a section
+  of its own instead, above that one if dropped on its tab, below if on the
+  empty end, the two sharing the height. `PanelLayout.Unstack` enforces it
+  after every move and when `layout.json` is read, so a layout saved before
+  splits a stacked lower section into one row per view. They are drawn only during a drag, like the editor's, so Monaco or
   a view never takes the drop and `dragover` never has a handler on the
   circuit. The zone under the pointer is tinted by `app.js` from `dragover`,
   not by the server.
-- **The menu.** Right-clicking a panel tab offers Move to each other panel,
-  Split down, and Reset panel layout, so none of it needs a mouse drag.
+- **The menu.** Right-clicking a panel tab offers Move to each other panel
+  (onto the end of its top strip), Split down, and Reset panel layout, so none of it needs a mouse drag.
 - **Folding a section.** With more than one section in a panel each strip gets
   a chevron that folds its section down to the strip. Clicking a folded
   section's tab unfolds it. A folded section keeps its views built, hidden and
