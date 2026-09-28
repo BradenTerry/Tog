@@ -51,6 +51,12 @@ public sealed class AppPaths
     /// <summary>Where the running app's agent tools are served, for the stdio bridge. See <c>McpLink</c>.</summary>
     public string McpLinkFile => Path.Combine(Root, "mcp-link.json");
 
+    /// <summary>
+    /// The secrets' names and which extensions may use them. Never their values,
+    /// which are in the OS store. See <c>SecretCatalog</c>.
+    /// </summary>
+    public string SecretsFile => Path.Combine(Root, "secrets.json");
+
     /// <summary>The extension API assembly, for extensions to compile against.</summary>
     public string SdkDir => Path.Combine(Root, "sdk");
 

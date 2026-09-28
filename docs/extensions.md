@@ -258,6 +258,113 @@ sequenceDiagram
     B-->>C: tools (listChanged: true)
 ```
 
+## Secrets
+
+A token for a service with no CLI (Jira, Linear, a build server) is entered
+once, in Settings, Secrets, or in the prompt the first time an extension asks
+for it, and any extension can ask for it by name. `ISecrets` (API 1.8):
+
+- `SendAsync(name, request, auth)` sends an https request with the secret
+  added (`SecretAuth.Bearer`, `Basic` for Jira's `email:token`, `Plain` for
+  Linear's key) and returns the response. The extension never holds the
+  secret, and the user approves it for that one host (and port, when it is
+  not 443). The broker sends a copy of the request it takes before the
+  prompt: the extension keeps its own object, and could otherwise change the
+  address after the user read it, or read the header back off it. `Host` is
+  not copied, and the response's `RequestMessage` is the copy with the header
+  removed. Redirects are not followed, since the header would go with them.
+  A host that echoes request headers back shows the extension the secret in
+  the response; the user's approval of the host is the control. Prefer this.
+- `GetAsync(name)` hands over the value, for a client library that wants it.
+  The prompt says the extension can send it anywhere once it has it.
+
+For GitHub an extension usually needs neither: if `gh` is signed in, run
+`gh api` and let `gh` keep the token. The store matters for everything else.
+
+```mermaid
+sequenceDiagram
+    participant E as Extension
+    participant S as ExtensionSecrets (its container)
+    participant B as SecretBroker
+    participant C as secrets.json
+    participant P as SecretRequestDialog
+    participant V as OS store
+    E->>S: SendAsync("jira", request)
+    S->>B: caller = id, name, hash of the running build
+    B->>C: a grant for this id and hash, this host?
+    alt none yet
+        B->>P: one prompt, shared by every waiting call
+        P-->>B: Allow (kept) or Don't allow (kept too)
+    end
+    B->>V: read the value
+    B->>B: add the header, send, no redirects
+    B-->>E: the response, never the value
+```
+
+**Where things are.** The value goes straight into the OS store under the
+service `agents-dashboard`: the login keychain on macOS (through
+Security.framework, so it is never on a command line), Credential Manager on
+Windows, the Secret Service through `secret-tool` on Linux (the value on its
+standard input). `~/.agents-dashboard/secrets.json` has names, grants and
+when each was last used, never a value, and is a file of its own rather than
+part of `settings.json`: the Settings page saves its whole copy of the
+settings on every change and would undo a grant made meanwhile. Nothing is
+encrypted by the app; each store encrypts at rest under the user's login,
+which is also what unlocks it: any program running as the user can ask the
+store to decrypt.
+
+**Who is asked.** `ISecrets` is only in the extension's own container, built
+per load with the id and the SHA-256 of the entry assembly that load runs, so
+the caller is the host's word, not the extension's. `@inject ISecrets`
+resolves from the app's container, which cannot tell extensions apart; it
+gets `UnboundSecrets`, which throws, so the view shows the error rather than
+failing to build. A grant is per extension, per build: a rebuild or an update
+is asked again, as installed code is for consent. A no is kept too, so an
+extension asking on a timer is not a prompt every minute; Settings forgets it
+with Forget. A brokered grant lists hosts and widens by one per prompt; a read
+grant covers brokered calls to anywhere. Calls wait until answered, and every
+call about the same thing shares one prompt; a cancelled call stops waiting
+and the prompt stays. Not now, and Escape, keep nothing: the callers hear
+null and the extension asks again next time. The hash is of the entry
+assembly, as consent's is, so a change only in a dependency with a
+byte-identical entry keeps the grant; a linked extension being developed is
+asked again on every build that changes it.
+
+**Never an agent's.** No agent tool serves a secret, and the `agents-dashboard`
+MCP server has no way to set one. No session's environment carries one: the
+app's own environment never holds them, and the only thing added to a
+session's is its MCP key. `AgentToolServer` handles every MCP request, listing
+the tools as well as calling one, inside `SecretBroker.ForAgent()`. A secret
+asked for there, or in a task started from there, throws rather than prompts,
+and the OS store itself (`SecretVaults.Guarded`) refuses reads, writes and
+deletes in that scope, so code that goes round the broker is stopped too. The
+stdio bridge for terminal agents never builds the app's services, and so never
+touches the store, so an agent cannot get a value through
+a tool or put a prompt in front of you with words it chose. The scope flows
+with the execution context, which Blazor's `InvokeAsync` keeps, so a view
+re-rendered by an event a tool call raised is inside it too; a view that asks
+for a secret while rendering is refused there, which is one more reason not
+to. The Settings page and the prompt are only reachable from the app's own
+window (see `UiAccess` in `AGENTS.md`), so an agent cannot press Allow or add
+a secret in this app's window through a headless browser.
+
+**What this is not.** Extensions run in the app's process and share its types
+(`ExtensionLoadContext`), so any enabled extension could reach `SecretBroker`
+or the OS store by reflection, or read files. Per-extension approval keeps an
+extension that follows the rules to the secrets you meant it to have; it is
+not isolation, and the boundary is still consenting to an extension's code.
+Nor does any of it hold against an agent that steps outside this app. An
+agent runs as you, and can start a second copy of the app itself, with
+`--browser` and its own `--data-dir`: that copy prints its own UI key, reads
+the same OS store, and will approve whatever extension the agent links in it.
+On Windows and Linux the agent needs no second copy: any program running as
+you can read an unlocked store, an agent's shell commands included. On macOS
+the store asks before a program other than the one that created the item
+reads it, which keeps out `security` and a script, but not the app's own
+binary run again, and under `dotnet run` that binary is `dotnet` itself. What
+would close this is a key the app cannot supply on its own, a passphrase or
+Touch ID and Windows Hello, which is not built. The Settings page says so.
+
 ## Where they come from
 
 | Source | Where | Runs when |
@@ -360,7 +467,8 @@ app cannot prevent that short of running extensions in another process.
 **Two containers.** The app's container is fixed once it starts, so each load
 builds the extension its own, holding what it registered plus the API services
 (`IDashboardView`, `INavigation`, `ITextLinker`, `IExtensionStorage`,
-`ILogger<T>`). A component's `@inject` resolves from the *app's* container,
+`ILogger<T>`), plus `ISecrets` bound to that extension and build, which only
+this container has. A component's `@inject` resolves from the *app's* container,
 where only the API services are, so an extension's own services are reached
 with `Context.Get<T>()`.
 
@@ -405,6 +513,8 @@ sandbox it, and a load context is not a security boundary. So:
   so an extension found there is on until you disable it. Disabling is saved,
   and it stays off when it next appears.
 - Extensions come only from local folders. No download, no marketplace.
+- A secret is asked about per extension and per build, and never reaches an
+  agent. See Secrets above for what that does and does not protect.
 
 The project's rules apply to extensions as to the app: nothing is written into
 `~/.claude`, and anything that changes the user's repository is a button they

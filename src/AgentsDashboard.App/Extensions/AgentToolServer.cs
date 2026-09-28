@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using AgentsDashboard.Core.Agents;
+using AgentsDashboard.Core.Secrets;
 using AgentsDashboard.Extensions;
 
 namespace AgentsDashboard.App.Extensions;
@@ -219,6 +220,10 @@ public sealed class AgentToolServer(
             return null;
         }
 
+        // Everything a request runs, listing included (a tool's name and
+        // description are extension code too), is an agent's doing, and no
+        // secret may be read or written inside it. See SecretBroker.ForAgent.
+        using var _ = SecretBroker.ForAgent();
         var parameters = request["params"] as JsonObject;
         return method switch
         {

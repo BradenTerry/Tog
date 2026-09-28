@@ -53,6 +53,9 @@ picked. See [docs/workbench.md](docs/workbench.md).
   message the agent, with the list of **Agents** down its right side, the ones
   waiting on you first, and **New agent**, which opens as a dialog.
 - Extensions add tabs to any of the three panels, the right one by default.
+  They ask for **Secrets** (a GitHub, Jira or Linear token) by name; you
+  approve each extension, and the values stay in the OS keychain. See
+  `docs/extensions.md`.
   Any tab, the app's own included, can be dragged to another panel or split
   into a section of its own, and the arrangement is kept.
 - **New agent** starts one in a repository from Settings, in a new worktree or an
@@ -153,7 +156,7 @@ that quietly stopped updating is worse than one that missed a tick.
 
 ```bash
 dotnet run --project src/AgentsDashboard.App              # native window
-dotnet run --project src/AgentsDashboard.App -- --browser # print a URL instead
+dotnet run --project src/AgentsDashboard.App -- --browser # print a URL, with this start's key, instead
 dotnet run --project src/AgentsDashboard.App -- --port 5000
 dotnet run --project src/AgentsDashboard.App -- --data-dir /tmp/dash # settings kept elsewhere
 dotnet run --project src/AgentsDashboard.App -- --extension "$PWD/extensions/DotnetTests"

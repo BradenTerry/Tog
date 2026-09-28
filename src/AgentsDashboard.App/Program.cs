@@ -9,6 +9,7 @@ using AgentsDashboard.Core.Git;
 using AgentsDashboard.Core.Monitoring;
 using AgentsDashboard.Core.Platform;
 using AgentsDashboard.Core.Repos;
+using AgentsDashboard.Core.Secrets;
 using AgentsDashboard.Core.Review;
 using AgentsDashboard.App.Extensions;
 using AgentsDashboard.Extensions;
@@ -138,7 +139,14 @@ builder.Services.AddSingleton<AgentsDashboard.Extensions.INavigation, Navigation
 builder.Services.AddSingleton<AgentsDashboard.Extensions.ITextLinker, TextLinker>();
 builder.Services.AddScoped<AgentsDashboard.Extensions.IEditorTabs, EditorTabs>();
 builder.Services.AddScoped<AgentsDashboard.Extensions.IAgentOffers, AgentOffers>();
+builder.Services.AddSingleton<AgentsDashboard.Extensions.ISecrets, UnboundSecrets>();
 builder.Services.AddSingleton<ExtensionHost>();
+// Secrets extensions ask for by name. Values are in the OS store; the app
+// keeps names and grants. Nothing here reaches an agent: no tool serves them
+// and no session's environment carries them.
+builder.Services.AddSingleton(_ => SecretVaults.ForThisMachine());
+builder.Services.AddSingleton<SecretCatalog>();
+builder.Services.AddSingleton<SecretBroker>();
 // What an agent needs to write one, and the prompt it raises to add one.
 builder.Services.AddSingleton<AgentsDashboard.Core.Extensions.ExtensionSkill>();
 builder.Services.AddSingleton<ExtensionRequests>();
@@ -170,6 +178,10 @@ AgentsDashboard.Core.Presentation.Fmt.TwentyFourHourClock =
 // asset manifest, so the framework's own files (blazor.web.js above all) are
 // there whether the app is run from bin or from a publish output. UseStaticFiles
 // only finds them when ASP.NET Core happens to be in the Development environment.
+// First, so nothing below answers a caller that is not the app's own window.
+var uiAccess = new UiAccess();
+uiAccess.Map(app);
+
 app.MapStaticAssets();
 app.UseAntiforgery();
 app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
@@ -191,7 +203,7 @@ var mcpLinkFile = app.Services.GetRequiredService<AppPaths>().McpLinkFile;
 app.Services.GetRequiredService<AgentToolServer>().Link().Write(mcpLinkFile);
 app.Lifetime.ApplicationStopping.Register(() => McpLink.Withdraw(mcpLinkFile, Environment.ProcessId));
 
-var url = $"http://127.0.0.1:{port}";
+var url = uiAccess.EntryUrl($"http://127.0.0.1:{port}");
 
 if (options.Browser)
 {
@@ -205,7 +217,7 @@ if (options.Browser)
 // is already started above rather than run to completion.
 void OpenWindow() => DesktopWindow.Open(url, app.Services.GetRequiredService<ILoggerFactory>(),
     app.Services.GetRequiredService<FolderPicker>(), app.Services.GetRequiredService<AppUpdate>(),
-    app.Services.GetRequiredService<WindowBoundsStore>(), fallbackUrlPrinted: () =>
+    app.Services.GetRequiredService<WindowBoundsStore>(), options.Verbose, fallbackUrlPrinted: () =>
     Console.WriteLine($"Agents Dashboard is running at {url}"));
 
 if (OperatingSystem.IsWindows())

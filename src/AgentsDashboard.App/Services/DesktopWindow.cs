@@ -28,14 +28,17 @@ public static class DesktopWindow
     private static readonly Size DefaultSize = new(1440, 940);
     private static readonly Size MinSize = new(900, 600);
 
-    public static void Open(string url, ILoggerFactory loggers, FolderPicker folders, AppUpdate update, WindowBoundsStore bounds, Action fallbackUrlPrinted)
+    public static void Open(string url, ILoggerFactory loggers, FolderPicker folders, AppUpdate update, WindowBoundsStore bounds, bool verbose, Action fallbackUrlPrinted)
     {
         var log = loggers.CreateLogger(nameof(DesktopWindow));
 
         try
         {
             var saved = bounds.Load();
+            // Photino writes every call, Load(url) included, to stdout at its
+            // default verbosity, and the address carries this start's UI key.
             var window = new PhotinoWindow()
+                .SetLogVerbosity(verbose ? 2 : 0)
                 .SetTitle("Agents Dashboard")
                 .SetUseOsDefaultSize(false)
                 .SetSize(saved is null ? DefaultSize : new Size(Math.Max(saved.Width, MinSize.Width), Math.Max(saved.Height, MinSize.Height)))
