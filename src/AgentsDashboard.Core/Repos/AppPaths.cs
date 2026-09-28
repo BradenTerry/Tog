@@ -24,6 +24,9 @@ public sealed class AppPaths
     /// <summary>Where the views sit in the panels, and the panels' sizes. See <c>PanelLayoutStore</c>.</summary>
     public string LayoutFile => Path.Combine(Root, "layout.json");
 
+    /// <summary>Each agent's last turn end you had on screen. See <c>SeenTurnsStore</c>.</summary>
+    public string SeenTurnsFile => Path.Combine(Root, "seen-turns.json");
+
     /// <summary>The native window's size and place on screen. See <c>WindowBoundsStore</c>.</summary>
     public string WindowFile => Path.Combine(Root, "window.json");
 

@@ -45,6 +45,7 @@ public sealed record PermissionAsk(string Key, string Title, string? Detail, IRe
 /// <param name="FolderGone">Its folder no longer exists, typically a worktree that was removed. Claude resumes a conversation only in the folder it started in, so it cannot carry on.</param>
 /// <param name="Commands">The slash commands it takes, as it last listed them, or those another session listed while it has not.</param>
 /// <param name="Questions">A form of questions it is waiting on you to answer, the oldest when there are several.</param>
+/// <param name="TurnEndedAt">When its last turn ended, kept across restarts, for telling a finished turn you have read from one you have not.</param>
 public sealed record HostedAgent(
     string SessionId,
     string Cwd,
@@ -61,7 +62,8 @@ public sealed record HostedAgent(
     ContextUsage? Context = null,
     bool FolderGone = false,
     IReadOnlyList<AcpCommand>? Commands = null,
-    QuestionForm? Questions = null)
+    QuestionForm? Questions = null,
+    DateTimeOffset? TurnEndedAt = null)
 {
     /// <summary>What it is waiting on you for, in a few words, when it is.</summary>
     /// <remarks>An MCP server's form is named as one, never by its own message, which is the server's to write.</remarks>
@@ -192,6 +194,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
                 Prompt = saved.Prompt,
                 Context = saved.Context,
                 Commands = saved.Commands,
+                TurnEndedAt = saved.TurnEndedAt,
             };
 
             if (saved.Commands is { Count: > 0 } commands)
@@ -598,6 +601,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
     private async Task RunTurnAsync(AcpClient client, string sessionId, string text)
     {
         string? error = null;
+        var ended = false;
         try
         {
             await client.PromptAsync(sessionId, text).ConfigureAwait(false);
@@ -635,7 +639,15 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
                 // stopped waiting for it when the turn ended.
                 entry.Abandon();
                 entry.SetState(entry.Error is null ? HostedState.Idle : HostedState.Failed, _clock.Now);
+                entry.TurnEndedAt = _clock.Now;
+                ended = true;
             }
+        }
+
+        // Saved, so a turn that finished unread is still unread after a restart.
+        if (ended)
+        {
+            Save();
         }
 
         Touch();
@@ -1169,7 +1181,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
         {
             records = _entries.Values
                 .OrderBy(e => e.AddedAt)
-                .Select(e => new HostedAgentRecord(e.SessionId, e.Cwd, e.Title, e.AddedAt, e.Prompt, e.Context, e.Commands))
+                .Select(e => new HostedAgentRecord(e.SessionId, e.Cwd, e.Title, e.AddedAt, e.Prompt, e.Context, e.Commands, e.TurnEndedAt))
                 .ToList();
         }
 
@@ -1387,6 +1399,9 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
         /// <summary>Forms of questions open, oldest first. Parallel subagents can each ask.</summary>
         public List<PendingQuestions> Questions { get; } = [];
         public string? Error { get; set; }
+
+        /// <summary>When the last turn ended, whether in a reply or an error.</summary>
+        public DateTimeOffset? TurnEndedAt { get; set; }
         public IReadOnlyList<AcpConfigOption> Options { get; set; } = [];
         public IReadOnlyList<AcpCommand>? Commands { get; set; }
 
@@ -1417,6 +1432,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
             Live.ToString(), CurrentTool, Permission?.Ask, Error, Options, Prompt, Context,
             FolderGone: !Directory.Exists(Cwd),
             Commands: Commands ?? knownCommands,
-            Questions: Questions.FirstOrDefault()?.Form);
+            Questions: Questions.FirstOrDefault()?.Form,
+            TurnEndedAt: TurnEndedAt);
     }
 }
