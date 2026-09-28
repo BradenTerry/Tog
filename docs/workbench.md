@@ -284,8 +284,14 @@ It is wrong for anything heavy. `FileTreePanel`, `FileDocument`,
 `SourceControlPanel` and `DiffDocument` override `ShouldRender` and redraw only
 when they call `Touch()` or their model moves.
 
-`WorkbenchPanel` keeps the tabs you have opened built, and rebuilds them all when
-the panel moves to another agent. Components are keyed by worktree or session,
+`WorkbenchPanel` keeps the tabs you have opened built. When the panel moves to
+another agent, the app's own tabs are rebuilt, so Files and Source control read
+the worktree afresh. An extension's tabs are parked instead: kept built and
+hidden, and taken back when you switch to that agent again, so an extension
+that reads a lot when it starts does not pay it on every switch. A parked view
+is drawn once to hear `IsVisible` is false, then not again until it is back.
+Parked views are dropped when their agent leaves the list, their worktree goes,
+or their extension is reloaded. Components are keyed by worktree or session,
 so nothing carries one agent's state into another.
 
 ## Layout, kept per machine

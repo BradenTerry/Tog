@@ -37,7 +37,24 @@
     [Parameter]
     public bool IsVisible { get; set; }
 
+    /// <summary>
+    /// Built for an agent or worktree no longer on screen. A parked view is
+    /// drawn once more to hear it is hidden, then left alone: its context is
+    /// from when it was last shown, and re-rendering it every second for
+    /// nobody is the cost parking is meant to avoid.
+    /// </summary>
+    [Parameter]
+    public bool Parked { get; set; }
+
     private ErrorBoundary? _boundary;
+    private bool _wasParked;
+
+    protected override bool ShouldRender()
+    {
+        var skip = Parked && _wasParked;
+        _wasParked = Parked;
+        return !skip;
+    }
 
     /// <summary>
     /// Only the parameters the view declares. DynamicComponent throws for one it
