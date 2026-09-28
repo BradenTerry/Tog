@@ -334,6 +334,11 @@ from the copy that is running.
 Each tab is keyed by the extension's generation, so a reloaded view is built
 fresh from the new type rather than handed new parameters.
 
+A view is built once per agent (and worktree) it is shown for. Switching to
+another agent parks it rather than disposing it, so switching back finds the same
+instance; it stays until its agent is removed or its worktree goes. A view that
+runs timers should pause them while `IsVisible` is false. See `docs/workbench.md`.
+
 Unloading is best effort. Blazor keeps per-type caches that can hold a rendered
 component's type, so an old copy may stay in memory until the app restarts.
 Nothing depends on it going.
