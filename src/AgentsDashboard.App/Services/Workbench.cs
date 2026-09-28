@@ -230,11 +230,18 @@ public sealed class Workbench : IDisposable
     public bool NewAgentOpen { get; private set; }
 
     /// <summary>
-    /// Where the New agent dialog should start, when whatever opened it knew: the
-    /// Worktrees view's "New agent" names a repository and a worktree. Read by
-    /// the form as it is built, and cleared when the dialog opens without one.
+    /// What the New agent dialog should start with, when whatever opened it knew:
+    /// the Worktrees view's "New agent" names a repository and a worktree, and an
+    /// extension's offer can add a worktree name and a prompt. Read by the form as
+    /// it is built, and cleared when the dialog opens without one.
     /// </summary>
-    public (string RepoRoot, string WorktreePath)? NewAgentIn { get; private set; }
+    public NewAgentPreset? NewAgentIn { get; private set; }
+
+    /// <summary>
+    /// Bumped on every preset, so the dialog builds its form afresh: a form already
+    /// open has read the last preset and would never see the new one.
+    /// </summary>
+    public int NewAgentGeneration { get; private set; }
 
     public void OpenNewAgent()
     {
@@ -247,9 +254,14 @@ public sealed class Workbench : IDisposable
     }
 
     /// <summary>Opens the New agent dialog with a repository and one of its worktrees already picked.</summary>
-    public void OpenNewAgent(string repoRoot, string worktreePath)
+    public void OpenNewAgent(string repoRoot, string worktreePath) =>
+        OpenNewAgent(new NewAgentPreset(repoRoot, worktreePath));
+
+    /// <summary>Opens the New agent dialog filled in, replacing whatever it held.</summary>
+    public void OpenNewAgent(NewAgentPreset preset)
     {
-        NewAgentIn = (repoRoot, worktreePath);
+        NewAgentIn = preset;
+        NewAgentGeneration++;
         NewAgentOpen = true;
         Raise();
     }
@@ -1024,3 +1036,10 @@ public sealed class EditorDoc(string key, DocKind kind, string? path)
 
 /// <summary>A place in the editor: a tab, and the line the caret was on when known.</summary>
 public sealed record NavPoint(string Key, int? Line);
+
+/// <summary>What the New agent dialog opens with. Null keeps the form's own default.</summary>
+public sealed record NewAgentPreset(
+    string? RepoRoot,
+    string? WorktreePath = null,
+    string? WorktreeName = null,
+    string? Prompt = null);

@@ -121,6 +121,7 @@ builder.Services.AddSingleton<AgentsDashboard.Extensions.IDashboardView, Dashboa
 builder.Services.AddSingleton<AgentsDashboard.Extensions.INavigation, Navigation>();
 builder.Services.AddSingleton<AgentsDashboard.Extensions.ITextLinker, TextLinker>();
 builder.Services.AddScoped<AgentsDashboard.Extensions.IEditorTabs, EditorTabs>();
+builder.Services.AddScoped<AgentsDashboard.Extensions.IAgentOffers, AgentOffers>();
 builder.Services.AddSingleton<ExtensionHost>();
 // What an agent needs to write one, and the prompt it raises to add one.
 builder.Services.AddSingleton<AgentsDashboard.Core.Extensions.ExtensionSkill>();

@@ -128,6 +128,18 @@ extension's own services are shared by every window and cannot. It shipped in
 the app's 1.2 at first and moved to 1.3, since a 1.2 app without it accepted
 extensions that injected it; declare `"apiVersion": "1.3"` to use it.
 
+`IAgentOffers` (API 1.5) offers the user a new agent: `Offer(AgentOffer)`
+opens the window's New agent dialog filled in with a repository, an existing
+worktree or a name for a new one, and a prompt, so a view listing tickets can
+have a button that sets up an agent on one. It is scoped to the window like
+`IEditorTabs`, so only a view has it, and it never starts anything: the user
+checks the dialog and presses Start, and the trust card still asks before the
+first agent in a repository. An agent can read and change the whole
+repository, and the API cannot tell a click from a worker calling on a timer,
+so starting one is always the user's press. A second offer replaces the first,
+even with the dialog open. Relative folders are dropped, since they would
+resolve against the app's working directory.
+
 ## Agent views and worktree views
 
 An `AddView` view is about an agent: it is only listed while an agent is
