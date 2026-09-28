@@ -1,15 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><defs>
 <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
-  <stop offset="0" stop-color="#1e2740"/><stop offset="1" stop-color="#0c111c"/>
+  <stop offset="0" stop-color="#f1fbe6"/><stop offset="1" stop-color="#c2eaa4"/>
 </linearGradient>
 </defs>
 <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#tile)"/>
-<rect x="101.5" y="101.5" width="821" height="821" rx="183.5" fill="none" stroke="#fff" stroke-opacity="0.10" stroke-width="3"/>
-<rect x="352" y="260" width="320" height="200" rx="44" fill="#3c5a94"/>
-<rect x="302" y="330" width="420" height="220" rx="48" fill="#5b7fd0"/>
-<rect x="252" y="410" width="520" height="352" rx="56" fill="#fff"/>
-<rect x="316" y="500" width="240" height="44" rx="22" fill="#1e2740" fill-opacity="0.8"/>
-<rect x="316" y="584" width="330" height="44" rx="22" fill="#1e2740" fill-opacity="0.35"/>
-<rect x="316" y="668" width="190" height="44" rx="22" fill="#1e2740" fill-opacity="0.35"/>
-<circle cx="690" cy="522" r="44" fill="#ffb547"/>
+<rect x="101.5" y="101.5" width="821" height="821" rx="183.5" fill="none" stroke="#fff" stroke-opacity="0.55" stroke-width="3"/>
+<path d="M512 450 V330" stroke="#2f8a57" stroke-width="28" stroke-linecap="round"/>
+<path d="M512 380 C436 380 384 336 374 262 C448 262 506 304 512 380 Z" fill="#3fae6d"/>
+<path d="M512 340 C584 340 642 296 652 214 C570 214 516 258 512 340 Z" fill="#62c98a"/>
+<rect x="228" y="580" width="56" height="120" rx="28" fill="#1f2a44"/>
+<rect x="740" y="580" width="56" height="120" rx="28" fill="#1f2a44"/>
+<rect x="268" y="450" width="488" height="370" rx="126" fill="#1f2a44"/>
+<circle cx="420" cy="612" r="56" fill="#a6f5cf"/>
+<circle cx="604" cy="612" r="56" fill="#a6f5cf"/>
+<circle cx="440" cy="592" r="16" fill="#fff"/>
+<circle cx="624" cy="592" r="16" fill="#fff"/>
+<path d="M466 724 Q512 756 558 724" stroke="#a6f5cf" stroke-width="18" fill="none" stroke-linecap="round"/>
 </svg>
