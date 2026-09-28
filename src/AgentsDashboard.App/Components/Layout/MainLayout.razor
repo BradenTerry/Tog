@@ -5,6 +5,8 @@
 @inject MonitorService Monitor
 @inject IJSRuntime Js
 @inject AgentsDashboard.Core.Platform.OpenRequests Requests
+@inject Shortcuts Keys
+@inject NavigationManager Nav
 
 @* The window, laid out like VS Code: files on the left, source control on the
    right, the editor in the middle with the conversation under it. The agents
@@ -46,6 +48,7 @@
 </div>
 
 <NewAgentDialog />
+<QuickOpen />
 
 @code {
     private const string LayoutPref = "layout";
@@ -61,6 +64,7 @@
         Bench.Changed += OnBenchChanged;
         Bench.LayoutChanged += OnLayoutChanged;
         State.Changed += OnSnapshot;
+        Keys.Changed += OnKeysChanged;
 
         // Opens among the tabs of whatever this window is looking at, which is
         // where the person who asked is looking too.
@@ -83,6 +87,7 @@
 
             _self = DotNetObjectReference.Create(this);
             await Js.InvokeVoidAsync("agentsDashboard.watchNavigation", _self);
+            await Js.InvokeVoidAsync("agentsKeys.watch", _self, Keys.Map.ByChord());
         }
         catch (Exception e) when (e is JSException or InvalidOperationException or TaskCanceledException)
         {
@@ -105,15 +110,80 @@
         }
     }
 
-    /// <summary>The mouse's back button, or Ctrl+-, with the caret line of the file on screen.</summary>
+    /// <summary>The mouse's back button, with the caret line of the file on screen. The keys come through <see cref="RunCommand"/>.</summary>
     [JSInvokable]
     public void Back(int? line) => Bench.GoBack(CurrentWorktree, line);
 
-    /// <summary>The mouse's forward button, or Ctrl+Shift+-.</summary>
+    /// <summary>The mouse's forward button.</summary>
     [JSInvokable]
     public void Forward(int? line) => Bench.GoForward(CurrentWorktree, line);
 
     private string CurrentWorktree => Bench.WorktreeInView(State.Snapshot) ?? "";
+
+    /// <summary>
+    /// A keyboard shortcut, from app.js's listener, by command id. The line is
+    /// the caret's in the file on screen, which going back and forward keep.
+    /// </summary>
+    [JSInvokable]
+    public void RunCommand(string id, int? line)
+    {
+        switch (id)
+        {
+            case Commands.QuickOpen:
+                Bench.ShowQuickOpen();
+                break;
+            case Commands.GoToLine:
+                Bench.ShowQuickOpen(":");
+                break;
+            case Commands.NavigateBack:
+                Bench.GoBack(CurrentWorktree, line);
+                break;
+            case Commands.NavigateForward:
+                Bench.GoForward(CurrentWorktree, line);
+                break;
+            case Commands.ToggleLeft:
+                Bench.Toggle(PanelSide.Left);
+                break;
+            case Commands.ToggleRight:
+                Bench.Toggle(PanelSide.Right);
+                break;
+            case Commands.ToggleBottom:
+                Bench.Toggle(PanelSide.Bottom);
+                break;
+            case Commands.OpenSettings:
+                Bench.OpenSettings(Bench.WorktreeInView(State.Snapshot));
+                BackToEditor();
+                break;
+            case Commands.OpenKeybindings:
+                Bench.OpenSettings(Bench.WorktreeInView(State.Snapshot), "keys");
+                BackToEditor();
+                break;
+            case Commands.NewAgent:
+                Bench.OpenNewAgent();
+                break;
+        }
+    }
+
+    /// <summary>Settings opens among the editor's tabs, so from a page with no editor it goes back to the agent's.</summary>
+    private void BackToEditor()
+    {
+        var page = Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0];
+        if (page.Length > 0 && !page.StartsWith("chat", StringComparison.Ordinal))
+        {
+            Nav.NavigateTo(Urls.Chat(Bench.SessionId));
+        }
+    }
+
+    private void OnKeysChanged() => _ = InvokeAsync(async () =>
+    {
+        try
+        {
+            await Js.InvokeVoidAsync("agentsKeys.setBindings", Keys.Map.ByChord());
+        }
+        catch (Exception e) when (e is JSException or JSDisconnectedException or InvalidOperationException or TaskCanceledException)
+        {
+        }
+    });
 
     private void OnLayoutChanged() => _ = SaveLayout();
 
@@ -171,6 +241,7 @@
         Bench.Changed -= OnBenchChanged;
         Bench.LayoutChanged -= OnLayoutChanged;
         State.Changed -= OnSnapshot;
+        Keys.Changed -= OnKeysChanged;
         _openRequests?.Dispose();
         _statusWatch?.Dispose();
         _fileWatch?.Dispose();

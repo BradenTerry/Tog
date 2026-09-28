@@ -25,6 +25,27 @@ public sealed record Settings
     /// <summary>Show times of day as 14:05 rather than 2:05 PM.</summary>
     public bool TwentyFourHourClock { get; init; }
 
+    /// <summary>
+    /// Open a file picked in Go to File as the preview tab, which the next one
+    /// replaces. Off by default, as VS Code's enablePreviewFromQuickOpen is:
+    /// a file searched for by name is usually one you meant to keep.
+    /// </summary>
+    public bool QuickOpenPreview { get; init; }
+
+    /// <summary>List recently opened files in Go to File, first when nothing is typed and ahead of other matches.</summary>
+    public bool QuickOpenHistory { get; init; } = true;
+
+    /// <summary>Close Go to File when focus moves elsewhere, a click outside it say.</summary>
+    public bool QuickOpenCloseOnBlur { get; init; } = true;
+
+    /// <summary>
+    /// Keys the user bound, by command id. Each list replaces that command's
+    /// defaults, and an empty one unbinds it. Commands not here keep their
+    /// defaults. See <c>KeyMap</c>.
+    /// </summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<string>> KeyBindings { get; init; } =
+        new Dictionary<string, IReadOnlyList<string>>();
+
     /// <summary>Model to preselect when starting an agent. Null leaves it to the CLI.</summary>
     public string? DefaultModel { get; init; }
 
