@@ -1692,7 +1692,6 @@ button.icon-btn:hover:where(:not(:disabled)) { background: var(--surface-2); }
 .where-pin, .where-caret { flex: none; color: var(--text-faint); }
 .where.pinned .where-pin { color: var(--accent); }
 .where-item { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); font-weight: 500; }
-.where-sep { color: var(--text-faint); }
 .where-branch {
     display: inline-flex;
     align-items: center;
@@ -1759,7 +1758,7 @@ button.icon-btn:hover:where(:not(:disabled)) { background: var(--surface-2); }
 /* No room left for the names: the repository button is its caret, which
    still opens the worktree list. Its path is in the tooltip. */
 @media (max-width: 520px) {
-    .where-item, .where-sep { display: none; }
+    .where-item { display: none; }
 }
 .title-update { display: inline-flex; align-items: center; gap: 6px; flex: none; font-size: 12px; white-space: nowrap; }
 

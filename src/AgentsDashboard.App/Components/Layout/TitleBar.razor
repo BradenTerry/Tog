@@ -4,7 +4,7 @@
 @inject AgentDirectory Directory
 @inject Shortcuts Keys
 
-@* Across the top: the repository, worktree and branch whose files are open, a
+@* Across the top: the repository and branch whose files are open, a
    newer build when one is waiting, the agents counted by state, and the three
    buttons that fold the panels away. The full directory and the worktree are in
    the status bar along the bottom. Each button is a picture of the window with
@@ -18,8 +18,10 @@
             <span class="brand-name">Agents</span>
         </span>
 
-        @* The repository and worktree whose files are open, which is the agent's
-           until one is picked here. A click lists every worktree of every repo. *@
+        @* The repository and branch whose files are open, which is the agent's
+           until one is picked here. The worktree's name is left to the list a
+           click opens, which names every worktree of every repo; the branch
+           already tells them apart. *@
         @{
             var worktree = Bench.WorktreeInView(Snapshot.Value);
             var place = worktree is null ? null : Workbench.Find(Snapshot.Value, worktree);
@@ -32,11 +34,6 @@
                     aria-haspopup="menu" aria-expanded="@(_picker is not null ? "true" : "false")"
                     title="@(Bench.Pinned ? info.Path + "\nPicked by hand: stays when you switch agents." : info.Path)">
                 <span class="where-item">@p.Repo.Name</span>
-                @if (info.Name != p.Repo.Name)
-                {
-                    <span class="where-sep">/</span>
-                    <span class="where-item">@info.Name</span>
-                }
                 @if (info.Branch is { Length: > 0 } branch)
                 {
                     <span class="where-branch mono" title="Branch">
@@ -106,7 +103,8 @@
     </div>
 
     @* Go to File's box, where VS Code's command center sits: in the middle of
-       the bar, naming the worktree it searches, with the key that opens it.
+       the bar, naming the branch it searches (the worktree's name when
+       detached, as the title bar shows no worktree name), with the key that opens it.
        It is a button that opens the real box rather than an input, as in VS
        Code, so the list and its keys live in one place. The bar is three
        columns, the outer two the same width, so this centres on the window
@@ -119,7 +117,7 @@
                 <circle cx="7" cy="7" r="4.25" fill="none" stroke="currentColor" stroke-width="1.5" />
                 <path d="M10.2 10.2 13.5 13.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
             </svg>
-            <span class="command-center-label">@(place is { } found ? $"Search {found.Worktree.Worktree.Name}" : "Search files")</span>
+            <span class="command-center-label">@(place is { } found ? $"Search {(found.Worktree.Worktree.Branch is { Length: > 0 } b ? b : found.Worktree.Worktree.Name)}" : "Search files")</span>
             @if (Keys.Map.Hint(Commands.QuickOpen) is { } hint)
             {
                 <kbd>@hint</kbd>
