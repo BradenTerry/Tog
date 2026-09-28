@@ -142,6 +142,13 @@ so starting one is always the user's press. A second offer replaces the first,
 even with the dialog open. Relative folders are dropped, since they would
 resolve against the app's working directory.
 
+`OfferAsync` (API 1.7) does the same and says how it ended: the started
+agent's session id once the user presses Start, or null when the dialog is
+closed, another offer replaces it, or the window goes away. The Ideas extension
+uses it to take an idea off its list once an agent is working on it. The task
+can wait as long as the dialog stays open, so do not hold anything on it that
+the view needs meanwhile.
+
 ## Agent views and worktree views
 
 An `AddView` view is about an agent: it is only listed while an agent is

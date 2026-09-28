@@ -70,6 +70,8 @@ file as a tab in that window's editor, such as a long report you wrote to your
 data folder, and `IAgentOffers` (API 1.5) opens the New agent dialog filled
 in with an `AgentOffer` (repository, worktree or new worktree name, prompt).
 It never starts the agent: the user presses Start. Call it from a click.
+`OfferAsync` (API 1.7) also returns the started session id, or null if none
+was started.
 
 ## Rules
 
