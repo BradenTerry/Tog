@@ -241,3 +241,10 @@ machine and survives a restart. The keys are caught by a capture listener on the
 editor's host rather than bound as a Monaco command, because with focus in the
 find widget or the minimap a command never sees them and the webview zooms the
 whole page instead.
+
+Alt+Z, the wrap button in the file's toolbar, or Toggle Word Wrap in the context
+menu wraps long lines at the edge of the editor, as in VS Code. Like the text
+size it applies to every open editor at once and is kept in `localStorage`. It is a plain Monaco action: Alt+Z means
+nothing to the webview, so there is no page-level default to get ahead of. The
+setting lives in the browser, so `monaco.js` tells every editor's .NET side when
+it flips (`WordWrapChanged`), and each tab's button shows the current state.

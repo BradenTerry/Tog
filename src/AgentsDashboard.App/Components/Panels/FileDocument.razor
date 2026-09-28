@@ -36,6 +36,16 @@
             }
         }
         <span class="spacer"></span>
+        @if (ShowsEditor)
+        {
+            <button class="icon-btn doc-wrap @(_wrap ? "active" : "")" @onclick="ToggleWrap"
+                    title="@(_wrap ? "Stop wrapping long lines (Alt+Z)" : "Wrap long lines (Alt+Z)")"
+                    aria-label="Word wrap" aria-pressed="@(_wrap.ToString().ToLowerInvariant())">
+                <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                    <path d="M2 3.5h12M2 7.5h10a2 2 0 0 1 0 4H8.5M10 9.5l-2 2 2 2M2 11.5h3.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+            </button>
+        }
         @if (_file?.Editable == true)
         {
             <button class="icon-btn doc-save" disabled="@(!_unsaved || _saving)" @onclick="Save"
@@ -142,7 +152,8 @@
                         RevealKey="@_reveal"
                         OnReferences="ShowReferences"
                         OnCallHierarchy="ShowCallHierarchy"
-                        OnTextChanged="PushText" />
+                        OnTextChanged="PushText"
+                        OnWordWrapChanged="SetWrap" />
         </div>
 
         @if (_hierarchy is not null || _references is not null)
@@ -200,6 +211,9 @@
 
     /// <summary>True while the editor holds changes that are not on disk.</summary>
     private bool _unsaved;
+
+    /// <summary>Whether the editor wraps long lines, as it last reported.</summary>
+    private bool _wrap;
     private bool _saving;
     private bool _conflict;
     private string? _failure;
@@ -458,6 +472,23 @@
             catch (Exception e) when (e is JSException or InvalidOperationException or TaskCanceledException)
             {
             }
+        }
+    }
+
+    /// <summary>The Monaco editor is on screen, which is when wrapping means anything.</summary>
+    private bool ShowsEditor => _file is { IsBinary: false, Truncated: false } file && string.IsNullOrEmpty(file.Error) && !(_preview && CanPreview);
+
+    private void SetWrap(bool on)
+    {
+        Touch();
+        _wrap = on;
+    }
+
+    private async Task ToggleWrap()
+    {
+        if (_editor is not null)
+        {
+            await _editor.ToggleWordWrapAsync();
         }
     }
 
