@@ -22,7 +22,8 @@ reviewing their diffs. Anything else is an extension.
 long rationale lives in `docs/`, one file per subsystem that is easy to get wrong
 twice:
 
-- `docs/extensions.md` - loading, the shared assemblies, reload, consent
+- `docs/extensions.md` - loading, the shared assemblies, reload, consent,
+  the skill and the MCP tools that let an agent write one
 - `docs/test-monitoring.md` - the Tests extension: streaming TRX, the process
   signal, the two clocks, the telemetry installer
 - `docs/review.md` - diff bases, the comment draft, the submit order
@@ -166,6 +167,7 @@ services are registered there. An extension's own services come from
   decision over a line-by-line narration.
 - Nothing the dashboard or an agent does on its own writes into `~/.claude`;
   the app only reads it. You can still open and edit a file there yourself,
-  and it is saved when you press Save, like any file.
+  and it is saved when you press Save, like any file. The one write the app
+  makes there is the extension skill, from its button in Settings.
 - Anything that edits the user's repository is offered, never done on its own.
 - Don't commit unless asked.

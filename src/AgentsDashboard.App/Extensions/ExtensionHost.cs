@@ -42,6 +42,7 @@ public sealed class ExtensionHost : IDisposable
     private readonly IServiceProvider _app;
     private readonly ILogger<ExtensionHost> _log;
     private readonly ExtensionOptions _options;
+    private readonly ExtensionSkill _skill;
     private readonly Lock _gate = new();
 
     private readonly Dictionary<string, Loaded> _loaded = new(StringComparer.Ordinal);
@@ -58,13 +59,15 @@ public sealed class ExtensionHost : IDisposable
         SettingsStore settings,
         IServiceProvider app,
         ILogger<ExtensionHost> log,
-        ExtensionOptions options)
+        ExtensionOptions options,
+        ExtensionSkill skill)
     {
         _paths = paths;
         _settings = settings;
         _app = app;
         _log = log;
         _options = options;
+        _skill = skill;
     }
 
     /// <summary>Raised when an extension loads, unloads or fails.</summary>
@@ -942,7 +945,8 @@ public sealed class ExtensionHost : IDisposable
     /// <summary>
     /// Copies the API assembly and its documentation where an extension project
     /// can reference them, so writing one needs no NuGet feed and always compiles
-    /// against the version of the app that will run it.
+    /// against the version of the app that will run it. The project template goes
+    /// beside them, so an agent outside the repository can scaffold one.
     /// </summary>
     private void PublishSdk()
     {
@@ -960,6 +964,8 @@ public sealed class ExtensionHost : IDisposable
             {
                 File.Copy(file, Path.Combine(target, Path.GetFileName(file)), overwrite: true);
             }
+
+            _skill.PublishTemplate();
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {

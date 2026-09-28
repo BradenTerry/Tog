@@ -1,6 +1,7 @@
 @using AgentsDashboard.Core.Extensions
 @inject ExtensionHost Extensions
 @inject FolderPicker Folders
+@inject ExtensionSkill Skill
 @implements IDisposable
 
 @* Every extension found, what it is, and whether it runs. An extension is code
@@ -140,6 +141,63 @@
             <p class="faint" style="margin: 8px 0 0; color: var(--danger);">@_error</p>
         }
     </div>
+
+    @* The skill is the one thing the app writes into an agent's config folder,
+       and only from this button. Agents the dashboard runs do not need it: its
+       MCP server hands them the same guide. *@
+    <div class="card-head"><h2>Write one with an agent</h2></div>
+    @foreach (var (target, state) in _skills)
+    {
+        <div class="row">
+            <div class="stack" style="flex: 1; min-width: 0;">
+                <div class="inline">
+                    <strong>@target.AgentName skill</strong>
+                    @if (target.Available)
+                    {
+                        <span class="chip @(state == SkillState.Current ? "active" : state == SkillState.Outdated ? "accent" : "")">@SkillStateName(state)</span>
+                    }
+                </div>
+                @if (target.Available)
+                {
+                    <span class="mono faint truncate" title="@Skill.FileFor(target)">@Skill.FileFor(target)</span>
+                }
+                else
+                {
+                    <span class="faint">@target.AgentName is not set up on this machine (no <span class="mono">@target.SkillsDir</span>).</span>
+                }
+            </div>
+            @if (target.Available)
+            {
+                <div class="inline" style="align-self: flex-start;">
+                    @switch (state)
+                    {
+                        case SkillState.Missing:
+                            <button class="small" @onclick="() => InstallSkill(target)">Add skill</button>
+                            break;
+                        case SkillState.Outdated:
+                            <button class="small" @onclick="() => InstallSkill(target)">Update</button>
+                            <button class="ghost small" @onclick="() => RemoveSkill(target)">Remove</button>
+                            break;
+                        default:
+                            <button class="ghost small" @onclick="() => RemoveSkill(target)">Remove</button>
+                            break;
+                    }
+                </div>
+            }
+        </div>
+    }
+    <div class="card-body">
+        <p class="faint" style="margin: 0;">
+            Ask an agent to make an extension and it scaffolds one from the dashboard's template, builds
+            it and asks you here to turn it on. Agents started in the dashboard already know how; the
+            skill teaches ones you start in a terminal too. It names this machine's SDK and template,
+            so update it after the dashboard updates.
+        </p>
+        @if (_skillError is { Length: > 0 })
+        {
+            <p class="faint" style="margin: 8px 0 0; color: var(--danger);">@_skillError</p>
+        }
+    </div>
 </div>
 
 @code {
@@ -150,9 +208,36 @@
     private string? _error;
     private string? _confirming;
     private bool _picking;
+    private IReadOnlyList<(SkillTarget Target, SkillState State)> _skills = [];
+    private string? _skillError;
 
+    protected override void OnInitialized()
+    {
+        Extensions.Changed += OnChanged;
+        ReadSkills();
+    }
 
-    protected override void OnInitialized() => Extensions.Changed += OnChanged;
+    /// <summary>Read once and after each button, not per render: it reads files.</summary>
+    private void ReadSkills() => _skills = [.. Skill.Targets.Select(t => (t, t.Available ? Skill.State(t) : SkillState.Missing))];
+
+    private void InstallSkill(SkillTarget target)
+    {
+        _skillError = Skill.Install(target);
+        ReadSkills();
+    }
+
+    private void RemoveSkill(SkillTarget target)
+    {
+        _skillError = Skill.Remove(target);
+        ReadSkills();
+    }
+
+    private static string SkillStateName(SkillState state) => state switch
+    {
+        SkillState.Current => "added",
+        SkillState.Outdated => "out of date",
+        _ => "not added",
+    };
 
     private void OnChanged() => _ = InvokeAsync(StateHasChanged);
 

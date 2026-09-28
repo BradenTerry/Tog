@@ -115,6 +115,7 @@ group together. Add or hide one under **Repositories**.
 | `extensions/DotnetTests` | The Tests tab, as an extension. Not shipped with the app; link it in Settings. |
 | `extensions/CSharpCode` | C# navigation in the editor from Roslyn, as an extension. The app carries no Roslyn or MSBuild of its own. |
 | `templates/extension` | `dotnet new agents-dashboard-extension`, with an `AGENTS.md` for writing one. |
+| `templates/skill` | The skill that teaches an agent to write one, shipped in the app and added from Settings. |
 | `tests/*` | xUnit v3 on Microsoft.Testing.Platform, for Core and for both extensions. |
 
 Blazor Server rather than a hybrid webview because its circuit is the push

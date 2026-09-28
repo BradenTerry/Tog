@@ -93,6 +93,8 @@ builder.Services.AddSingleton<PlanUsageStore>();
 // The app's and the extensions' agent tools, served as an MCP server on this
 // host and handed to every session the agent host starts or resumes.
 builder.Services.AddSingleton<IAgentTool, OpenFileTool>();
+builder.Services.AddSingleton<IAgentTool, ExtensionGuideTool>();
+builder.Services.AddSingleton<IAgentTool, ExtensionAddTool>();
 builder.Services.AddSingleton(new AgentToolServer.Endpoint(port));
 builder.Services.AddSingleton<AgentToolServer>();
 builder.Services.AddSingleton<IAgentMcpServers>(sp => sp.GetRequiredService<AgentToolServer>());
@@ -120,6 +122,9 @@ builder.Services.AddSingleton<AgentsDashboard.Extensions.INavigation, Navigation
 builder.Services.AddSingleton<AgentsDashboard.Extensions.ITextLinker, TextLinker>();
 builder.Services.AddScoped<AgentsDashboard.Extensions.IEditorTabs, EditorTabs>();
 builder.Services.AddSingleton<ExtensionHost>();
+// What an agent needs to write one, and the prompt it raises to add one.
+builder.Services.AddSingleton<AgentsDashboard.Core.Extensions.ExtensionSkill>();
+builder.Services.AddSingleton<ExtensionRequests>();
 // Language support is an extension's: this only routes the editor's questions
 // to whichever loaded extension answers for the file.
 builder.Services.AddSingleton<CodeNavigation>();
