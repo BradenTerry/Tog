@@ -334,7 +334,11 @@
                 default:
                     <header class="settings-section-head">
                         <h2>Repositories</h2>
-                        <p class="muted">The repositories you add here are the ones New agent offers to start in.</p>
+                        <p class="muted">
+                            The repositories you add here are the ones New agent offers to start in. End a
+                            path with <span class="mono">/*</span> to add every repository directly inside
+                            that folder, including ones cloned there later.
+                        </p>
                     </header>
 
                     <div class="card">
@@ -370,15 +374,28 @@
                             <div class="row faint">None yet. Add one above, or pick one Claude is already running in.</div>
                         }
 
-                        @foreach (var root in ByName(_settings.RepoRoots, r => State.Repo(r)?.Name ?? Fmt.Leaf(r)))
+                        @foreach (var root in ByName(_settings.RepoRoots, RootName))
                         {
                             var known = State.Repo(root);
+                            var folder = RepoDiscovery.WildcardFolder(root);
                             <div class="row">
                                 <div class="stack" style="flex: 1; min-width: 0;">
-                                    <strong>@(known?.Name ?? Fmt.Leaf(root))</strong>
+                                    <strong>@RootName(root)</strong>
                                     <span class="mono faint truncate">@root</span>
                                 </div>
-                                @if (known is not null)
+                                @if (folder is not null)
+                                {
+                                    @if (Directory.Exists(folder))
+                                    {
+                                        var inside = _expanded.Count(r => IsInside(r, folder));
+                                        <span class="chip">@inside @Fmt.Plural(inside, "repository", "repositories")</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="chip danger" title="There is no directory at this path any more">missing</span>
+                                    }
+                                }
+                                else if (known is not null)
                                 {
                                     <span class="chip">@Fmt.Count(known.Worktrees.Count, "worktree")</span>
                                 }
@@ -535,12 +552,19 @@
     }
 
     private string _newRoot = "";
+
+    /// <summary>
+    /// <see cref="Settings.RepoRoots"/> with each <c>folder/*</c> read out,
+    /// refreshed on every change rather than on each of the page's renders.
+    /// </summary>
+    private IReadOnlyList<string> _expanded = [];
     private string? _error;
 
     protected override void OnInitialized()
     {
         base.OnInitialized();
         _settings = Store.Load();
+        _expanded = RepoDiscovery.Expand(_settings.RepoRoots);
         TakeSection();
         Bench.Changed += OnBenchChanged;
     }
@@ -707,7 +731,8 @@
         _picking = true;
         try
         {
-            var start = Directory.Exists(_newRoot.Trim()) ? _newRoot.Trim() : null;
+            var typed = RepoDiscovery.WildcardFolder(_newRoot) ?? _newRoot.Trim();
+            var start = Directory.Exists(typed) ? typed : null;
             if (await Folders.PickAsync("Choose a repository", start) is { } chosen)
             {
                 _newRoot = chosen;
@@ -738,13 +763,27 @@
             return;
         }
 
-        if (!Directory.Exists(root))
+        if (RepoDiscovery.WildcardFolder(root) is { } folder)
+        {
+            if (!Directory.Exists(folder))
+            {
+                _error = "There is no directory at that path.";
+                return;
+            }
+
+            if (RepoDiscovery.ReposIn(folder).Count == 0)
+            {
+                // Kept anyway: the point of a wildcard is the repositories cloned
+                // into it later.
+                _error = "There are no repositories directly inside that folder yet.";
+            }
+        }
+        else if (!Directory.Exists(root))
         {
             _error = "There is no directory at that path.";
             return;
         }
-
-        if (!Directory.Exists(Path.Combine(root, ".git")) && !File.Exists(Path.Combine(root, ".git")))
+        else if (!Directory.Exists(Path.Combine(root, ".git")) && !File.Exists(Path.Combine(root, ".git")))
         {
             // Not fatal: discovery resolves any directory inside a repo up to its
             // root. Worth saying so rather than silently accepting nothing.
@@ -772,12 +811,22 @@
     /// A list in name order. The settings file keeps repositories in the order they
     /// were added, which says nothing to someone looking for one.
     /// </summary>
+    private string RootName(string root) =>
+        RepoDiscovery.WildcardFolder(root) is { } folder
+            ? Fmt.Leaf(folder) + "/*"
+            : State.Repo(root)?.Name ?? Fmt.Leaf(root);
+
+    private static bool IsInside(string repo, string folder) =>
+        RepoDiscovery.PathComparer.Equals(
+            RepoDiscovery.Normalize(Path.GetDirectoryName(repo) ?? ""),
+            RepoDiscovery.Normalize(folder));
+
     private static IEnumerable<T> ByName<T>(IEnumerable<T> items, Func<T, string> name) =>
         items.OrderBy(name, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Repositories the monitor found through live sessions that are not in the list.</summary>
     private IReadOnlyList<RepoView> Discovered =>
-        Snapshot.Repos.Where(r => !_settings.RepoRoots.Contains(r.Root, StringComparer.Ordinal)).ToList();
+        Snapshot.Repos.Where(r => !_expanded.Contains(r.Root, RepoDiscovery.PathComparer)).ToList();
 
     private void Hide(string root) => Set(_settings with
     {
@@ -804,6 +853,7 @@
     private void Set(Settings next)
     {
         _settings = next;
+        _expanded = RepoDiscovery.Expand(next.RepoRoots);
         Store.Save(next);
 
         // The repo list is read on the monitor's slow timer. Waiting up to twenty

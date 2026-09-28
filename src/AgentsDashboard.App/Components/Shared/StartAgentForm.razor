@@ -205,6 +205,12 @@
 
     private string _prompt = "";
     private AgentsDashboard.Core.Repos.Settings _settings = new();
+
+    /// <summary>
+    /// The stored repositories with every <c>folder/*</c> read out, once when the
+    /// form opens: <see cref="Repos"/> is asked for several times a render.
+    /// </summary>
+    private IReadOnlyList<string> _repoRoots = [];
     private string _repo = "";
     private string _worktree = "";
     private string _worktreeName = "";
@@ -298,6 +304,7 @@
         base.OnInitialized();
 
         _settings = Settings.Load();
+        _repoRoots = AgentsDashboard.Core.Repos.RepoDiscovery.Expand(_settings.RepoRoots);
         _model = _settings.DefaultModel ?? "";
         _effort = _settings.DefaultEffort ?? "";
         _permissionMode = _settings.DefaultPermissionMode ?? "";
@@ -321,9 +328,9 @@
     /// card still asks before an agent works in one for the first time.
     /// </remarks>
     private IReadOnlyList<string> Repos =>
-        _settings.RepoRoots
+        _repoRoots
             .Where(r => !_settings.HiddenRoots.Contains(r, StringComparer.Ordinal))
-            .Concat(Bench.NewAgentIn is { RepoRoot: { } offered } && !_settings.RepoRoots.Contains(offered, StringComparer.Ordinal)
+            .Concat(Bench.NewAgentIn is { RepoRoot: { } offered } && !_repoRoots.Contains(offered, StringComparer.Ordinal)
                 ? [offered]
                 : [])
             .OrderBy(RepoName, StringComparer.OrdinalIgnoreCase)
