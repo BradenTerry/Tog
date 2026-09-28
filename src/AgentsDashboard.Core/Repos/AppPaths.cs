@@ -30,9 +30,6 @@ public sealed class AppPaths
     /// <summary>The native window's size and place on screen. See <c>WindowBoundsStore</c>.</summary>
     public string WindowFile => Path.Combine(Root, "window.json");
 
-    /// <summary>One file per worktree holding its unsubmitted review.</summary>
-    public string DraftsDir => Path.Combine(Root, "drafts");
-
     /// <summary>Installed extensions, one folder each.</summary>
     public string ExtensionsDir => Path.Combine(Root, "extensions");
 
@@ -63,7 +60,6 @@ public sealed class AppPaths
     public void EnsureCreated()
     {
         Directory.CreateDirectory(Root);
-        Directory.CreateDirectory(DraftsDir);
     }
 
     /// <summary>

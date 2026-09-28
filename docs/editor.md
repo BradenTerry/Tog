@@ -38,8 +38,8 @@ Two consequences worth knowing:
   rather than only the second.
 - **Nothing is fetched until an editor is created.** `monaco.js` is a small
   shim that registers `window.agentsEditor`; it injects Monaco's AMD loader on
-  the first `create()` and memoises the promise. Until a file is opened, or a
-  diff needs colouring, the app pays nothing for it.
+  the first `create()` and memoises the promise. Until a file or a diff is
+  opened, the app pays nothing for it.
 
 Monaco 0.56's `editor.main.js` installs its own `MonacoEnvironment.getWorker`
 and injects its own stylesheet, and both resolve next to the bundle. Since the
@@ -124,7 +124,7 @@ A file that is already open is never reread to follow a link: that would throw
 away whatever is being edited in it.
 
 `CodeEditor` renders its host `div` once and returns `false` from `ShouldRender`
-forever after, for the same reason `DiffDocument` guards its own rendering: the
+forever after, for the same reason `FileDocument` guards its own rendering: the
 layout re-renders every second because the monitor publishes a snapshot that
 often, and the host is full of children Blazor did not create.
 
@@ -199,12 +199,12 @@ than replaced by the temp file moved over it.
 
 ## Change marks
 
-The editor marks lines that differ from the diff base the way VS Code does: a
-green bar for added lines, blue for modified, a red wedge at the foot of the line
-above a deletion, and matching ticks in the scrollbar and the minimap. The base is
-the one Source control last compared against, kept per worktree in
-`WorktreeViews`, so the editor and the diff never disagree about what changed;
-switching the base in Source control re-marks every open file.
+The editor marks lines that differ from HEAD the way VS Code does: a green bar
+for added lines, blue for modified, a red wedge at the foot of the line above a
+deletion, and matching ticks in the scrollbar and the minimap. HEAD is what
+Source control lists uncommitted changes against, so the editor and the panel
+never disagree about what changed. A diff tab has no marks: Monaco's diff editor
+draws the changes itself (see [review.md](review.md)).
 
 `DiffReader.ReadFileAsync` diffs the one file with `-U0`, so every hunk is exactly
 one change, and `ChangeMarks.From` turns hunks into marks: only additions is

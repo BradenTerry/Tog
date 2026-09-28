@@ -210,6 +210,73 @@ public sealed class WorktreeFiles(IGitCli git)
             ? ReadTextAt(Path.GetFullPath(absolutePath), absolutePath)
             : new TextFile { Path = absolutePath, Error = "That is not an absolute path." };
 
+    /// <summary>
+    /// A file's text as git holds it: at HEAD, or in the index when
+    /// <paramref name="revision"/> is empty. The left side of a diff.
+    /// </summary>
+    /// <remarks>
+    /// A path the revision does not have (a new file, a repository with no
+    /// commits) is empty text rather than an error, because that is what the
+    /// diff should show against it: every line added. Read-only by nature, so
+    /// the stamp and line ending are not kept.
+    /// </remarks>
+    public async Task<TextFile> ReadTextAtRevisionAsync(
+        string worktreePath,
+        string relativePath,
+        string revision,
+        CancellationToken ct = default)
+    {
+        if (Resolve(worktreePath, relativePath) is null)
+        {
+            return new TextFile { Path = relativePath, Error = "That path is not inside this worktree." };
+        }
+
+        // cat-file, not show: show would run the path through a textconv filter
+        // or print a tree for a directory, and this wants the blob's bytes.
+        var result = await git.RunAsync(worktreePath, ["cat-file", "blob", revision + ":" + relativePath], ct)
+            .ConfigureAwait(false);
+
+        if (!result.Ok)
+        {
+            return new TextFile { Path = relativePath };
+        }
+
+        // GitCli trims the line breaks off the end of what git prints, which
+        // for a blob is part of the file: without them every diff would show
+        // its last line changed. The blob's size says how many bytes went.
+        var text = result.StdOut;
+        var size = await git.RunAsync(worktreePath, ["cat-file", "-s", revision + ":" + relativePath], ct)
+            .ConfigureAwait(false);
+        if (size.Ok && long.TryParse(size.StdOut.Trim(), out var bytes))
+        {
+            var missing = bytes - Encoding.UTF8.GetByteCount(text);
+            if (missing > 0 && missing < int.MaxValue)
+            {
+                var crlf = text.Contains("\r\n", StringComparison.Ordinal);
+                text += string.Concat(Enumerable.Repeat(crlf ? "\r\n" : "\n", (int)(crlf ? missing / 2 : missing)));
+            }
+        }
+
+        if (text.Contains('\0', StringComparison.Ordinal))
+        {
+            return new TextFile { Path = relativePath, Bytes = text.Length, IsBinary = true };
+        }
+
+        var truncated = text.Length > MaxBytes;
+        if (truncated)
+        {
+            text = text[..MaxBytes];
+        }
+
+        return new TextFile
+        {
+            Path = relativePath,
+            Bytes = result.StdOut.Length,
+            Truncated = truncated,
+            Text = text.TrimStart('﻿').Replace("\r\n", "\n", StringComparison.Ordinal),
+        };
+    }
+
     private static TextFile ReadTextAt(string full, string relativePath)
     {
         // Measured and read at the file a link points to: a FileInfo on the link

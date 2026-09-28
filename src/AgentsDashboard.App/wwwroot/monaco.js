@@ -297,6 +297,32 @@ function toggleWordWrap() {
     }
 }
 
+// Whether a diff shows its two sides next to each other or interleaved in one
+// column, as VS Code's "Toggle Inline View". Kept per machine and applied to
+// every open diff, like word wrap: it depends on how wide the window is, not
+// on the file.
+const sideBySideKey = 'agents.diffInline';
+
+function savedSideBySide() {
+    return localStorage.getItem(sideBySideKey) !== 'on';
+}
+
+function toggleSideBySide() {
+    const sideBySide = !savedSideBySide();
+    if (sideBySide) {
+        localStorage.removeItem(sideBySideKey);
+    } else {
+        localStorage.setItem(sideBySideKey, 'on');
+    }
+
+    for (const state of editors.values()) {
+        if (state.diff) {
+            state.diff.updateOptions({ renderSideBySide: sideBySide });
+            state.dotnet.invokeMethodAsync('SideBySideChanged', sideBySide);
+        }
+    }
+}
+
 // event.key is '=' or '+' depending on Shift and the layout, so the physical key
 // and the numpad are both accepted.
 function zoomStep(event) {
@@ -359,13 +385,24 @@ function reportDirty(state) {
 // left anonymous. A definition in another file comes back from Roslyn as a path,
 // and Monaco can only express that as a file URI: with anonymous models every
 // cross-file jump would land on inmemory://model/1 and be dropped.
-function makeModel(monaco, text, path, absolutePath) {
+//
+// A diff tab's model is the same file under a query naming the side, so it can
+// be open beside the file's own tab: two models may not share a URI. A
+// definition jump from it still lands on the plain file URI, which is a
+// different model, so Monaco hands it to the opener and the file opens in its
+// own tab, as VS Code does from a diff.
+function modelUri(monaco, absolutePath, variant) {
+    const uri = monaco.Uri.file(absolutePath);
+    return variant ? uri.with({ query: variant }) : uri;
+}
+
+function makeModel(monaco, text, path, absolutePath, variant) {
     const language = languageFor(monaco, path);
     if (!absolutePath) {
         return monaco.editor.createModel(text, language);
     }
 
-    const uri = monaco.Uri.file(absolutePath);
+    const uri = modelUri(monaco, absolutePath, variant);
 
     // Two models may not share a URI. Reopening a file the tab showed earlier is
     // ordinary, so the stale one is dropped rather than treated as an error.
@@ -591,43 +628,6 @@ async function flushSync(state) {
     await state.dotnet.invokeMethodAsync('TextChanged', state.editor.getValue());
 }
 
-// Colouring a diff runs on the page's main thread, which is also where input is
-// handled and the page painted. A big file through the TextMate grammar takes
-// seconds, so it is done in slices of about this much work with a yield between
-// them, and the page keeps answering while it goes.
-const colourSliceMs = 10;
-
-// A line longer than this is left plain rather than tokenized. Minified files
-// have lines of megabytes, and one of them costs more than the rest of the diff.
-const colourMaxLineLength = 4000;
-
-// The per-line limit the TextMate tokenizer gets for the diff, in place of the
-// editor's 500 ms. A line that hits it finishes on the next line's state.
-const colourLineLimitMs = 20;
-
-// The answer goes back up the Blazor circuit, which drops the whole circuit
-// without an error when a message passes 4 MB (MaximumReceiveMessageSize). The
-// estimate of the serialized size stops colouring well short of that; the rest
-// of the file stays plain.
-const colourMaxReplyBytes = 1_000_000;
-
-// The call colouring each path now. A newer call for the same path replaces the
-// entry, and the older one notices at its next yield and gives up.
-const colouring = new Map();
-
-// Yields to the event loop. A MessageChannel rather than setTimeout(0), which
-// browsers clamp to 4 ms once it nests, and that would be most of the time.
-function yieldToPage() {
-    return new Promise((resolve) => {
-        const channel = new MessageChannel();
-        channel.port1.onmessage = () => {
-            channel.port1.close();
-            resolve();
-        };
-        channel.port2.postMessage(null);
-    });
-}
-
 window.agentsEditor = {
     create: async (element, dotnetRef, options) => {
         const monaco = await ensureLoaded();
@@ -635,10 +635,11 @@ window.agentsEditor = {
 
         registerProviders(monaco, settings.languages);
 
-        const model = makeModel(monaco, settings.text || '', settings.path, settings.absolutePath);
+        const isDiff = typeof settings.original === 'string';
+        const variant = isDiff ? settings.variant || 'diff' : null;
+        const model = makeModel(monaco, settings.text || '', settings.path, settings.absolutePath, variant);
 
-        const editor = monaco.editor.create(element, {
-            model,
+        const common = {
             theme: themeName(),
             'semanticHighlighting.enabled': true,
             readOnly: !!settings.readOnly,
@@ -651,11 +652,37 @@ window.agentsEditor = {
             renderWhitespace: 'selection',
             tabSize: 4,
             insertSpaces: true,
-        });
+        };
+
+        // A diff is Monaco's own diff editor, side by side as VS Code shows a
+        // changed file. Everything else here works on its right-hand editor,
+        // which holds the file and is the one that can be edited and saved.
+        let diff = null;
+        let original = null;
+        let editor;
+        if (isDiff) {
+            diff = monaco.editor.createDiffEditor(element, {
+                ...common,
+                originalEditable: false,
+                renderSideBySide: savedSideBySide(),
+                // Below this width Monaco would quietly switch to inline on its
+                // own, and the toggle would then say one thing and show another.
+                useInlineViewWhenSpaceIsLimited: false,
+                ignoreTrimWhitespace: false,
+            });
+            original = monaco.editor.createModel(settings.original, languageFor(monaco, settings.path));
+            diff.setModel({ original, modified: model });
+            editor = diff.getModifiedEditor();
+        } else {
+            editor = monaco.editor.create(element, { ...common, model });
+        }
 
         const state = {
             monaco,
             editor,
+            diff,
+            original,
+            variant,
             element,
             dotnet: dotnetRef,
             baseline: settings.text || '',
@@ -707,6 +734,18 @@ window.agentsEditor = {
         if (settings.line) {
             editor.revealLineInCenter(settings.line);
             editor.setPosition({ lineNumber: settings.line, column: 1 });
+        } else if (diff) {
+            // The diff is computed off the main thread, so the first change is
+            // only known once it lands. That is where VS Code opens a diff.
+            const first = diff.onDidUpdateDiff(() => {
+                first.dispose();
+                const change = (diff.getLineChanges() || [])[0];
+                if (change) {
+                    const line = Math.max(1, change.modifiedStartLineNumber || change.modifiedEndLineNumber || 1);
+                    editor.revealLineInCenter(line);
+                    editor.setPosition({ lineNumber: line, column: 1 });
+                }
+            });
         } else {
             restore(editor);
         }
@@ -716,6 +755,10 @@ window.agentsEditor = {
 
         if (savedWordWrap() === 'on') {
             dotnetRef.invokeMethodAsync('WordWrapChanged', true);
+        }
+
+        if (diff) {
+            dotnetRef.invokeMethodAsync('SideBySideChanged', savedSideBySide());
         }
 
         return handle;
@@ -734,7 +777,7 @@ window.agentsEditor = {
         const monaco = state.monaco;
         const value = text || '';
         const current = state.editor.getModel();
-        const wanted = absolutePath ? monaco.Uri.file(absolutePath).toString() : null;
+        const wanted = absolutePath ? modelUri(monaco, absolutePath, state.variant).toString() : null;
 
         state.suppress = true;
         state.baseline = value;
@@ -745,12 +788,17 @@ window.agentsEditor = {
             // reports for the new file would be resolved against the old name.
             remember(state.editor);
             state.marks.clear();
-            const next = makeModel(monaco, value, path, absolutePath);
+            const next = makeModel(monaco, value, path, absolutePath, state.variant);
 
             models.delete(current.uri.toString());
             models.set(next.uri.toString(), state);
 
-            state.editor.setModel(next);
+            if (state.diff) {
+                state.diff.setModel({ original: state.original, modified: next });
+            } else {
+                state.editor.setModel(next);
+            }
+
             current.dispose();
 
             if (!hasLine) {
@@ -777,6 +825,10 @@ window.agentsEditor = {
             }
         }
 
+        if (state.original && path) {
+            monaco.editor.setModelLanguage(state.original, languageFor(monaco, path));
+        }
+
         state.suppress = false;
 
         if (state.dirty) {
@@ -787,9 +839,26 @@ window.agentsEditor = {
 
     toggleWordWrap: () => toggleWordWrap(),
 
+    toggleSideBySide: () => toggleSideBySide(),
+
+    // The left side of a diff, read again when a stage or a commit moves it.
+    // Kept as one edit rather than a new model, so the diff editor keeps its
+    // scroll and the right-hand side is not touched at all.
+    setOriginal: (handle, text) => {
+        const state = editors.get(handle);
+        if (!state || !state.original) {
+            return;
+        }
+
+        const value = text || '';
+        if (!sameText(state.original.getValue(), value)) {
+            state.original.setValue(value);
+        }
+    },
+
     getText: (handle) => editors.get(handle)?.editor.getValue() ?? '',
 
-    // Changed lines against the diff base, drawn as VS Code draws them: a bar in
+    // Changed lines against HEAD, drawn as VS Code draws them: a bar in
     // the gutter beside the line numbers, a tick in the scrollbar so changes far
     // down the file can be seen and clicked to, and the same colour in the
     // minimap. A deletion has no line of its own, so it is a small marker at the
@@ -832,133 +901,6 @@ window.agentsEditor = {
 
         state.editor.revealLineInCenter(line);
         state.editor.setPosition({ lineNumber: line, column: 1 });
-    },
-
-    // Colours lines for the diff with Monaco's own tokenizer, so it is coloured
-    // exactly as the editor and VS Code colour the same file.
-    // Nothing is drawn here: the server renders the diff, and this only answers
-    // which class each run gets. The classes are Monaco's mtkN colour classes,
-    // whose rules the theme service injects globally, so they apply outside an
-    // editor too.
-    //
-    // Each block is a run of lines tokenized as one sequence (a diff hunk read
-    // down one side), so a comment or string opened on one line carries on to
-    // the next. Returns null for a block when Monaco has no language for the
-    // file, which leaves the server's own highlighter to it.
-    colourLines: async (path, blocks) => {
-        const ticket = {};
-        colouring.set(path, ticket);
-        const superseded = () => colouring.get(path) !== ticket;
-        // An empty answer, not a null per block: the caller reads nulls as "no
-        // language here" and falls back to the server's colouring, where this
-        // only means a newer call for the same file is on its way.
-        const abandoned = () => [];
-
-        try {
-            const monaco = await ensureLoaded();
-
-            // Initialises the theme service, which is what injects the mtkN rules,
-            // when no editor has been created yet.
-            monaco.editor.setTheme(themeName());
-
-            const language = languageFor(monaco, path);
-            if (language === 'plaintext') {
-                return blocks.map(() => null);
-            }
-
-            // Languages load lazily. colorize waits for the tokenizer to arrive,
-            // where tokenizing a model straight away would read every line as plain.
-            await monaco.editor.colorize('', language, {});
-
-            // Tightens the TextMate limit for the slice only; languages Monaco
-            // colours itself have no such limit and run as they are.
-            const limited = (fn) => window.agentsTextmate
-                ? window.agentsTextmate.withTimeLimit(colourLineLimitMs, fn)
-                : fn();
-
-            const answer = [];
-            let bytes = 2;
-            let full = false;
-            let sliceStart = performance.now();
-
-            for (const lines of blocks) {
-                if (superseded()) {
-                    return abandoned();
-                }
-
-                const ends = [];
-                const classes = [];
-                answer.push({ ends, classes });
-                bytes += 32;
-                if (full) {
-                    continue;
-                }
-
-                // A stray carriage return inside a line would read to Monaco as a
-                // line break and shift every answer after it by one. Same length,
-                // so the offsets still line up with the server's text. A line too
-                // long to tokenize goes in empty, so the lines around it keep
-                // their numbers.
-                const text = lines
-                    .map((line) => line.length > colourMaxLineLength ? '' : line.replace(/\r/g, ' '))
-                    .join('\n');
-                const model = monaco.editor.createModel(text, language);
-                try {
-                    for (let n = 1; n <= lines.length; n++) {
-                        if (performance.now() - sliceStart >= colourSliceMs) {
-                            await yieldToPage();
-                            if (superseded() || model.isDisposed()) {
-                                return abandoned();
-                            }
-
-                            sliceStart = performance.now();
-                        }
-
-                        if (lines[n - 1].length > colourMaxLineLength) {
-                            ends.push([]);
-                            classes.push([]);
-                            bytes += 6;
-                            continue;
-                        }
-
-                        // Tokenizes up to this line only; the model keeps the state
-                        // from the lines before it, so each call costs one line.
-                        const tokens = limited(() => {
-                            model.tokenization.forceTokenization(n);
-                            return model.tokenization.getLineTokens(n);
-                        });
-
-                        const lineEnds = [];
-                        const lineClasses = [];
-                        let lineBytes = 6;
-                        for (let i = 0; i < tokens.getCount(); i++) {
-                            const end = tokens.getEndOffset(i);
-                            const name = tokens.getClassName(i);
-                            lineEnds.push(end);
-                            lineClasses.push(name);
-                            lineBytes += String(end).length + name.length + 4;
-                        }
-
-                        if (bytes + lineBytes > colourMaxReplyBytes) {
-                            full = true;
-                            break;
-                        }
-
-                        ends.push(lineEnds);
-                        classes.push(lineClasses);
-                        bytes += lineBytes;
-                    }
-                } finally {
-                    model.dispose();
-                }
-            }
-
-            return superseded() ? abandoned() : answer;
-        } finally {
-            if (colouring.get(path) === ticket) {
-                colouring.delete(path);
-            }
-        }
     },
 
     // A fenced code block from the Markdown preview, coloured the way the editor
@@ -1036,7 +978,8 @@ window.agentsEditor = {
     },
 
     layout: (handle) => {
-        editors.get(handle)?.editor.layout();
+        const state = editors.get(handle);
+        (state?.diff || state?.editor)?.layout();
     },
 
     dispose: (handle) => {
@@ -1052,12 +995,16 @@ window.agentsEditor = {
         state.element.removeEventListener('keydown', state.onZoomKey, true);
 
         const model = state.editor.getModel();
+
+        // The diff editor owns its two inner editors and goes first: a model
+        // disposed while an editor still shows it throws.
+        (state.diff || state.editor).dispose();
+        state.original?.dispose();
+
         if (model) {
             models.delete(model.uri.toString());
             model.dispose();
         }
-
-        state.editor.dispose();
     },
 };
 

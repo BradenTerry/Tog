@@ -5,7 +5,7 @@ for watching Claude Code agents across git worktrees: who needs an answer, and
 reviewing their diffs. Anything else is an extension.
 
 - `src/AgentsDashboard.Core` - all logic, no ASP.NET dependency. Claude readers,
-  git layer and parsers, review writing, the monitor loop, extension discovery.
+  git layer and parsers, the monitor loop, extension discovery.
 - `src/AgentsDashboard.App` - Blazor Server UI, the Photino window, the
   extension host.
 - `src/AgentsDashboard.Extensions` - the extension API. Versioned: 1.x only adds.
@@ -25,10 +25,12 @@ twice:
   the skill and the MCP tools that let an agent write one
 - `docs/test-monitoring.md` - the Tests extension: streaming TRX, the process
   signal, the two clocks, the telemetry installer
-- `docs/review.md` - diff bases, the comment draft, the submit order
+- `docs/review.md` - Source control and diffs: always uncommitted, which sides
+  each diff tab compares, the model URI query, restoring a blob's trailing
+  newlines, push and pull counts
 - `docs/agents.md` - work summaries from transcripts, subagents, notification rules
-- `docs/syntax.md` - Monaco colouring in the diff, the server fallback, the two
-  passes a diff hunk needs
+- `docs/syntax.md` - VS Code's TextMate grammars in Monaco, loaded through
+  `textmate.js`
 - `docs/agent-control.md` - ACP, the host, a turn, permissions, the bridge
 - `docs/staging.md` - the two-character status field, unstaging with no HEAD
 - `docs/editor.md` - Monaco in the editor, vendoring it, stamp-based saves,
@@ -110,21 +112,6 @@ environment carries them, and `SecretBroker.ForAgent` wraps every MCP
 request, so the broker and the OS store itself throw on any secret read or
 write made while answering one. See `docs/extensions.md`.
 
-**Grid columns in the diff need `minmax(0, 1fr)`.** A bare `1fr` has an `auto`
-minimum, so one long line pushes the column past its share and scrolls the whole
-page sideways. `.main` also pins `overflow-x: hidden`.
-
-**Line selection is dragged in JavaScript, not on the circuit.** `app.js` follows
-mousedown/mousemove/mouseup and calls `SelectLines` once on release. Its preview
-class is `picking`; the server renders `in-range`. Never let the two share a class.
-
-**A unified diff interleaves two line numberings.** Removed rows are numbered on
-the left, added and context rows on the right, so consecutive rows on screen are
-not consecutive numbers and are often not even the same side. Anything that walks
-a run of rows has to walk them in the order they are drawn and pick the side at
-the end, not filter by side from the start: filtering stops dead at the first
-row of the other kind, which in a one-line replacement is the very next row.
-
 **SignalR caps a client-to-server message at 32 KB.** Saving from the editor
 sends the whole edited file up the circuit, and most source files are over that.
 The hub does not report it as an error, it drops the circuit. `Program.cs` sets
@@ -138,16 +125,17 @@ rather than calling `setValue`. Monaco addresses a definition in another file by
 URI and has nothing to compare an anonymous `inmemory://model/1` against, so with
 an unnamed model every cross-file F12 is silently dropped. The C# providers are
 registered once for the page, not per editor: Monaco's registries are global and
-a second registration answers every hover twice.
+a second registration answers every hover twice. A diff tab's model is the
+file's URI plus a query (`?diff` or `?staged`), since it can be open beside the
+file's own tab and two models cannot share a URI; F12 from it lands on the
+plain URI and so opens the file tab.
 
 **The heavy components control their own rendering.** The layout re-renders every
-second because the monitor publishes a snapshot every second. Re-rendering a diff
-of a few thousand lines at that rate saturates the circuit and the page stops
-answering clicks, so `DiffDocument`, `SourceControlPanel`, `FileDocument` and
-`FileTreePanel` override `ShouldRender` and every handler calls `Touch()`. The
-diff also only draws the lines of files near the screen: `app.js`
-(`watchDiffWindow`) reports which files those are, and the rest are blocks the
-height they measured at. The file trees draw only their visible rows through
+second because the monitor publishes a snapshot every second. Re-rendering a
+tree of thousands of rows at that rate saturates the circuit and the page stops
+answering clicks, so `SourceControlPanel`, `FileDocument` and `FileTreePanel`
+override `ShouldRender` and every handler calls `Touch()`. The file trees draw
+only their visible rows through
 `Virtualize`, which is why `.tree-row` has a pinned height.
 
 **Never start a `FileSystemWatcher` on macOS.** .NET's watcher calls `sync()`
@@ -164,7 +152,7 @@ the page, so a script tag for either fails. `textmate.js` requires them. See
 **The panels talk through `Workbench`, not parameters.** It is scoped (one per
 window) and holds the agent the panels follow, the panels' state, the editor tabs
 per worktree, and one `ChangesModel` per worktree, which Source control and the
-Changes document share. A folded panel keeps its grid column at zero width
+open diff tabs share. A folded panel keeps its grid column at zero width
 rather than leaving the grid, or every column after it shifts.
 
 **The app stays minimal; features that are not about agents are extensions.**

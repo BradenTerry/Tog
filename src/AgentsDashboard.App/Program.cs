@@ -10,7 +10,6 @@ using AgentsDashboard.Core.Monitoring;
 using AgentsDashboard.Core.Platform;
 using AgentsDashboard.Core.Repos;
 using AgentsDashboard.Core.Secrets;
-using AgentsDashboard.Core.Review;
 using AgentsDashboard.App.Extensions;
 using AgentsDashboard.Extensions;
 
@@ -78,7 +77,6 @@ builder.Services.AddSingleton<IClipboard, Clipboard>();
 builder.Services.AddSingleton(new AppPaths(options.DataDir));
 builder.Services.AddSingleton<SettingsStore>();
 builder.Services.AddSingleton<Shortcuts>();
-builder.Services.AddSingleton<ReviewDraftStore>();
 builder.Services.AddSingleton<LastViewStore>();
 builder.Services.AddSingleton<PanelLayoutStore>();
 builder.Services.AddSingleton<SeenTurnsStore>();
@@ -153,9 +151,6 @@ builder.Services.AddSingleton<ExtensionRequests>();
 // Language support is an extension's: this only routes the editor's questions
 // to whichever loaded extension answers for the file.
 builder.Services.AddSingleton<CodeNavigation>();
-
-// Review
-builder.Services.AddSingleton<FeedbackDispatcher>();
 
 // The loop
 builder.Services.AddSingleton<DashboardState>();

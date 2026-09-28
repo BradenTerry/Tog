@@ -85,11 +85,10 @@ a scoped service (one per window) that holds:
 ```mermaid
 flowchart LR
     FT[FileTreePanel] -->|OpenFile| WB[Workbench]
-    SC[SourceControlPanel] -->|OpenChanges at file| WB
+    SC[SourceControlPanel] -->|OpenDiff| WB
     WB --> EA[EditorArea]
-    EA --> FD[FileDocument per file]
-    EA --> DD[DiffDocument]
-    SC <-->|same ChangesModel| DD
+    EA --> FD[FileDocument per file or diff]
+    SC <-->|same ChangesModel| FD
     TB[TitleBar] -->|Toggle| WB
     WB -->|PanelLayoutStore| LF[(layout.json)]
 ```
@@ -156,12 +155,9 @@ refresh.
   itself from disk; with unsaved work it is left alone, and saving reports the
   conflict as before. The Files tree lists again only when a file appears or
   goes.
-- **The diff keeps its place.** A new diff is usually the old one with a file or
-  two moved, so `DiffDocument` keeps everything about the files that did not
-  change: which are drawn, their measured heights, their colours, and a comment
-  being written. Resetting would blank the screen on every edit, and the browser
-  would not report the files near it again, since the same elements are still
-  where they were.
+- **A diff keeps its place.** An open diff tab rereads its sides and hands the
+  left one to Monaco as one edit to the model it has, so the diff editor keeps
+  its scroll rather than starting over on every edit.
 
 ## Going back
 
@@ -269,39 +265,34 @@ defaults, and a key bound twice is marked.
 - **A new command** needs an entry in `Commands.All` and a case in
   `MainLayout.RunCommand`.
 
-## Changes: a list on the right, diffs in the middle
+## Source control on the right, diffs in the middle
 
-The Changes tab used to be one component holding a file list and the diff. It is
-now two components that share a `ChangesModel`:
+Source control is a panel, `SourceControlPanel`, and the diffs it opens are
+editor tabs. The two share a `ChangesModel`, which holds the worktree's
+uncommitted changes and what of them is staged:
 
-- **`SourceControlPanel`** (right) chooses the base, lists the files the way git
-  holds them (staged above pending), stages and unstages, and sends the review.
-- **`DiffDocument`** (editor) draws a diff, where lines are picked and commented
-  on.
+- **`SourceControlPanel`** (right) lists the files the way git holds them
+  (Staged Changes above Changes), stages and unstages, and shows the push and
+  pull counts.
+- **A diff tab** is a `FileDocument` whose kind is `DocKind.Diff` or
+  `DocKind.StagedDiff`, drawn with Monaco's diff editor rather than its plain
+  one. Everything else about a file tab (saving, go to definition, word wrap)
+  works on the diff's right-hand side.
 
 Clicking a file in Source control opens a tab with that file's changes alone, as
-VS Code does, previewed like a file until kept. That tab shows the whole file,
-the way the editor does, with removed lines in red and added lines in green in
-place, and opens scrolled to the first change. It is read apart from the
-model's diff (`DiffReader.ReadWholeFileAsync`, the diff with the whole file as
-context), again whenever the model's is. A file over 5000 lines falls back to
-its hunks, since every row is a button on the circuit and one file is drawn
-all at once. The toolbar's other button opens
-every change in one document, which is where a jump to a file is held on the
-model as `PendingScroll`: the document may not exist yet when the click lands.
-
-Several diffs can be open at once, so the line-picking drag in `app.js` is not
-wired to one component. Each `DiffDocument` registers its root element
-(`data-diff-doc`) with its own reference, and a drag reports to the document it
-started in and walks only that document's rows. See
-[review.md](review.md) and [staging.md](staging.md) for what the two do.
+VS Code does, previewed like a file until kept. A row under Changes opens the
+working tree against the index, one under Staged Changes the index against
+HEAD, so the same file can have both open, and its own file tab beside them.
+Their keys are `diff:`, `staged:` and `file:` plus the path. Each diff tab
+listens to the model and reads its sides again when the staging state moves.
+See [review.md](review.md) and [staging.md](staging.md) for what the two do.
 
 ## Rendering
 
 The monitor publishes a snapshot every second, and every `StateComponent`
 re-renders on it. That is right for the chat and the title bar.
-It is wrong for anything heavy. `FileTreePanel`, `FileDocument`,
-`SourceControlPanel` and `DiffDocument` override `ShouldRender` and redraw only
+It is wrong for anything heavy. `FileTreePanel`, `FileDocument`
+and `SourceControlPanel` override `ShouldRender` and redraw only
 when they call `Touch()` or their model moves.
 
 `WorkbenchPanel` keeps the tabs you have opened built. When the panel moves to

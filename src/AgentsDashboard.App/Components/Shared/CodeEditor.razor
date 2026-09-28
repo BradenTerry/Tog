@@ -39,6 +39,27 @@
     [Parameter]
     public bool ReadOnly { get; set; }
 
+    /// <summary>
+    /// The text to compare against. Set, the editor is a diff with this on the
+    /// left and <see cref="Text"/> on the right; null, it is a plain editor. It
+    /// decides the kind of editor once, when it is built, and after that only
+    /// its text moves.
+    /// </summary>
+    [Parameter]
+    public string? Original { get; set; }
+
+    /// <summary>
+    /// Names a diff's model apart from the plain file's, so the same file can be
+    /// open in a diff tab and its own tab at once (two Monaco models may not
+    /// share a URI).
+    /// </summary>
+    [Parameter]
+    public string? Variant { get; set; }
+
+    /// <summary>Whether a diff shows side by side or inline. Kept by the browser for every diff, so reported, like word wrap.</summary>
+    [Parameter]
+    public EventCallback<bool> OnSideBySideChanged { get; set; }
+
     /// <summary>Changed lines, drawn in the gutter and the scrollbar the way VS Code does.</summary>
     [Parameter]
     public IReadOnlyList<ChangeMark> Marks { get; set; } = [];
@@ -102,6 +123,7 @@
     private int? _shownLine;
     private int _shownReveal;
     private IReadOnlyList<ChangeMark>? _shownMarks;
+    private string? _shownOriginal;
     private bool _rendered;
 
     /// <summary>
@@ -146,6 +168,8 @@
                     path = Path,
                     absolutePath = AbsolutePath,
                     readOnly = ReadOnly,
+                    original = Original,
+                    variant = Variant,
                     line = Line,
                     languages = Code.Languages,
                 });
@@ -154,6 +178,7 @@
             _shownStamp = Stamp;
             _shownLine = Line;
             _shownReveal = RevealKey;
+            _shownOriginal = Original;
 
             // Parameters can have moved on while Monaco was being fetched, which
             // takes long enough on a cold load for a click to land in the middle.
@@ -181,8 +206,9 @@
             || !string.Equals(Stamp, _shownStamp, StringComparison.Ordinal);
 
         var marksChanged = changed || !ReferenceEquals(Marks, _shownMarks);
+        var originalChanged = Original is not null && !string.Equals(Original, _shownOriginal, StringComparison.Ordinal);
 
-        if (!changed && !marksChanged && Line == _shownLine && RevealKey == _shownReveal)
+        if (!changed && !marksChanged && !originalChanged && Line == _shownLine && RevealKey == _shownReveal)
         {
             return;
         }
@@ -192,9 +218,15 @@
         _shownLine = Line;
         _shownReveal = RevealKey;
         _shownMarks = Marks;
+        _shownOriginal = Original;
 
         try
         {
+            if (originalChanged)
+            {
+                await Js.InvokeVoidAsync("agentsEditor.setOriginal", handle, Original);
+            }
+
             if (changed)
             {
                 await Js.InvokeVoidAsync("agentsEditor.setText", handle, Text, Stamp, Path, AbsolutePath, Line is not null);
@@ -365,6 +397,24 @@
 
     [JSInvokable]
     public Task WordWrapChanged(bool on) => OnWordWrapChanged.InvokeAsync(on);
+
+    [JSInvokable]
+    public Task SideBySideChanged(bool on) => OnSideBySideChanged.InvokeAsync(on);
+
+    /// <summary>Shows every open diff inline, or side by side again, as VS Code's Toggle Inline View does.</summary>
+    public async Task ToggleSideBySideAsync()
+    {
+        try
+        {
+            await Js.InvokeVoidAsync("agentsEditor.toggleSideBySide");
+        }
+        catch (JSException)
+        {
+        }
+        catch (InvalidOperationException)
+        {
+        }
+    }
 
     /// <summary>Wraps long lines in every open editor, or stops wrapping them, as Alt+Z does.</summary>
     public async Task ToggleWordWrapAsync()

@@ -1,179 +1,128 @@
-# Reviewing an agent's diff
+# Source control and diffs
 
-The Changes document is a pull request review over a worktree that has no pull
-request: read the diff, comment on lines, submit the lot as one piece of
-feedback the agent can act on. The diff opens in the editor, and Source control
-in the right panel lists its files and sends the review. The two share one
-`ChangesModel` per worktree (see [workbench.md](workbench.md)).
+Source control in the right panel is VS Code's Source Control view for the
+agent in front: the files it has changed and not committed, split the way git
+holds them, and where the branch stands against its upstream. Clicking a file
+opens its changes in the editor as a diff tab, drawn by Monaco's own diff
+editor. The panel and every open diff share one `ChangesModel` per worktree
+(see [workbench.md](workbench.md)); staging itself is in
+[staging.md](staging.md).
+
+## What is listed
+
+Everything not committed: staged, unstaged and untracked. There is no base to
+pick. What an agent has just done is almost always uncommitted, and the
+questions the panel answers (what changed, what goes into the next commit) are
+both about the working tree and the index. A branch-wide view against the
+default branch is a pull request's job, and a second notion of "changed" would
+have to be threaded through the gutter marks, the diff tabs and staging, each
+of which only makes sense against HEAD.
+
+The list is read with `DiffBase.WorkingTree`, one diff against HEAD, and split
+by `git status` into two sections, as VS Code does:
+
+- **Staged Changes**, on top, shown only when something is staged: files whose
+  index differs from HEAD.
+- **Changes**: files whose working tree differs from the index, and untracked
+  files. A partly staged file is in both, because it is in both places.
+
+Each section is a tree. A flat list is fine for a handful of files and useless
+for a hundred: the paths share a long prefix, so the part that tells them apart
+is the part that gets clipped. Directory chains with nothing to branch on are
+drawn as one row (`src/AgentsDashboard.Core/Git` rather than three rows each
+holding one child). Folders start expanded, so every change is one click away,
+and each section's header can fold or open them all. A file's row carries a
+letter for its kind: A added, M modified, D deleted, R renamed, U untracked.
+
+Untracked files are listed although git will not diff them: a file the agent
+just created is exactly the kind of change worth reading. A repository with no
+commits yet diffs against the empty tree rather than failing.
+
+## What a diff tab compares
+
+A file has up to three versions, and each section's click compares the two
+that section is about. This is VS Code's pairing:
 
 ```mermaid
-sequenceDiagram
-  participant U as You
-  participant D as Dashboard
-  participant W as Worktree
-  participant C as Claude session
-
-  U->>D: comment on BlogService.cs L42-45
-  D->>D: hold it in a draft, saved to disk
-  U->>D: Submit review
-  D->>W: write .agents-dashboard/reviews/review-<time>.md
-  D->>U: copy a paste-ready prompt to the clipboard
-  D-->>C: best effort, push the prompt into the session
-  Note over D,C: the file and the clipboard land first,<br/>and are what the feature rests on
+flowchart LR
+    H["HEAD<br/>last commit"] -->|"Staged Changes row<br/>tab hint: Index<br/>read-only"| I["Index<br/>what is staged"]
+    I -->|"Changes row<br/>tab hint: Working Tree<br/>editable, saves to disk"| W["Working tree<br/>the file on disk"]
 ```
 
-## What you can diff against
+- **A row under Changes** opens `DocKind.Diff`: the index on the left, the file
+  on disk on the right. The right side is the file itself, so it can be edited
+  and saved like any file tab. Its tab reads "Working Tree".
+- **A row under Staged Changes** opens `DocKind.StagedDiff`: HEAD on the left,
+  the index on the right. Nothing on disk is the index, so there is nothing to
+  save to, and the tab is read-only. Its tab reads "Index".
 
-| Base | What it shows |
-| --- | --- |
-| **Uncommitted** | Everything not committed: staged, unstaged and untracked. |
-| **Whole branch** | The merge base with the repository's default branch, so it reads like the pull request this would become. Working-tree changes are included, because an agent's work is usually a mix of committed and not. |
-| **Against a ref** | Any ref you name. |
+Comparing each section against its own neighbour, rather than both against
+HEAD, is what makes a partly staged file make sense: the staged tab shows only
+what staging will commit, the other only what is left to stage.
 
-Beside the base picker, Source control shows where the branch stands against
-its upstream: an up arrow with the commits not pushed yet and a down arrow with
-the commits on the remote not pulled yet. Both come from the `git status` the
-monitor already reads, so the pull count is only as fresh as the last fetch.
-Pressing it runs `git fetch --prune` for that worktree, which moves the
-remote-tracking refs and nothing else, and asks the monitor to re-read status on
-its next pass. A branch with no upstream shows nothing.
+The edge cases fall out of the same pairing. An untracked file is not in the
+index, so its left side is empty and every line reads as added. A deleted file
+has no right side: it is empty, every line reads as removed, and the tab is
+read-only. The right side is only read from disk when nothing is waiting to be
+saved over it, so unsaved typing survives a re-read.
 
-Untracked files are folded in as all-additions. Git will not diff them, but a
-file the agent just created is exactly the kind of change worth reviewing, and
-leaving it out would hide the most interesting part of the work.
+Both sides are read again when the model's staging state moves (a stage or
+unstage from the panel) or when `.git` changes (the agent staged or
+committed), since a stage moves the index, and the index is one side of both
+tabs. The left side is swapped in as one edit to its model, so the diff keeps
+its scroll. A diff lands on its first change once Monaco has computed it,
+which is where VS Code opens one.
 
-A repository with no commits yet diffs against the empty tree rather than
-failing, so a fresh project is reviewable from the first file.
+Source control's other clicks follow VS Code as well: a single click previews
+the diff, a double click keeps it, and the context menu's Open file opens the
+plain file instead.
 
-## Finding a file
+## Side by side or inline
 
-The changed files are listed as a tree. A flat list is fine for a handful of
-files and useless for a hundred: the paths all share a long prefix, so the part
-that tells them apart is the part that gets clipped.
+A button in the diff tab's toolbar toggles between the two sides next to each
+other and one interleaved column, like VS Code's Toggle Inline View. The choice
+is per machine, kept in `localStorage` under `agents.diffInline`, and applies to
+every open diff at once, like word wrap: it depends on how wide the window is,
+not on the file. `useInlineViewWhenSpaceIsLimited` is off, because Monaco would
+otherwise switch a narrow diff to inline on its own and the button would say
+one thing while the editor showed another.
 
-Directory chains with nothing to branch on are drawn as one row
-(`src/AgentsDashboard.Core/Testing` rather than three rows each holding one
-child), which is what keeps a deep .NET layout from spending most of its width on
-indentation. Folders carry the number of changed files under them, files carry
-their own additions and deletions and a badge for comments you have left.
+## The model's URI
 
-Picking a file in Source control opens the Changes document at its diff. In Blazor Server every commentable line is a
-handler registered over the circuit, and tens of thousands of them make the page
-stop answering clicks, so only the files within about a screen of the viewport
-have their lines drawn. `watchDiffWindow` in `app.js` watches the files with an
-IntersectionObserver on the document's own scroller and reports, in batches, which are
-near and how tall each drawn file measured; every other file is a block that
-height, so the scrollbar and the jumps from Source control land where they would with
-everything drawn. A file with a comment editor open always stays drawn. The one
-cost is the browser's find: it only sees the files that are drawn.
+Every Monaco model is named after its file (see the note in `AGENTS.md`), and
+two models cannot share a URI. A diff tab can be open beside the file's own tab,
+so its right-hand model is the file URI plus a query naming the side: `?diff`
+for the working tree tab, `?staged` for the index tab. Go to definition from a
+diff still targets the plain file URI, which is a different model, so Monaco
+hands it to the opener and the file opens in its own tab, as VS Code does.
 
-A single file over 3000 diff lines still starts folded behind **Show it**, since
-drawing it is a lot at once however little else is on screen. Picking it in the
-tree opens it.
+## Reading a side from git
 
-The trees themselves draw only their visible rows through `Virtualize`, which
-works out which rows those are from the pinned height of `.tree-row`.
+The left side (and the right of a staged diff) is read by
+`WorktreeFiles.ReadTextAtRevisionAsync`, which runs `git cat-file blob
+<rev>:<path>`, with an empty revision meaning the index. `cat-file` rather
+than `show`, because `show` would run the path through a textconv filter or
+print a tree for a directory. A path the revision does not have is empty text
+rather than an error, since that is what the diff should show against it.
 
-## Commenting
+`GitCli` trims the line breaks off the end of what git prints, which is right
+for every command but this one: for a blob they are part of the file, and
+without them every diff would show its last line changed. So the blob's size is
+asked for too (`cat-file -s`), and the difference between that and the text's
+byte count is put back as line endings, `\r\n` if the file uses them.
 
-Click a line number to comment on that line, or drag down the gutter to cover a
-range. The selection highlights as you drag, in either direction. Shift-clicking
-another line number extends the range too, for when a drag is awkward. Escape
-cancels.
+## Push and pull
 
-The target is the whole line-number gutter rather than a small glyph, because
-picking lines is the primary gesture on this screen and it should be where the
-pointer already is.
+Source control's header shows where the branch stands against its upstream: an
+up arrow with the commits not pushed yet and a down arrow with the commits on
+the remote not pulled yet. Both come from the `git status` the monitor already
+reads, so the pull count is only as fresh as the last fetch. Pressing it runs
+`git fetch --prune` for that worktree, which moves the remote-tracking refs and
+nothing else, and asks the monitor to re-read status on its next pass. A branch
+with no upstream shows nothing.
 
-### Selecting a range
+## Gutter marks in a file tab
 
-Press on a line number, drag along the gutter, release. The rows light up as you
-go, in either direction, and the comment editor opens on the last row of the
-range with the range in its heading. Shift-clicking another line number extends
-what is already selected, for when a drag is awkward, and Escape cancels.
-
-A comment belongs to one side of the diff, so a drag covers one side: the side
-under the pointer when you let go. Rows of the other side inside the drag are
-stepped over. Dragging from a removed line down into the added lines that
-replaced it therefore comments on the added lines, which is the side you were
-pointing at.
-
-That last rule is the fix for a bug worth remembering. The drag used to lock onto
-the side of the row it started on and ignore every row of the other side, which
-sounds harmless until you notice that a changed block is removed lines followed
-by added ones: a drag down the gutter crosses the boundary almost every time. It
-stopped extending at the crossing, so a one-line replacement -- a `-` with a `+`
-under it, the most common shape in any diff -- selected a single line no matter
-how far you dragged, and the feature looked like it did not exist. Walking rows
-in the order they are drawn, rather than matching on side, is what makes the
-gesture follow the pointer.
-
-### Why the drag is not on the server
-
-A drag is a stream of mousemove events, and sending each one over the Blazor
-circuit would make one gesture cost hundreds of round trips. So the drag is
-followed entirely in `app.js`: it paints a preview with a class the server never
-sets, and calls back into the component once, on release, with the range.
-
-Two details keep the two sides from disagreeing about a row. The preview class is
-`picking` and the server's is `in-range`, so neither can clear the other's; and
-the preview is removed before the server is told, so the class it renders is the
-only one left. A mouse click on the gutter is also stopped from reaching the
-server's own click handler, since the drag has already dealt with it -- a keyboard
-activation reports a click detail of zero and is let through, which is what keeps
-the gutter usable without a mouse.
-
-Comments collect into a draft that is saved as you go, so navigating away or
-restarting does not lose it.
-
-## Browsing the rest
-
-The **Files** tab lists the whole worktree in the same tree, with a filter box,
-and shows any file with line numbers. The listing comes from git rather than from
-walking the directory, so `.gitignore` is honoured for free: a worktree's `bin`,
-`obj` and `node_modules` are not files you want to browse, and no hand-written
-skip list would keep up with a project's own ignore rules. Untracked files are
-marked, and a file path from the UI is checked against the worktree root before
-anything is read.
-
-The draft is kept outside the worktree, in `~/.agents-dashboard/drafts`. An
-unsubmitted review is not part of the work: in the worktree it would show up as
-an untracked file in the very diff it is about.
-
-## What gets written
-
-```markdown
-# Review 2026-09-05 14:22
-
-Overall: the retry logic looks right, two things to fix.
-
-## src/Soar.Web/Services/BlogService.cs
-
-- **L42-45**: this swallows the cancellation. Let OperationCanceledException through.
-
-  > +        catch (Exception)
-  > +        {
-  > +            return Array.Empty<Post>();
-  > +        }
-
-- **L88**: off by one, Take(count) should be Take(count + 1).
-```
-
-Grouped by file, ordered by line, each entry leading with its range, with the
-lines it refers to quoted underneath. The agent reads a list of located changes
-rather than a paragraph it has to map back onto the code.
-
-## Getting it to the agent
-
-Three attempts, in this order, and the order is the design:
-
-1. **The markdown file** is written into the worktree, first and
-   unconditionally. It is the artifact that survives everything else failing.
-2. **The clipboard** gets a short prompt pointing at that file, so you can paste
-   it into the agent's terminal yourself.
-3. **The agent** is handed the prompt as its next message over ACP: the one
-   picked under **Send to** (the agent you are viewing, by default), or a new
-   agent started on the review in that worktree.
-
-Only the third can fail, and its failure changes nothing: the review is already
-written and already on the clipboard.
+A plain file tab marks the lines that differ from HEAD, in the gutter and the
+scrollbar, the same uncommitted changes Source control lists. See
+[editor.md](editor.md).

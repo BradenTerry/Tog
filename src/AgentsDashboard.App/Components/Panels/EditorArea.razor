@@ -31,7 +31,7 @@
                 }
                 <div class="etab @(active ? "active" : "") @(doc.Pinned ? "pinned" : "") @(doc.Preview ? "preview" : "") @(doc.Dirty ? "dirty" : "")"
                      role="tab" aria-selected="@(active ? "true" : "false")" tabindex="0"
-                     title="@(doc.Kind switch { DocKind.Changes => "Every change in the worktree", DocKind.Diff => doc.Path + ", its changes", DocKind.Worktrees => "Every worktree, and cleaning them up", _ => doc.Path })"
+                     title="@(doc.Kind switch { DocKind.Diff => doc.Path + ", the working tree against the index", DocKind.StagedDiff => doc.Path + ", the index against HEAD", DocKind.Worktrees => "Every worktree, and cleaning them up", _ => doc.Path })"
                      @key="doc.Key"
                      @onclick="() => Bench.Activate(WorktreePath, doc.Key)"
                      @ondblclick="() => Bench.Keep(WorktreePath, doc.Key)"
@@ -43,22 +43,19 @@
                     {
                         <span class="file-icon" aria-hidden="true"><WorktreesGlyph Size="14" /></span>
                     }
-                    else if (doc.Kind == DocKind.Changes)
-                    {
-                        <span class="file-icon" aria-hidden="true">
-                            <svg viewBox="0 0 16 16" width="14" height="14">
-                                <path d="M3 2.5h6l3 3v8H3zM6 7h4M8 5v4M6 11h4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
-                            </svg>
-                        </span>
-                    }
                     else
                     {
                         <FileGlyph Path="@doc.Path" />
                     }
                     <span class="etab-label">@doc.Title</span>
+                    @* VS Code's names for the two sides a diff can be of. *@
                     @if (doc.Kind == DocKind.Diff)
                     {
-                        <span class="etab-hint">changes</span>
+                        <span class="etab-hint">Working Tree</span>
+                    }
+                    else if (doc.Kind == DocKind.StagedDiff)
+                    {
+                        <span class="etab-hint">Index</span>
                     }
                     @if (Hint(doc) is { } hint)
                     {
@@ -142,14 +139,6 @@
                     <div class="doc-scroll">
                         <WorktreesDocument />
                     </div>
-                }
-                else if (doc.Kind == DocKind.Changes)
-                {
-                    <DiffDocument WorktreePath="@WorktreePath" />
-                }
-                else if (doc.Kind == DocKind.Diff)
-                {
-                    <DiffDocument WorktreePath="@WorktreePath" File="@doc.Path" />
                 }
                 else if (doc.Kind == DocKind.External)
                 {

@@ -1,21 +1,7 @@
-// Three things the server side cannot do for itself: put text on the clipboard
-// of whichever machine is looking at the page, keep the window title honest
-// about how many agents are blocked, and follow a drag.
-//
-// The drag is the interesting one. Selecting lines in a diff is a stream of
-// mousemove events, and sending each one over the Blazor circuit would make a
-// gesture cost hundreds of round trips. So the drag is followed entirely here,
-// painting a preview with a class the server never sets, and the server is told
-// once, on release, what was selected.
-
-let drag = null;
-// Each diff document on the page, and the component its picks are reported to.
-// There can be several, a tab per changed file, so a drag answers to the one it
-// started in rather than to whichever registered last.
-const diffOwners = new WeakMap();
-let wired = false;
-let scroller = null;
-let edgeTimer = null;
+// What the server side cannot do for itself: put text on the clipboard of
+// whichever machine is looking at the page, keep the window title honest about
+// how many agents are blocked, and follow a drag or a scroll without a round
+// trip per event.
 
 // How far above the bottom still counts as reading the bottom. Small, so a
 // nudge of the wheel is enough to stop the thread following.
@@ -145,86 +131,6 @@ function keepScroll(element, key) {
     settle();
 }
 
-// The nearest ancestor that scrolls, which is what "near the screen" is measured
-// against: the document's own scroller, not the window.
-function scrollParent(element) {
-    for (let node = element.parentElement; node && node !== document.body; node = node.parentElement) {
-        const overflow = getComputedStyle(node).overflowY;
-        if (overflow === 'auto' || overflow === 'scroll') {
-            return node;
-        }
-    }
-
-    return null;
-}
-
-// Tells the Changes document which files are within a screen or so of the viewport,
-// so it draws only their lines, along with the measured height of every file it
-// has drawn, so a file that scrolls away leaves a block exactly its own height.
-// Reports are batched: a fast scroll crosses many files, and one round trip per
-// file would be the lag this exists to remove.
-function watchDiffWindow(column, reference) {
-    if (!column || column.dataset.windowed) {
-        return;
-    }
-
-    column.dataset.windowed = 'true';
-    const near = new Map();
-    let timer = 0;
-
-    const report = () => {
-        timer = 0;
-        if (!column.isConnected) {
-            io.disconnect();
-            mo.disconnect();
-            return;
-        }
-
-        const paths = [];
-        for (const [article, isNear] of near) {
-            if (isNear && article.isConnected) {
-                paths.push(article.dataset.diffFile);
-            } else if (!article.isConnected) {
-                near.delete(article);
-            }
-        }
-
-        const heights = {};
-        for (const body of column.querySelectorAll('[data-diff-body]')) {
-            heights[body.dataset.diffBody] = body.offsetHeight;
-        }
-
-        reference.invokeMethodAsync('SetWindow', paths, heights).catch(() => { });
-    };
-
-    const schedule = () => {
-        if (!timer) {
-            timer = setTimeout(report, 60);
-        }
-    };
-
-    const io = new IntersectionObserver((entries) => {
-        for (const entry of entries) {
-            near.set(entry.target, entry.isIntersecting);
-        }
-
-        schedule();
-    }, { root: scrollParent(column), rootMargin: '1500px 0px' });
-
-    const watchAll = () => {
-        for (const article of column.querySelectorAll('article[data-diff-file]')) {
-            if (!article.dataset.watched) {
-                article.dataset.watched = 'true';
-                io.observe(article);
-            }
-        }
-    };
-
-    const mo = new MutationObserver(watchAll);
-    mo.observe(column, { childList: true });
-    watchAll();
-}
-
 // Mermaid is one 5.5 MB script, so it is fetched the first time a preview has a
 // diagram in it and never otherwise.
 let mermaidLoading = null;
@@ -294,182 +200,6 @@ async function enhanceMarkdown(element, reference) {
         } catch {
             // Without Mermaid the diagram's source stays on the page as text.
         }
-    }
-}
-
-function lineOf(element) {
-    const row = element.closest?.('.diff-line');
-    if (!row || row.dataset.line === undefined) {
-        return null;
-    }
-
-    const line = Number.parseInt(row.dataset.line, 10);
-    return Number.isNaN(line) ? null : { row, file: row.dataset.file, side: row.dataset.side, line };
-}
-
-function clearPreview() {
-    for (const row of document.querySelectorAll('.diff-line.picking')) {
-        row.classList.remove('picking');
-    }
-}
-
-// What the gesture has covered so far: the rows between where it started and
-// where the pointer is, narrowed to one side of the diff.
-//
-// A comment belongs to one side, but a changed block is removed lines followed
-// by added ones, so dragging down the gutter crosses from one side to the other
-// almost every time. The side that wins is the side under the pointer, and rows
-// of the other side inside the span are stepped over rather than ending the
-// drag. Anchoring on the side the press happened to land on instead stopped the
-// range at the first row of the other kind, which for a one-line replacement
-// meant a drag of any length still selected a single line.
-function span(to) {
-    const low = Math.min(drag.from, to);
-    const high = Math.max(drag.from, to);
-    const side = drag.rows[to].side;
-    const rows = [];
-
-    for (let i = low; i <= high; i++) {
-        if (drag.rows[i].side === side) {
-            rows.push(drag.rows[i]);
-        }
-    }
-
-    return { side, rows };
-}
-
-function paint(to) {
-    if (!drag) {
-        return;
-    }
-
-    const picked = new Set(span(to).rows.map(row => row.element));
-    for (const row of drag.rows) {
-        row.element.classList.toggle('picking', picked.has(row.element));
-    }
-}
-
-// Every line of this file in the document the drag started in, both sides, in
-// the order they are drawn: the drag walks rows rather than line numbers,
-// because the two sides number themselves independently. Collected once so a
-// move does not walk the whole page.
-function rowsFor(file, owner) {
-    const rows = [];
-    for (const element of owner.querySelectorAll('.diff-line')) {
-        if (element.dataset.file === file) {
-            const line = Number.parseInt(element.dataset.line, 10);
-            if (!Number.isNaN(line)) {
-                rows.push({ element, line, side: element.dataset.side });
-            }
-        }
-    }
-
-    return rows;
-}
-
-function indexOf(row) {
-    return drag ? drag.rows.findIndex(candidate => candidate.element === row) : -1;
-}
-
-function onDown(event) {
-    if (event.button !== 0 || !event.target.closest('.ln-pick')) {
-        return;
-    }
-
-    const start = lineOf(event.target);
-    const owner = event.target.closest('[data-diff-doc]');
-    if (!start || !owner || !diffOwners.has(owner)) {
-        return;
-    }
-
-    // Stops the browser starting a text selection across the diff as you drag.
-    event.preventDefault();
-
-    drag = { file: start.file, rows: rowsFor(start.file, owner), from: 0, to: 0, extend: event.shiftKey, reference: diffOwners.get(owner) };
-
-    const anchor = indexOf(start.row);
-    if (anchor < 0) {
-        drag = null;
-        return;
-    }
-
-    drag.from = anchor;
-    drag.to = anchor;
-
-    scroller = event.target.closest('.doc-scroll, .main') ?? document.scrollingElement;
-    paint(anchor);
-}
-
-function onMove(event) {
-    if (!drag) {
-        return;
-    }
-
-    const over = lineOf(document.elementFromPoint(event.clientX, event.clientY) ?? event.target);
-    if (over && over.file === drag.file) {
-        const index = indexOf(over.row);
-        if (index >= 0) {
-            drag.to = index;
-            paint(index);
-        }
-    }
-
-    edgeScroll(event.clientY);
-}
-
-// A range longer than the window is the normal case in a real diff, so dragging
-// past the edge has to keep going.
-function edgeScroll(y) {
-    if (!scroller) {
-        return;
-    }
-
-    const box = scroller.getBoundingClientRect
-        ? scroller.getBoundingClientRect()
-        : { top: 0, bottom: window.innerHeight };
-
-    const margin = 40;
-    const speed = y < box.top + margin ? -12 : y > box.bottom - margin ? 12 : 0;
-
-    if (speed === 0) {
-        clearInterval(edgeTimer);
-        edgeTimer = null;
-        return;
-    }
-
-    if (!edgeTimer) {
-        edgeTimer = setInterval(() => scroller.scrollBy(0, speed), 16);
-    }
-}
-
-function onUp() {
-    if (!drag) {
-        return;
-    }
-
-    const file = drag.file;
-    const extend = drag.extend;
-    const reference = drag.reference;
-    const picked = span(drag.to);
-    drag = null;
-    clearInterval(edgeTimer);
-    edgeTimer = null;
-
-    // The preview is dropped before the server is told, so the class it renders
-    // is the only one on the row afterwards and the two cannot disagree.
-    clearPreview();
-
-    const lines = picked.rows.map(row => row.line);
-    reference.invokeMethodAsync(
-        'SelectLines', file, picked.side, Math.min(...lines), Math.max(...lines), extend);
-}
-
-// A mouse click on the gutter has already been handled here, so it must not also
-// reach the server's own click handler. A keyboard activation reports a detail of
-// zero and is let through, which is what keeps the gutter usable without a mouse.
-function onClick(event) {
-    if (event.detail > 0 && event.target.closest('.ln-pick')) {
-        event.stopPropagation();
     }
 }
 
@@ -816,7 +546,6 @@ window.agentsDashboard = {
     // getting taller, without waiting for the server to say something changed.
     keepScroll: (element, key) => keepScroll(element, key),
     enhanceMarkdown: (element, reference) => enhanceMarkdown(element, reference),
-    watchDiffWindow: (column, reference) => watchDiffWindow(column, reference),
     scrollThread: (thread, force) => {
         if (!thread) {
             return;
@@ -881,42 +610,6 @@ window.agentsDashboard = {
     },
     setTitle: (title) => {
         document.title = title;
-    },
-    // Instant, not smooth: jumping to a file in a large diff can be tens of
-    // thousands of pixels, which animates slowly and lands you somewhere you did
-    // not watch yourself travel to. Smooth scrolling is also ignored outright in
-    // some embedded webviews, so the jump would simply not happen.
-    scrollTo: (id, block) => {
-        document.getElementById(id)?.scrollIntoView({ block: block ?? 'start' });
-    },
-    startDiffSelection: (element, reference) => {
-        diffOwners.set(element, reference);
-        if (wired) {
-            return;
-        }
-
-        wired = true;
-        document.addEventListener('mousedown', onDown, true);
-        document.addEventListener('mousemove', onMove, true);
-        document.addEventListener('mouseup', onUp, true);
-        document.addEventListener('click', onClick, true);
-    },
-    stopDiffSelection: (element) => {
-        if (element) {
-            diffOwners.delete(element);
-        }
-
-        if (drag && element && element.contains(drag.rows[0]?.element)) {
-            drag = null;
-        }
-
-        if (drag) {
-            return;
-        }
-
-        clearInterval(edgeTimer);
-        edgeTimer = null;
-        clearPreview();
     },
     // A Picker's list, placed under its trigger, or over it when there is more
     // room above. Fixed to the viewport so nothing that scrolls clips it.
@@ -1128,8 +821,8 @@ window.agentsLayout = (() => {
 })();
 
 // The borders between the panels, dragged. Done here rather than on the circuit
-// for the same reason as line selection: a drag is a stream of moves, and a round
-// trip for each would lag behind the pointer. Each size is a CSS variable on the
+// because a drag is a stream of moves, and a round trip for each would lag
+// behind the pointer. Each size is a CSS variable on the
 // root element, not a style on the layout, so a Blazor render never puts it
 // back, and it is kept per machine. Double-click puts one back to its default;
 // the arrow keys move a focused border, so none of this is mouse-only.
