@@ -157,7 +157,7 @@ refresh.
 The mouse's back and forward buttons walk the jumps go to definition has made,
 into another file or down the same one, and rows picked in the references
 panel, as they do in VS Code. Ctrl+- and Ctrl+Shift+- do the same from the
-keyboard.
+keyboard, as bindings like any other (see Keyboard shortcuts below).
 
 - **Where a jump left from** is recorded on the worktree's `EditorGroup`: the
   tab, and the caret line Monaco reports as it jumps. Going back adds the place
@@ -170,6 +170,80 @@ keyboard.
   back in the browser's history, which here is the agent you were on before.
 - **Going back to the same line** still moves the caret: `EditorDoc.Reveal` is
   bumped with the line, and `CodeEditor` reveals when either changes.
+
+## Go to File
+
+VS Code's quick open: Cmd+P (Ctrl+P elsewhere) or Ctrl+T, or the search box in
+the middle of the title bar (VS Code's command center), opens a box over it that finds a file in the
+worktree in view by a few letters of its name. Go to Line (Ctrl+G) is the same
+box with `:` typed.
+
+```mermaid
+flowchart LR
+    key[keydown, capture phase] -->|chord in map| run[MainLayout.RunCommand]
+    title[title bar search box] --> show
+    run --> show[Workbench.ShowQuickOpen]
+    show --> qo[QuickOpen]
+    qo -->|first open, or files changed| list[WorktreeFiles.ListAsync]
+    qo -->|each keystroke| match[FileSearch.Find]
+    match --> qo
+    qo -->|Enter| open[Workbench.OpenFile / OpenFileToSide]
+    open --> focus[agentsEditor.focusFile]
+```
+
+- **The list is git's**, tracked plus untracked-not-ignored, the same as the
+  Files tab. `QuickOpen` keeps each worktree's list for the window's life and
+  lists again only when the watcher has reported a change, so the second Cmd+P
+  is instant and a file an agent just wrote is still found.
+- **Matching is on the server**, in `FileSearch` in Core, capped at fifty, so
+  only what is drawn crosses the circuit. It is a subsequence match scored for
+  runs and word starts, with a match inside the file name always beating one
+  spread over the directories. Spaces split the query into pieces that must all
+  match, and a piece with a slash is matched against the whole path. A linear
+  subsequence check runs first; the scoring (a small dynamic program, so `doc`
+  lands on the word start of `FileDocument` rather than the first `d`) only
+  runs on what survives. Past 5000 files it runs off the circuit, and a result
+  that arrives after a newer keystroke is dropped.
+- **`path:42` opens at a line**, `:42` goes to a line in the file in front.
+  Both go through `EditorDoc.Line` and `Reveal`, like any link.
+- **History** is `Workbench.RecentFiles`, the worktree's files in the order they
+  were last brought to the front, memory only like the tabs. With nothing typed
+  it is the list, and the selection starts on the second entry when the first is
+  the file in front, so Cmd+P, Enter switches back. Typed, recent matches come
+  first as their own group, as in VS Code.
+- **The keys that move through the list** are caught in `app.js` on the input,
+  not in Blazor, which cannot prevent a key's default per key. They are sent up
+  with the input's text as it stands, so a fast Enter never opens what the
+  previous keystroke matched. Cmd+Enter (Ctrl+Enter) opens to the side.
+- **Focus** goes to the opened file's editor (`agentsEditor.focusFile`, which
+  waits for Monaco to exist), back to where it was on Escape, and stays where
+  it went when a click elsewhere closed the box.
+- **Settings** (Go to File section): open as preview (off, as VS Code's
+  `enablePreviewFromQuickOpen`), show recently opened files, close when focus
+  moves away.
+
+## Keyboard shortcuts
+
+Every shortcut is a binding from a command to keys, listed in `Commands` in
+Core with VS Code's ids and defaults per platform, and changed on the Settings
+page's Keyboard shortcuts section, which works like VS Code's: Change replaces
+a command's keys, Add adds one, Remove unbinds it, Reset goes back to the
+defaults, and a key bound twice is marked.
+
+- **Only changes are stored**, in `Settings.KeyBindings`, command id to its
+  full list of keys. A command left alone follows the defaults, including when
+  a later version changes them. `KeyMap` lays the two together.
+- **Chords are written one way**, `ctrl+shift+alt+cmd+key`, from the physical
+  key (`event.code`), so Shift+- stays `shift+-` and a layout's shifted
+  characters do not move bindings. `KeyChord` in Core and `agentsKeys` in
+  `app.js` must agree on the names.
+- **One listener, on the document, in the capture phase**, so shortcuts work
+  with focus in Monaco and Monaco never sees a key that ran a command. The map
+  is sent from `Shortcuts` (a singleton) to every window, again whenever the
+  Settings page changes it. The recorder is marked `data-keybinding-recorder`,
+  which the listener skips, or recording Cmd+P would open Go to File.
+- **A new command** needs an entry in `Commands.All` and a case in
+  `MainLayout.RunCommand`.
 
 ## Changes: a list on the right, diffs in the middle
 

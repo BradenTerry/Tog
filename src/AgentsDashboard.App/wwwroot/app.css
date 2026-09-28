@@ -1739,7 +1739,8 @@ button.icon-btn:hover:where(:not(:disabled)) { background: var(--surface-2); }
 /* ---------- title bar ---------- */
 
 .titlebar {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
     align-items: center;
     gap: 12px;
     height: 38px;
@@ -1794,6 +1795,37 @@ button.icon-btn:hover:where(:not(:disabled)) { background: var(--surface-2); }
 }
 
 .titlebar .icon-btn { width: 28px; height: 28px; }
+
+/* The bar's two ends, either side of Go to File's box. */
+.titlebar-start, .titlebar-end { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.titlebar-end { justify-content: flex-end; }
+
+/* Go to File's box in the middle of the bar, like VS Code's command center. */
+.command-center-slot { display: flex; justify-content: center; width: clamp(160px, 26vw, 380px); }
+.command-center {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-width: 0;
+    height: 24px;
+    padding: 0 6px 0 10px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-faint);
+    font-size: 12px;
+    cursor: pointer;
+}
+.command-center:hover { border-color: var(--accent-dim); color: var(--text-dim); }
+.command-center svg { flex: none; }
+.command-center-label { flex: 1; min-width: 0; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.command-center kbd { flex: none; }
+@media (max-width: 760px) {
+    .command-center-slot { width: 28px; }
+    .command-center { padding: 0; justify-content: center; }
+    .command-center-label, .command-center kbd { display: none; }
+}
 .title-update { display: inline-flex; align-items: center; gap: 6px; flex: none; font-size: 12px; white-space: nowrap; }
 
 /* The agents by state, each count a button that lists them. */
@@ -2651,3 +2683,137 @@ button.wt-agent {
 button.wt-agent:first-child { border-top: none; }
 button.wt-agent:hover:where(:not(:disabled)) { background: var(--surface-2); }
 button.wt-agent .dot { margin-top: 6px; }
+
+/* ---------- go to file ---------- */
+
+/* Over the title bar's search box, where VS Code puts its quick open, so the
+   box seems to open in place and the list grows down from it. The
+   scrim is clear: the box is a quick errand, and dimming the window for it
+   would flash on every Cmd+P. */
+.qo-scrim { position: fixed; inset: 0; z-index: 60; }
+.qo {
+    position: fixed;
+    z-index: 61;
+    top: 4px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(620px, calc(100vw - 32px));
+    display: flex;
+    flex-direction: column;
+    max-height: min(520px, calc(100vh - 48px));
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+}
+.qo-input-row { position: relative; padding: 6px; border-bottom: 1px solid var(--border-soft); }
+.qo input.qo-input {
+    width: 100%;
+    max-width: none;
+    padding: 6px 10px;
+    font-size: 13px;
+    background: var(--bg);
+    border-color: var(--accent-dim);
+}
+.qo-busy { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); font-size: 11px; }
+.qo-list { overflow-y: auto; padding: 4px; min-height: 0; }
+.qo-group {
+    padding: 6px 8px 2px;
+    font-size: 10.5px;
+    text-align: right;
+    border-top: 1px solid var(--border-soft);
+}
+.qo-group:first-child { border-top: none; }
+.qo-item {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 4px 8px;
+    border-radius: var(--radius-sm);
+    font-size: 12.5px;
+    cursor: pointer;
+    min-width: 0;
+}
+.qo-item .file-icon { align-self: center; }
+.qo-item.active { background: var(--accent-bg); box-shadow: inset 2px 0 0 var(--accent); }
+.qo-name { color: var(--text); white-space: nowrap; flex: none; }
+.qo-dir {
+    color: var(--text-faint);
+    font-size: 11.5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+    flex: 1;
+}
+.qo-item mark { background: none; color: var(--accent); font-weight: 600; }
+.qo-mark { margin-left: auto; flex: none; font-family: var(--mono); font-size: 10.5px; color: var(--t-meta); }
+.qo-mark.added { color: var(--active); }
+.qo-note { padding: 8px 10px; font-size: 12.5px; }
+.qo-note.qo-line { background: var(--accent-bg); border-radius: var(--radius-sm); cursor: pointer; }
+.qo-foot {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    padding: 6px 10px;
+    border-top: 1px solid var(--border-soft);
+    font-size: 11px;
+}
+
+/* ---------- keyboard shortcuts ---------- */
+
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+.kb-tools { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+.kb-tools input[type="search"] {
+    flex: 1;
+    padding: 6px 10px;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+}
+.kb-tools input[type="search"]:focus { outline: none; border-color: var(--accent-dim); }
+.kb-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.kb-table th {
+    padding: 8px 14px;
+    text-align: left;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-faint);
+    border-bottom: 1px solid var(--border-soft);
+}
+.kb-table td { padding: 8px 14px; border-bottom: 1px solid var(--border-soft); vertical-align: middle; }
+.kb-table tr:last-child td { border-bottom: none; }
+.kb-table tr.kb-changed td:first-child { box-shadow: inset 2px 0 0 var(--accent); }
+.kb-id { font-size: 10.5px; }
+.kb-chords { display: flex; flex-wrap: wrap; gap: 6px; }
+.kb-chord { display: inline-flex; align-items: center; gap: 4px; }
+.kb-chord kbd { font-size: 11.5px; padding: 1px 6px; }
+.kb-clash { color: var(--waiting); font-size: 11px; }
+.kb-table td:nth-child(2) { white-space: nowrap; }
+.kb-action-row { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 2px; }
+.kb-actions button { opacity: 0.55; padding: 2px 6px; }
+.kb-table tr:hover .kb-actions button, .kb-actions button:focus-visible { opacity: 1; }
+.kb-recorder-wrap { display: flex; flex-direction: column; gap: 4px; }
+input.kb-recorder {
+    width: 180px;
+    padding: 4px 8px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-sm);
+    caret-color: transparent;
+}
+input.kb-recorder:focus { outline: none; box-shadow: 0 0 0 2px var(--accent-bg); }

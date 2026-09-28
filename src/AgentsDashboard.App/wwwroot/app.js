@@ -952,8 +952,8 @@ function bindPicker(trigger) {
 }
 
 // Back and forward through the jumps go to definition has made, on the mouse's
-// side buttons as in VS Code, and on its keys (Ctrl+- and Ctrl+Shift+-). The
-// buttons would otherwise go back in the browser's history, which here means to
+// side buttons as in VS Code. The keys (Ctrl+- and Ctrl+Shift+- by default) are
+// bindings like any other, in agentsKeys below. The buttons would otherwise go back in the browser's history, which here means to
 // the agent you were on before, so their default is stopped on the press and
 // the release alike: which of the two navigates differs between engines.
 (() => {
@@ -977,14 +977,6 @@ function bindPicker(trigger) {
             }
         }, true);
     }
-
-    document.addEventListener('keydown', (event) => {
-        if (reference && event.ctrlKey && !event.metaKey && !event.altKey && event.code === 'Minus') {
-            event.preventDefault();
-            event.stopPropagation();
-            go(event.shiftKey);
-        }
-    }, true);
 
     window.agentsDashboard.watchNavigation = (ref) => { reference = ref; };
 })();
@@ -1234,4 +1226,176 @@ document.addEventListener('dragstart', (event) => {
         const step = (event.shiftKey ? 8 : 2) * (event.key === 'ArrowRight' ? 1 : -1);
         apply(current() + step, handle.parentElement.getBoundingClientRect().width, true);
     });
+})();
+
+// Keyboard shortcuts. The server owns the map (defaults plus what was changed on
+// the Settings page) and sends it here as chord -> command id; this listens on
+// the whole document in the capture phase, so a shortcut works wherever focus
+// is, Monaco included, and Monaco never sees a key that ran a command. Chords are
+// written the way KeyChord in Core writes them, from the physical key
+// (event.code), so Shift+- stays "shift+-" rather than becoming "_".
+window.agentsKeys = (() => {
+    const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
+    let bindings = new Map();
+    let reference = null;
+
+    const named = {
+        Minus: '-', Equal: '=', BracketLeft: '[', BracketRight: ']', Backslash: '\\',
+        Semicolon: ';', Quote: "'", Comma: ',', Period: '.', Slash: '/', Backquote: '`',
+        ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right',
+        Enter: 'enter', NumpadEnter: 'enter', Escape: 'escape', Space: 'space', Tab: 'tab',
+        Backspace: 'backspace', Delete: 'delete', Insert: 'insert', Home: 'home', End: 'end',
+        PageUp: 'pageup', PageDown: 'pagedown',
+    };
+    const modifiers = new Set(['Shift', 'Control', 'Alt', 'Meta', 'OS', 'CapsLock', 'Fn']);
+
+    function keyName(event) {
+        const code = event.code || '';
+        if (/^Key[A-Z]$/.test(code)) {
+            return code.slice(3).toLowerCase();
+        }
+        if (/^Digit[0-9]$/.test(code)) {
+            return code.slice(5);
+        }
+        if (/^F[0-9]{1,2}$/.test(code) || /^Numpad[0-9]$/.test(code)) {
+            return code.toLowerCase();
+        }
+        if (named[code]) {
+            return named[code];
+        }
+        return (event.key || '').toLowerCase() || null;
+    }
+
+    function chord(event) {
+        if (modifiers.has(event.key)) {
+            return null;
+        }
+        const key = keyName(event);
+        if (!key) {
+            return null;
+        }
+        const parts = [];
+        if (event.ctrlKey) parts.push('ctrl');
+        if (event.shiftKey) parts.push('shift');
+        if (event.altKey) parts.push('alt');
+        if (event.metaKey) parts.push(isMac ? 'cmd' : 'meta');
+        parts.push(key);
+        return parts.join('+');
+    }
+
+    document.addEventListener('keydown', (event) => {
+        if (!reference || event.isComposing || event.target.closest?.('[data-keybinding-recorder]')) {
+            return;
+        }
+
+        const pressed = chord(event);
+        const id = pressed && bindings.get(pressed);
+        if (!id) {
+            return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        const line = window.agentsEditor?.visibleCaret?.() ?? null;
+        reference.invokeMethodAsync('RunCommand', id, line).catch(() => { });
+    }, true);
+
+    // Remembers what had focus when Go to File opened, so closing it without
+    // opening anything puts the caret back where it was, as VS Code does.
+    let returnFocus = null;
+
+    return {
+        isMac,
+        watch: (ref, map) => {
+            reference = ref;
+            bindings = new Map(Object.entries(map || {}));
+        },
+        setBindings: (map) => {
+            bindings = new Map(Object.entries(map || {}));
+        },
+
+        // The key recorder on the Keyboard shortcuts page: every key is taken,
+        // reported as a chord, and Enter and Escape (alone) finish or cancel.
+        record: (element, ref) => {
+            if (!element || element.dataset.recorderBound) {
+                return;
+            }
+            element.dataset.recorderBound = 'true';
+            element.addEventListener('keydown', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const plain = !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
+                if (plain && event.key === 'Escape') {
+                    ref.invokeMethodAsync('CancelRecording').catch(() => { });
+                } else if (plain && event.key === 'Enter') {
+                    ref.invokeMethodAsync('ConfirmRecording').catch(() => { });
+                } else {
+                    const pressed = chord(event);
+                    if (pressed) {
+                        ref.invokeMethodAsync('Recorded', pressed).catch(() => { });
+                    }
+                }
+            });
+            element.focus();
+        },
+
+        // Go to File's input. The keys that move through the list are stopped
+        // here, since Blazor cannot decide per key whether to prevent the caret
+        // moving, and sent up with the text as it stands, so a quick Enter after
+        // typing never opens what the previous keystroke matched.
+        bindQuickOpen: (input, ref, selectAll) => {
+            if (!input) {
+                return;
+            }
+            if (!input.dataset.quickOpenBound) {
+                input.dataset.quickOpenBound = 'true';
+                input.addEventListener('keydown', (event) => {
+                    let key = null;
+                    if (['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'Enter', 'NumpadEnter', 'Escape'].includes(event.key)) {
+                        key = event.key === 'NumpadEnter' ? 'Enter' : event.key;
+                    } else if (isMac && event.ctrlKey && !event.metaKey && (event.code === 'KeyN' || event.code === 'KeyP')) {
+                        // Emacs keys, as the macOS text system and VS Code's list both take them.
+                        key = event.code === 'KeyN' ? 'ArrowDown' : 'ArrowUp';
+                    }
+                    if (!key || event.isComposing) {
+                        return;
+                    }
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const side = isMac ? event.metaKey : event.ctrlKey;
+                    ref.invokeMethodAsync('OnKey', key, side, input.value).catch(() => { });
+                });
+            }
+            // Centred on the title bar's search box, which centres in the bar's
+            // free space rather than on the window, so the box opens over it.
+            const dialog = input.closest('.qo');
+            const anchor = document.querySelector('.command-center');
+            if (dialog && anchor && anchor.offsetWidth > 0) {
+                const rect = anchor.getBoundingClientRect();
+                const half = dialog.offsetWidth / 2;
+                const centre = Math.min(window.innerWidth - half - 8, Math.max(half + 8, rect.left + rect.width / 2));
+                dialog.style.left = centre + 'px';
+            }
+            if (document.activeElement !== input) {
+                returnFocus = document.activeElement;
+                input.focus();
+            }
+            if (selectAll) {
+                input.select();
+            } else {
+                input.setSelectionRange(input.value.length, input.value.length);
+            }
+        },
+        revealActive: (list) => {
+            list?.querySelector('.qo-item.active')?.scrollIntoView({ block: 'nearest' });
+        },
+        restoreFocus: () => {
+            const target = returnFocus;
+            returnFocus = null;
+            if (target && target.isConnected && typeof target.focus === 'function') {
+                target.focus();
+            }
+        },
+        forgetFocus: () => { returnFocus = null; },
+    };
 })();

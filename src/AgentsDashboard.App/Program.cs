@@ -66,6 +66,7 @@ builder.Services.AddSingleton<IClipboard, Clipboard>();
 // Storage and settings
 builder.Services.AddSingleton(new AppPaths(options.DataDir));
 builder.Services.AddSingleton<SettingsStore>();
+builder.Services.AddSingleton<Shortcuts>();
 builder.Services.AddSingleton<ReviewDraftStore>();
 builder.Services.AddSingleton<LastViewStore>();
 

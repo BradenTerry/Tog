@@ -344,6 +344,89 @@ public sealed class Workbench : IDisposable
         Open(worktreePath, DocKind.File, path, line, keep);
 
     /// <summary>
+    /// Opens a file on the other side of the editor, splitting it if it is not
+    /// split yet: Go to File's Ctrl+Enter, VS Code's "open to the side". A file
+    /// already open on this side moves across, since a document is only ever
+    /// open on one side.
+    /// </summary>
+    public void OpenFileToSide(string worktreePath, string path, int? line = null)
+    {
+        var group = Editors(worktreePath);
+        if (group.Find(EditorDoc.FileKey(path)) is { } open)
+        {
+            if (open.Pane == group.Focused)
+            {
+                group.Move(open, 1 - open.Pane);
+            }
+        }
+        else
+        {
+            group.Focused = 1 - group.Focused;
+        }
+
+        Open(worktreePath, DocKind.File, path, line, keep: true);
+    }
+
+    /// <summary>
+    /// Moves the caret of the file in front to a line, for Go to Line. False
+    /// when what is in front is not a file, so there is no line to go to.
+    /// </summary>
+    public bool GoToLine(string worktreePath, int line)
+    {
+        if (Editors(worktreePath).Active is not { Kind: DocKind.File } doc)
+        {
+            return false;
+        }
+
+        doc.Line = line;
+        doc.Reveal++;
+        Raise();
+        return true;
+    }
+
+    /// <summary>
+    /// Asks the window to open Go to File, with <paramref name="prefix"/>
+    /// already typed (":" for Go to Line). Asked again while it is open, it
+    /// moves down the list, as pressing Cmd+P twice does in VS Code.
+    /// </summary>
+    public void ShowQuickOpen(string prefix = "") => QuickOpenRequested?.Invoke(prefix);
+
+    public event Action<string>? QuickOpenRequested;
+
+    /// <summary>How many recently opened files are kept per worktree.</summary>
+    private const int RecentLimit = 50;
+
+    private readonly Dictionary<string, List<string>> _recent = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// A worktree's files in the order they were last brought to the front, the
+    /// most recent first, for Go to File's history. Memory only, like the tabs.
+    /// </summary>
+    public IReadOnlyList<string> RecentFiles(string worktreePath) =>
+        _recent.TryGetValue(worktreePath, out var recent) ? recent : [];
+
+    private void Touch(string worktreePath, EditorDoc? doc)
+    {
+        if (doc is not { Kind: DocKind.File, Path: { } path })
+        {
+            return;
+        }
+
+        if (!_recent.TryGetValue(worktreePath, out var recent))
+        {
+            recent = [];
+            _recent[worktreePath] = recent;
+        }
+
+        recent.Remove(path);
+        recent.Insert(0, path);
+        if (recent.Count > RecentLimit)
+        {
+            recent.RemoveAt(recent.Count - 1);
+        }
+    }
+
+    /// <summary>
     /// Opens one file's changes, the way clicking a file in VS Code's Source
     /// Control view does: a tab of its own, previewed like a file until kept.
     /// </summary>
@@ -377,9 +460,11 @@ public sealed class Workbench : IDisposable
         if (line is not null)
         {
             doc.Line = line;
+            doc.Reveal++;
         }
 
         group.ActiveKey = key;
+        Touch(worktreePath, doc);
         Raise();
     }
 
@@ -445,7 +530,14 @@ public sealed class Workbench : IDisposable
     /// and leaves you on the agent. Without an agent in view the tabs are kept
     /// under the empty worktree, which is where the editor looks then.
     /// </summary>
-    public void OpenSettings(string? worktreePath) => OpenPage(worktreePath, EditorDoc.SettingsKey, DocKind.Settings);
+    public void OpenSettings(string? worktreePath, string? section = null)
+    {
+        SettingsSection = section ?? SettingsSection;
+        OpenPage(worktreePath, EditorDoc.SettingsKey, DocKind.Settings);
+    }
+
+    /// <summary>A section Settings should turn to, taken once by the page: Open Keyboard Shortcuts asks for "keys".</summary>
+    public string? SettingsSection { get; set; }
 
     /// <summary>
     /// Opens the Worktrees view, every worktree of every repo, the way Settings
@@ -550,6 +642,7 @@ public sealed class Workbench : IDisposable
         }
 
         group.ActiveKey = key;
+        Touch(worktreePath, group.Active);
         Raise();
     }
 

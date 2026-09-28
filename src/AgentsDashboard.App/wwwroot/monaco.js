@@ -999,6 +999,32 @@ window.agentsEditor = {
 
     // The caret line of the editor on screen, for going back to where you were.
     // Every open file keeps an editor, so it is the one not in a hidden tab.
+    // Puts the caret in the editor of a file just opened from outside it, Go to
+    // File above all, so typing carries on in the file as it does in VS Code.
+    // The editor may not exist yet when this is asked (the tab renders, then
+    // Monaco is created), so it looks again for a moment before giving up.
+    focusFile: (absolutePath) => {
+        let tries = 0;
+        const attempt = () => {
+            const monaco = window.monaco;
+            if (monaco) {
+                const wanted = monaco.Uri.file(absolutePath).toString();
+                for (const state of editors.values()) {
+                    const model = state.editor.getModel();
+                    if (state.element.isConnected && !state.element.closest('.hidden') && model && model.uri.toString() === wanted) {
+                        state.editor.focus();
+                        return;
+                    }
+                }
+            }
+
+            if (++tries < 40) {
+                setTimeout(attempt, 50);
+            }
+        };
+        attempt();
+    },
+
     visibleCaret: () => {
         for (const state of editors.values()) {
             if (state.element.isConnected && !state.element.closest('.hidden')) {
