@@ -64,7 +64,7 @@
                                is built fresh from the new copy's type rather than handed
                                new parameters. *@
                             <div class="panel-scroll ext-view">
-                                <ExtensionViewHost Live="tab.View!" Agent="ApiModel.Agent(agent!, State)"
+                                <ExtensionViewHost Live="tab.View!" Agent="@tab.Agent" Worktree="@tab.Worktree"
                                                    IsVisible="@(active && Bench.Panel(Side).Open)" />
                             </div>
                             break;
@@ -79,7 +79,13 @@
     [Parameter, EditorRequired]
     public PanelSide Side { get; set; }
 
-    private sealed record Tab(string Key, string Title, LiveView? View = null, string? Count = null, string? Tone = null, string? Tooltip = null);
+    private sealed record Tab(string Key, string Title, LiveView? View = null, string? Count = null, string? Tone = null, string? Tooltip = null)
+    {
+        /// <summary>What an extension's view is drawn for: an agent view gets the agent, a worktree view the worktree and the agent in it, if any.</summary>
+        public AgentsDashboard.Extensions.AgentContext? Agent { get; init; }
+
+        public AgentsDashboard.Extensions.WorktreeContext? Worktree { get; init; }
+    }
 
     /// <summary>The tabs opened for the agent on screen, which stay built until the panel moves to another.</summary>
     private readonly HashSet<string> _visited = new(StringComparer.Ordinal);
@@ -120,21 +126,28 @@
                     break;
             }
 
-            if (agent is null)
-            {
-                return tabs;
-            }
-
-            var api = ApiModel.Agent(agent, State);
+            // An agent view needs an agent. A worktree view needs only the
+            // worktree in view, which is there with no agent picked, and is
+            // told about the agent only when that agent works in it.
+            var api = agent is null ? null : ApiModel.Agent(agent, State);
+            var tree = worktree is null ? null : ApiModel.Worktree(worktree, State);
+            var agentHere = api is not null && api.Worktree?.Path == tree?.Path ? api : null;
             foreach (var live in Extensions.Views.Where(v => Workbench.SideOf(v.View.DefaultLocation) == Side))
             {
-                if (!Applies(live, api))
+                var (forAgent, forWorktree) = live.View.ForWorktree ? (agentHere, tree) : (api, null);
+                if (live.View.ForWorktree ? forWorktree is null || !Applies(live, forWorktree) : forAgent is null || !Applies(live, forAgent))
                 {
                     continue;
                 }
 
-                var indicator = Extensions.IndicatorFor(live.View, api);
-                tabs.Add(new Tab(live.View.Key, live.View.Title, live, indicator?.Text, indicator is null ? null : ToneClass(indicator.Tone), indicator?.Tooltip));
+                var indicator = forWorktree is not null
+                    ? Extensions.IndicatorFor(live.View, forWorktree)
+                    : Extensions.IndicatorFor(live.View, forAgent!);
+                tabs.Add(new Tab(live.View.Key, live.View.Title, live, indicator?.Text, indicator is null ? null : ToneClass(indicator.Tone), indicator?.Tooltip)
+                {
+                    Agent = forAgent,
+                    Worktree = forWorktree,
+                });
             }
 
             return tabs;
@@ -158,6 +171,18 @@
         try
         {
             return live.View.AppliesTo?.Invoke(agent) ?? true;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    private static bool Applies(LiveView live, AgentsDashboard.Extensions.WorktreeContext worktree)
+    {
+        try
+        {
+            return live.View.WorktreeAppliesTo?.Invoke(worktree) ?? true;
         }
         catch (Exception)
         {

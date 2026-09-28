@@ -17,12 +17,14 @@ public sealed class DotnetTestsExtension : IDashboardExtension
         builder.Services.AddSingleton(telemetry);
 
         builder.AddWorker<TrackerWorker>("tracker");
-        builder.AddView<TestsTab>(
+        // About the worktree rather than an agent, so the tab is there for a
+        // worktree opened from the title bar with no agent picked.
+        builder.AddWorktreeView<TestsTab>(
             "tests",
             "Tests",
             order: 40,
-            appliesTo: agent => agent.Worktree is { } w && telemetry.Get(w.RepoRoot).Projects.Count > 0);
-        builder.AddIndicator<FailingTestsIndicator>("tests");
+            appliesTo: w => telemetry.Get(w.RepoRoot).Projects.Count > 0);
+        builder.AddWorktreeIndicator<FailingTestsIndicator>("tests");
     }
 }
 
@@ -53,10 +55,10 @@ internal sealed class TrackerWorker(IDashboardView view, TestRunTracker tracker,
 }
 
 /// <summary>The failing count from the latest run, in red on the tab.</summary>
-internal sealed class FailingTestsIndicator(TestRunTracker tracker) : IAgentIndicator
+internal sealed class FailingTestsIndicator(TestRunTracker tracker) : IWorktreeIndicator
 {
-    public Indicator? For(AgentContext agent) =>
-        agent.Worktree is { } w && tracker.RunsFor(w.Path) is [{ Failed: > 0 and var failed }, ..]
+    public Indicator? For(WorktreeContext worktree) =>
+        tracker.RunsFor(worktree.Path) is [{ Failed: > 0 and var failed }, ..]
             ? new Indicator(failed.ToString(System.Globalization.CultureInfo.InvariantCulture), Tone.Danger, "Failing in the latest run")
             : null;
 }

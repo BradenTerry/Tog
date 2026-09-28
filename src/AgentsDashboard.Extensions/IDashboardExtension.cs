@@ -45,8 +45,33 @@ public interface IExtensionBuilder
         Func<AgentContext, bool>? appliesTo = null)
         where TComponent : IComponent;
 
+    /// <summary>
+    /// Adds a view about a worktree rather than an agent: shown whenever a
+    /// worktree is in view, with or without an agent picked, and following the
+    /// worktree picked in the title bar. Write it against
+    /// <see cref="WorktreeViewBase"/>. Since API 1.4.
+    /// </summary>
+    /// <param name="id">Unique within the extension. Appears in the URL.</param>
+    /// <param name="title">What the tab or panel header says.</param>
+    /// <param name="defaultLocation">Which panel it is a tab in.</param>
+    /// <param name="order">Lower comes first, after the app's own tabs.</param>
+    /// <param name="appliesTo">Hides the view for worktrees it has nothing for. Answer from memory: it runs on every render.</param>
+    void AddWorktreeView<TComponent>(
+        string id,
+        string title,
+        ViewLocation defaultLocation = ViewLocation.RightPanel,
+        int order = 100,
+        Func<WorktreeContext, bool>? appliesTo = null)
+        where TComponent : IComponent;
+
     /// <summary>Adds a small count or label shown on one of this extension's views.</summary>
     void AddIndicator<TProvider>(string viewId) where TProvider : class, IAgentIndicator;
+
+    /// <summary>
+    /// Adds a small count or label shown on one of this extension's views,
+    /// worked out from the worktree. Since API 1.4.
+    /// </summary>
+    void AddWorktreeIndicator<TProvider>(string viewId) where TProvider : class, IWorktreeIndicator;
 
     /// <summary>
     /// Adds background work that runs while the extension is enabled. An
@@ -111,6 +136,16 @@ public interface IAgentIndicator
 {
     /// <summary>The indicator to show, or null for none.</summary>
     Indicator? For(AgentContext agent);
+}
+
+/// <summary>
+/// Supplies an indicator for a worktree. Since API 1.4. Called on every render
+/// of the panel, so it must answer from memory: no IO, no git, no waiting.
+/// </summary>
+public interface IWorktreeIndicator
+{
+    /// <summary>The indicator to show, or null for none.</summary>
+    Indicator? For(WorktreeContext worktree);
 }
 
 /// <summary>A short count or label on a view's tab.</summary>

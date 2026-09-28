@@ -1,12 +1,8 @@
-@inherits AgentViewBase
+@inherits WorktreeViewBase
 @inject IDashboardView Dashboard
 
 @{
-    if (Agent.Worktree is not { } worktree)
-    {
-        return;
-    }
-
+    var worktree = Worktree;
     var report = Telemetry.Get(worktree.RepoRoot);
     var runs = Tracker.RunsFor(worktree.Path);
     var mtp = report.Projects.Any(p => p.Runner == TestRunnerKind.MicrosoftTestingPlatform);
@@ -99,11 +95,11 @@ else if (!mtp)
                 <div class="failure-name">@failure.Name</div>
                 @if (failure.Message is { Length: > 0 } message)
                 {
-                    <pre><LinkedText Text="@message" Agent="Agent" /></pre>
+                    <pre><LinkedText Text="@message" Agent="Agent" Worktree="Worktree" /></pre>
                 }
                 @if (failure.StackTrace is { Length: > 0 } stack)
                 {
-                    <pre class="faint"><LinkedText Text="@stack" Agent="Agent" /></pre>
+                    <pre class="faint"><LinkedText Text="@stack" Agent="Agent" Worktree="Worktree" /></pre>
                 }
             </div>
         }
@@ -139,7 +135,7 @@ else if (!mtp)
         _message = null;
         StateHasChanged();
 
-        var started = await Task.Run(() => Runner.Start(Agent.Worktree!.Path, mtp));
+        var started = await Task.Run(() => Runner.Start(Worktree.Path, mtp));
 
         _starting = false;
         _startedCommand = started.Command;
@@ -153,7 +149,7 @@ else if (!mtp)
         _installing = true;
         StateHasChanged();
 
-        var repoRoot = Agent.Worktree!.RepoRoot;
+        var repoRoot = Worktree.RepoRoot;
         var report = Telemetry.Get(repoRoot);
 
         try

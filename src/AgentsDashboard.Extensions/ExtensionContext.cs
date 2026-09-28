@@ -39,3 +39,34 @@ public abstract class AgentViewBase : ComponentBase
     [CascadingParameter]
     public ExtensionContext Context { get; set; } = default!;
 }
+
+/// <summary>
+/// A base for a view added with <see cref="IExtensionBuilder.AddWorktreeView{TComponent}"/>.
+/// Since API 1.4. The app sets <see cref="Worktree"/> on every render.
+/// </summary>
+/// <remarks>
+/// A worktree outlasts its agents and can be opened with none, so a view about
+/// what is on disk (tests, a build) is shown for the worktree rather than
+/// waiting for an agent to be picked.
+/// </remarks>
+public abstract class WorktreeViewBase : ComponentBase
+{
+    /// <summary>The worktree in view.</summary>
+    [Parameter, EditorRequired]
+    public WorktreeContext Worktree { get; set; } = default!;
+
+    /// <summary>
+    /// The agent on screen when it works in <see cref="Worktree"/>, else null:
+    /// none is picked, or the user picked another worktree in the title bar.
+    /// </summary>
+    [Parameter]
+    public AgentContext? Agent { get; set; }
+
+    /// <summary>False while another tab is in front.</summary>
+    [Parameter]
+    public bool IsVisible { get; set; }
+
+    /// <summary>The extension's manifest and services.</summary>
+    [CascadingParameter]
+    public ExtensionContext Context { get; set; } = default!;
+}

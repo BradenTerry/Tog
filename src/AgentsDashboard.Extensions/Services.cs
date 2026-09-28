@@ -53,7 +53,14 @@ public interface ITextLinker
 /// A run of text. <paramref name="Href"/> opens it in the editor and
 /// <paramref name="EditorHref"/> in VS Code; both are null for plain text.
 /// </summary>
-public sealed record LinkedRun(string Text, string? Href = null, string? EditorHref = null);
+public sealed record LinkedRun(string Text, string? Href = null, string? EditorHref = null)
+{
+    /// <summary>The file's absolute path, for <see cref="IEditorTabs.OpenFile"/>. Since API 1.4.</summary>
+    public string? Path { get; init; }
+
+    /// <summary>The line the text points at, if it names one. Since API 1.4.</summary>
+    public int? Line { get; init; }
+}
 
 /// <summary>A folder the extension may keep files in.</summary>
 public interface IExtensionStorage

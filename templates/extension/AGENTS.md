@@ -28,8 +28,13 @@ dashboard is available, on purpose.
   `LeftPanel` (beside Files) or `BottomPanel` (beside Chat). Naming a panel needs
   `"apiVersion": "1.1"` in `extension.json`. `appliesTo` runs on every render:
   answer from memory, no IO.
+- `b.AddWorktreeView<TComponent>(...)` (API 1.4) adds a tab about the worktree
+  in view rather than an agent, shown with no agent picked too. Use it for
+  anything about what is on disk (tests, a build). Its `appliesTo` takes a
+  `WorktreeContext`.
 - `b.AddIndicator<T>(viewId)` puts a short count on the tab. `IAgentIndicator.For`
-  also runs on every render.
+  also runs on every render. `b.AddWorktreeIndicator<T>(viewId)` (API 1.4) is
+  the same with `IWorktreeIndicator.For(WorktreeContext)`.
 - `b.AddWorker<T>(id)` runs `IExtensionWorker.RunAsync(stopping)` in the
   background while the extension is loaded, restarted with a pause if it throws.
   Stop when `stopping` is cancelled: a reload waits for it.
@@ -50,7 +55,9 @@ dashboard is available, on purpose.
 
 A view inherits `AgentViewBase` and gets `Agent` (an `AgentContext`: id, label,
 state, and its `Worktree` with path, branch, repo and git counts), `IsVisible`,
-and `Context`.
+and `Context`. A worktree view inherits `WorktreeViewBase` and gets `Worktree`,
+`Agent` (null unless the agent on screen works in that worktree), `IsVisible`
+and `Context`; pass `<LinkedText Text="..." Worktree="Worktree" />` there.
 
 Services available to `@inject` and to your own services' constructors:
 `IDashboardView` (every worktree, with git counts only for the one on screen, and a `Changed` event about once a second, on
