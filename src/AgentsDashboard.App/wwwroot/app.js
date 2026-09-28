@@ -779,11 +779,16 @@ window.agentsDashboard = {
         }
     },
     // An agent brought into view takes the keyboard, with the caret after any
-    // draft. Not while a dialog is up or you are typing somewhere else, such as
-    // the editor: the chat is rebuilt for reasons besides a switch.
+    // draft. Not while a dialog is up, a menu is open or you are typing
+    // somewhere else, such as the editor: the chat is rebuilt for reasons
+    // besides a switch. A new agent's panel only takes focus once the monitor
+    // lists it, a second or two after it starts, by which time the agent
+    // picker may be open again, and taking focus from it leaves the arrows
+    // moving the caret instead of walking the list.
     focusComposer: (box) => {
         const at = document.activeElement;
         if (!box || box.disabled || document.querySelector('[aria-modal="true"]')
+            || at?.closest?.('.context-menu')
             || (at && at !== box && at.matches?.('input, textarea, select, [contenteditable="true"]'))) {
             return;
         }
