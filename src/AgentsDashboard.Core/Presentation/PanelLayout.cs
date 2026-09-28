@@ -13,6 +13,7 @@ public enum PanelSide
 /// <summary>
 /// One stretch of a panel: a strip of views, the one in front, and whether it is
 /// folded down to its strip. A panel is a column of these, split top to bottom.
+/// Only the first holds a strip of several; each below it holds one view.
 /// </summary>
 public sealed class PanelSection
 {
@@ -50,6 +51,10 @@ public sealed record ArrangedSection(int Index, PanelSection Section, IReadOnlyL
 /// them: how you like the window, so it is kept per machine.
 /// </summary>
 /// <remarks>
+/// Only a panel's first section is tabbed. A view dropped into a section below
+/// it gets a row of its own there instead, so a split panel reads as one set of
+/// tabs over single views rather than strips nested in strips.
+///
 /// A view is placed by hand or not at all. One never placed goes where it asks
 /// to (an extension's <c>DefaultLocation</c>, or the app's own view's panel),
 /// at the end of that panel's first section, so an extension installed later
@@ -77,8 +82,9 @@ public sealed class PanelLayout
     };
 
     /// <summary>
-    /// Mends a layout read from disk: every panel has a section, and a view is in
-    /// one place only, the first it was found in.
+    /// Mends a layout read from disk: every panel has a section, a view is in
+    /// one place only, the first it was found in, and every section but the
+    /// first holds one view.
     /// </summary>
     public PanelLayout Normalize()
     {
@@ -115,6 +121,8 @@ public sealed class PanelLayout
                     section.Weight = 1;
                 }
             }
+
+            Unstack(panel);
         }
 
         return this;
@@ -194,8 +202,10 @@ public sealed class PanelLayout
 
     /// <summary>
     /// Moves a view into a section's strip, before another view or at the end,
-    /// and brings it to the front there. The section it left goes if that left
-    /// it empty and the panel has others.
+    /// and brings it to the front there. Into a section below the first, which
+    /// has no strip to join, it takes a section of its own above or below that
+    /// one instead. The section it left goes if that left it empty and the panel
+    /// has others.
     /// </summary>
     /// <param name="known">Every view there is now, so the move can write down where the unplaced ones are before anything shifts.</param>
     public void Move(string key, PanelSide side, int section, string? before, IReadOnlyList<PanelView> known)
@@ -221,6 +231,7 @@ public sealed class PanelLayout
         target.Collapsed = false;
         Panel(side).Open = true;
         Prune(from, keep: target);
+        Unstack(Panel(side));
     }
 
     /// <summary>
@@ -250,14 +261,12 @@ public sealed class PanelLayout
         sections.Insert(sections.IndexOf(target) + (below ? 1 : 0), created);
         Panel(side).Open = true;
         Prune(from, keep: created);
+        Unstack(Panel(side));
     }
 
-    /// <summary>Moves a view to the end of another panel's last section, for the menu, which has no place to point at.</summary>
-    public void MoveToPanel(string key, PanelSide side, IReadOnlyList<PanelView> known)
-    {
-        var sections = Panel(side).Sections;
-        Move(key, side, sections.Count - 1, null, known);
-    }
+    /// <summary>Moves a view to the end of another panel's tabs, for the menu, which has no place to point at.</summary>
+    public void MoveToPanel(string key, PanelSide side, IReadOnlyList<PanelView> known) =>
+        Move(key, side, 0, null, known);
 
     public void ToggleCollapsed(PanelSide side, int section)
     {
@@ -327,6 +336,34 @@ public sealed class PanelLayout
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Gives every view in a section below the first a section of its own, in
+    /// strip order, sharing out the height the one had. The first section is
+    /// the only strip, whatever shifts into that place.
+    /// </summary>
+    private static void Unstack(DockedPanel panel)
+    {
+        var sections = panel.Sections;
+        for (var i = sections.Count - 1; i > 0; i--)
+        {
+            var section = sections[i];
+            if (section.Views.Count < 2)
+            {
+                continue;
+            }
+
+            var weight = section.Weight / section.Views.Count;
+            sections.RemoveAt(i);
+            sections.InsertRange(i, section.Views.Select(view => new PanelSection
+            {
+                Views = [view],
+                Active = view,
+                Collapsed = section.Collapsed,
+                Weight = weight,
+            }));
+        }
     }
 
     /// <summary>Drops a section left empty, unless it is its panel's last or the one just filled.</summary>

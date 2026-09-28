@@ -57,11 +57,47 @@ public class PanelLayoutTests
         var layout = new PanelLayout();
 
         layout.Split("tests", PanelSide.Left, 0, below: true, Views);
+        layout.Split("scm", PanelSide.Left, 1, below: false, Views);
+        layout.Split("chat", PanelSide.Left, 1, below: true, Views);
+
+        Assert.Equal([["files", "outline"], ["scm"], ["chat"], ["tests"]], Strips(layout, PanelSide.Left));
+        Assert.Empty(Strips(layout, PanelSide.Bottom));
+        Assert.Equal([0.5, 0.125, 0.125, 0.25], layout.Left.Sections.Select(s => s.Weight));
+    }
+
+    [Fact]
+    public void Only_the_first_section_is_tabbed()
+    {
+        var layout = new PanelLayout();
+        layout.Split("scm", PanelSide.Right, 0, below: true, Views);
+
+        layout.Move("chat", PanelSide.Right, 1, before: null, Views);
+        layout.Move("files", PanelSide.Right, 1, before: "scm", Views);
+
+        Assert.Equal([["tests"], ["files"], ["scm"], ["chat"]], Strips(layout, PanelSide.Right));
+        Assert.All(layout.Right.Sections.Skip(1), s => Assert.Equal(s.Views[0], s.Active));
+        Assert.Equal([0.5, 0.125, 0.125, 0.25], layout.Right.Sections.Select(s => s.Weight));
+    }
+
+    [Fact]
+    public void Splitting_above_the_first_section_leaves_one_strip()
+    {
+        var layout = new PanelLayout();
+
         layout.Split("chat", PanelSide.Left, 0, below: false, Views);
 
-        Assert.Equal([["chat"], ["files", "outline"], ["tests"]], Strips(layout, PanelSide.Left));
-        Assert.Empty(Strips(layout, PanelSide.Bottom));
-        Assert.Equal([0.25, 0.25, 0.5], layout.Left.Sections.Select(s => s.Weight));
+        Assert.Equal([["chat"], ["files"], ["outline"]], Strips(layout, PanelSide.Left));
+    }
+
+    [Fact]
+    public void The_menu_moves_a_view_into_the_other_panels_tabs()
+    {
+        var layout = new PanelLayout();
+        layout.Split("tests", PanelSide.Right, 0, below: true, Views);
+
+        layout.MoveToPanel("chat", PanelSide.Right, Views);
+
+        Assert.Equal([["scm", "chat"], ["tests"]], Strips(layout, PanelSide.Right));
     }
 
     [Fact]
@@ -168,6 +204,25 @@ public class PanelLayoutTests
         Assert.Equal(1, layout.Right.Sections[0].Weight);
         Assert.Single(layout.Bottom.Sections);
         Assert.NotNull(layout.Sizes);
+    }
+
+    [Fact]
+    public void Normalize_gives_each_view_below_the_first_section_its_own()
+    {
+        var layout = new PanelLayout
+        {
+            Right = new DockedPanel
+            {
+                Sections =
+                [
+                    new PanelSection { Views = ["scm"] },
+                    new PanelSection { Views = ["tests", "chat"], Active = "chat", Weight = 4 },
+                ],
+            },
+        }.Normalize();
+
+        Assert.Equal([["scm"], ["tests"], ["chat"]], Strips(layout, PanelSide.Right));
+        Assert.Equal([1, 2, 2], layout.Right.Sections.Select(s => s.Weight));
     }
 
     [Fact]
