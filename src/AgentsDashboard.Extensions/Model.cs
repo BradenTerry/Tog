@@ -9,7 +9,15 @@ public sealed record AgentContext(
     string Label,
     string Backend,
     AgentState State,
-    WorktreeContext? Worktree);
+    WorktreeContext? Worktree)
+{
+    /// <summary>
+    /// When its last turn ended, or null if none has. Since API 1.10. Watching
+    /// this rather than <see cref="State"/> catches a turn that starts and ends
+    /// between two snapshots.
+    /// </summary>
+    public DateTimeOffset? TurnEndedAt { get; init; }
+}
 
 /// <summary>What an agent is doing.</summary>
 public enum AgentState
@@ -49,4 +57,8 @@ public sealed record GitSummary(int Changed, int Staged, int Untracked, int Ahea
 /// <summary>Everything the dashboard follows, as of one monitor tick.</summary>
 public sealed record DashboardView(
     IReadOnlyList<WorktreeContext> Worktrees,
-    DateTimeOffset TakenAt);
+    DateTimeOffset TakenAt)
+{
+    /// <summary>Every agent the dashboard runs, running or stopped. Since API 1.10.</summary>
+    public IReadOnlyList<AgentContext> Agents { get; init; } = [];
+}

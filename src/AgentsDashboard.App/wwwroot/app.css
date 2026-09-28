@@ -1974,6 +1974,13 @@ button.icon-btn:hover:where(:not(:disabled)) { background: var(--surface-2); }
 .panel-banner { margin: 8px; }
 .ext-view { padding: 10px 12px; }
 
+/* Extension overlays (API 1.10) sit over the whole window and let clicks
+   through; an overlay opts its own elements back in with pointer-events. Below
+   the dialogs (50), so nothing an extension draws can cover or pose as the
+   app's own prompts; a dialog of the extension's own goes through IDialogs. */
+.ext-overlays { position: fixed; inset: 0; pointer-events: none; z-index: 40; overflow: hidden; }
+.ext-overlay-error { position: absolute; right: 16px; bottom: 16px; max-width: 420px; pointer-events: auto; }
+
 .scm-title { flex: 1; padding-left: 4px; }
 
 /* ---------- agent picker ---------- */
@@ -2635,8 +2642,8 @@ button.wt-filter.on {
     font-size: 11.5px;
 }
 
-.wt-dialog-body { color: var(--text-dim); }
-.wt-dialog-body p { margin: 8px 0; }
+.wt-dialog-body, .modal-body { color: var(--text-dim); }
+.wt-dialog-body p, .modal-body p { margin: 8px 0; }
 
 .wt-checklist {
     border: 1px solid var(--border);
@@ -2697,7 +2704,7 @@ button.wt-filter.on {
     overflow-y: auto;
 }
 
-.wt-dialog-foot {
+.wt-dialog-foot, .modal-foot {
     display: flex;
     justify-content: flex-end;
     gap: 8px;

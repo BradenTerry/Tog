@@ -61,7 +61,7 @@ and `Context`. A worktree view inherits `WorktreeViewBase` and gets `Worktree`,
 and `Context`; pass `<LinkedText Text="..." Worktree="Worktree" />` there.
 
 Services available to `@inject` and to your own services' constructors:
-`IDashboardView` (every worktree, with git counts only for the one on screen, and a `Changed` event about once a second, on
+`IDashboardView` (every worktree, with git counts only for the one on screen, every agent as `Current.Agents` (API 1.10), and a `Changed` event about once a second, on
 a background thread: use `InvokeAsync`), `INavigation` (a link that opens a file in the
 agent's editor), `ITextLinker` and the `<LinkedText Text="..." Agent="Agent" />`
 component (paths in text become links), `IExtensionStorage` (a data folder of
@@ -82,6 +82,20 @@ the dashboard sends the https request with the secret added and you never hold
 it. `GetAsync(name)` hands you the value, for a library that wants it. Never
 give a secret to an agent: not in a tool result, a prompt or a file. A secret
 asked for while answering an agent tool call throws.
+
+`b.AddOverlay<T>(id)` (API 1.10) draws a component once per window over
+the layout, written against `OverlayBase`: a celebration, a toast. The layer
+lets clicks through; give what should be clickable `pointer-events: auto`. It is not re-rendered for you: call `StateHasChanged`
+from `IDashboardView.Changed` or your own timer. To notice an agent finishing,
+compare each agent's `TurnEndedAt` between ticks rather than its `State`.
+
+`IDialogs` (API 1.10, a view's or an overlay's `@inject`) shows a component
+as a dialog: `var result = await Dialogs.ShowAsync<AskName>("Rename", new Dictionary<string, object?> { ["Name"] = name });`.
+Write the component against `DialogBase`, draw the body in `modal-body` and
+the buttons in `modal-foot`, and end it with `Dialog.Close(value)` or
+`Dialog.Cancel()`. `result.Cancelled` is true for Escape, Close, or the window
+or extension going away. The app draws the title and says which extension is
+asking.
 
 Settings the user changes under your extension in Settings, Extensions (API
 1.9): declare each in `Configure` with `builder.AddSetting(ExtensionSetting.Toggle(...))`

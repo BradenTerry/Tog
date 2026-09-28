@@ -23,9 +23,18 @@ public static class ApiModel
         repoName,
         view.Status is { } s ? new GitSummary(s.Changed, s.Staged, s.Untracked, s.Ahead, s.Behind) : null);
 
-    public static DashboardView View(DashboardSnapshot snapshot) => new(
-        snapshot.Repos.SelectMany(r => r.Worktrees.Select(w => Worktree(w, r.Name))).ToList(),
-        snapshot.TakenAt);
+    public static DashboardView View(DashboardSnapshot snapshot, IReadOnlyList<ChatTarget> agents)
+    {
+        var worktrees = snapshot.Repos.SelectMany(r => r.Worktrees.Select(w => Worktree(w, r.Name))).ToList();
+        var byPath = worktrees.ToDictionary(w => w.Path, StringComparer.Ordinal);
+
+        return new DashboardView(worktrees, snapshot.TakenAt)
+        {
+            Agents = agents
+                .Select(a => Agent(a, a.WorktreePath is { } path ? byPath.GetValueOrDefault(path) : null))
+                .ToList(),
+        };
+    }
 
     /// <summary>A worktree in the latest snapshot, or null when it is not in it.</summary>
     public static WorktreeContext? Worktree(string path, DashboardState state, string? repoName = null) =>
@@ -37,8 +46,11 @@ public static class ApiModel
     {
         var worktree = agent.WorktreePath is { } path ? Worktree(path, state, agent.RepoName) : null;
 
-        return new AgentContext(agent.SessionId, agent.Label, "claude", State(agent.State), worktree);
+        return Agent(agent, worktree);
     }
+
+    private static AgentContext Agent(ChatTarget agent, WorktreeContext? worktree) =>
+        new(agent.SessionId, agent.Label, "claude", State(agent.State), worktree) { TurnEndedAt = agent.TurnEndedAt };
 
     private static AgentState State(ChatState state) => state switch
     {
@@ -54,12 +66,14 @@ public static class ApiModel
 public sealed class DashboardViewAdapter : IDashboardView, IDisposable
 {
     private readonly DashboardState _state;
+    private readonly AgentDirectory _agents;
     private DashboardSnapshot? _for;
     private DashboardView _view = new([], DateTimeOffset.MinValue);
 
-    public DashboardViewAdapter(DashboardState state)
+    public DashboardViewAdapter(DashboardState state, AgentDirectory agents)
     {
         _state = state;
+        _agents = agents;
         _state.Changed += Raise;
     }
 
@@ -67,11 +81,12 @@ public sealed class DashboardViewAdapter : IDashboardView, IDisposable
     {
         get
         {
-            // Converted once per snapshot, not once per reader.
+            // Converted once per snapshot, not once per reader. The agents are
+            // taken with it, so they are up to a tick old like the rest.
             var snapshot = _state.Snapshot;
             if (!ReferenceEquals(snapshot, _for))
             {
-                _view = ApiModel.View(snapshot);
+                _view = ApiModel.View(snapshot, _agents.Targets(snapshot));
                 _for = snapshot;
             }
 

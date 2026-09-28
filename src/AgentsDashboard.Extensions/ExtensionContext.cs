@@ -41,6 +41,47 @@ public abstract class AgentViewBase : ComponentBase
 }
 
 /// <summary>
+/// A base for a component added with <see cref="IExtensionBuilder.AddOverlay{TComponent}"/>.
+/// Since API 1.10. It has no agent or worktree: it is about the whole window, and
+/// reads what it needs from <see cref="IDashboardView"/>.
+/// </summary>
+public abstract class OverlayBase : ComponentBase
+{
+    /// <summary>The extension's manifest and services.</summary>
+    [CascadingParameter]
+    public ExtensionContext Context { get; set; } = default!;
+}
+
+/// <summary>
+/// The dialog a component is drawn in, for ending it. Since API 1.10.
+/// </summary>
+public abstract class DialogReference
+{
+    /// <summary>Closes the dialog; <see cref="IDialogs.ShowAsync{TComponent}"/> completes with <paramref name="value"/>.</summary>
+    public abstract void Close(object? value = null);
+
+    /// <summary>Closes the dialog as cancelled, as Escape does.</summary>
+    public abstract void Cancel();
+}
+
+/// <summary>
+/// A base for a component shown with <see cref="IDialogs.ShowAsync{TComponent}"/>.
+/// Since API 1.10. Draw the body and the buttons; the app draws the frame and
+/// the title. The app's classes <c>modal-body</c> and <c>modal-foot</c> lay
+/// them out like its own dialogs.
+/// </summary>
+public abstract class DialogBase : ComponentBase
+{
+    /// <summary>The dialog this component is in.</summary>
+    [CascadingParameter]
+    public DialogReference Dialog { get; set; } = default!;
+
+    /// <summary>The extension's manifest and services.</summary>
+    [CascadingParameter]
+    public ExtensionContext Context { get; set; } = default!;
+}
+
+/// <summary>
 /// A base for a view added with <see cref="IExtensionBuilder.AddWorktreeView{TComponent}"/>.
 /// Since API 1.4. The app sets <see cref="Worktree"/> on every render.
 /// </summary>

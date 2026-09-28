@@ -138,6 +138,8 @@ builder.Services.AddSingleton<AgentsDashboard.Extensions.INavigation, Navigation
 builder.Services.AddSingleton<AgentsDashboard.Extensions.ITextLinker, TextLinker>();
 builder.Services.AddScoped<AgentsDashboard.Extensions.IEditorTabs, EditorTabs>();
 builder.Services.AddScoped<AgentsDashboard.Extensions.IAgentOffers, AgentOffers>();
+builder.Services.AddScoped<ExtensionDialogs>();
+builder.Services.AddScoped<AgentsDashboard.Extensions.IDialogs>(sp => sp.GetRequiredService<ExtensionDialogs>());
 builder.Services.AddSingleton<AgentsDashboard.Extensions.ISecrets, UnboundSecrets>();
 builder.Services.AddSingleton<ExtensionHost>();
 // Secrets extensions ask for by name. Values are in the OS store; the app
