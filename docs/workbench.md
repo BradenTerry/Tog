@@ -326,18 +326,19 @@ flowchart TB
         S1 --- SS --- S2
     end
     DRAG[drag a tab] -->|onto a strip or tab| MOVE[PanelLayout.Move]
-    DRAG -->|onto the top or bottom of a section| SPLIT[PanelLayout.Split]
-    DRAG -->|onto the middle of a section| MOVE
+    DRAG -->|onto a section's body| SPLIT[PanelLayout.Split]
     MENU[tab's right-click menu] -->|Move to, Split down, Reset| MOVE
     MOVE --> STORE[(layout.json)]
     SPLIT --> STORE
 ```
 
 - **Dragging.** A panel tab is `draggable`. Starting a drag tells `Workbench`
-  (`DraggingView`), and every panel then draws drop targets over its sections:
-  the top and bottom thirds split the section, the middle joins its strip.
-  Dropped on a tab it goes in before that tab; on a strip's empty end, after
-  the last. They are drawn only during a drag, like the editor's, so Monaco or
+  (`DraggingView`), and every panel then draws a drop target over each
+  section's body: dropped there, the section keeps its place and the view gets
+  a new section below it, the two sharing the height, as VS Code does. There
+  is one target, not a choice of zones, so where it lands never depends on how
+  far down the pointer was. Joining a strip is the strip's drop: on a tab it
+  goes in before that tab, on a strip's empty end after the last. They are drawn only during a drag, like the editor's, so Monaco or
   a view never takes the drop and `dragover` never has a handler on the
   circuit. The zone under the pointer is tinted by `app.js` from `dragover`,
   not by the server.
