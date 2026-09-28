@@ -93,7 +93,7 @@
                         @* One loop for the tabs on screen and the parked ones, so a parked view
                            coming back matches its own key among the same siblings and keeps
                            its instance. A parked view is drawn in the section it is placed in. *@
-                        @foreach (var (tab, layerKey, parked) in Layers(section, byKey, agent?.SessionId, worktree))
+                        @foreach (var (tab, layerKey, parked) in Layers(section, byKey))
                         {
                             var front = !parked && tab.Key == active;
                             var visible = front && !folded && Bench.Panel(Side).Open;
@@ -201,9 +201,20 @@
     /// </summary>
     private List<Tab> _drawn = [];
 
-    private IEnumerable<(Tab Tab, LayerKey Key, bool Parked)> Layers(
-        ArrangedSection section, Dictionary<string, Tab> byKey, string? sessionId, string? worktree)
+    /// <remarks>
+    /// A layer on screen is keyed by <see cref="_shown"/>, the pair
+    /// <see cref="Track"/> parks by and takes back by, and never by the agent and
+    /// worktree read again while drawing. Those can differ: the agent picked may
+    /// have left the list (its id is still picked, the agent reads null), or the
+    /// monitor may publish a new snapshot between the two reads. A layer keyed
+    /// by the one while a parked view is keyed by the other can then give two
+    /// siblings the same key, which ends the circuit (Blazor reports it as
+    /// "Attempting to return wrong pooled instance"). Keyed by one pair, nothing parked can match a
+    /// layer on screen, since Track takes back everything parked for it.
+    /// </remarks>
+    private IEnumerable<(Tab Tab, LayerKey Key, bool Parked)> Layers(ArrangedSection section, Dictionary<string, Tab> byKey)
     {
+        var (sessionId, worktree) = _shown;
         foreach (var key in section.Views.Where(_visited.Contains))
         {
             var tab = byKey[key];
