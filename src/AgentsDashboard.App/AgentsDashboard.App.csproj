@@ -16,6 +16,19 @@
   </ItemGroup>
 
   <!--
+    The extension template and the skill that uses it, carried so an agent
+    outside this repository can write an extension. See ExtensionSkill. None
+    rather than Content, which the web SDK would try to serve.
+  -->
+  <ItemGroup>
+    <None Include="..\..\templates\extension\**" Exclude="..\..\templates\extension\**\bin\**;..\..\templates\extension\**\obj\**"
+          Link="sdk-template\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\..\templates\skill\SKILL.md" Link="skill\SKILL.md"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!--
     Monaco is a 24 MB build artefact, so it is fetched into wwwroot rather than
     committed, and a clone with no monaco/ still builds and runs. The wwwroot
     Content glob is evaluated before any target runs, so the files vendored here

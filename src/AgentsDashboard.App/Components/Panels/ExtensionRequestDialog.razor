@@ -1,0 +1,87 @@
+@using AgentsDashboard.App.Extensions
+@inject ExtensionRequests Requests
+@implements IDisposable
+
+@* An agent asking to add an extension it built. It is code that will run in
+   the app as you, so it is asked in front of you, in whichever window you are
+   looking at, the moment it arrives. Only Add turns it on; Escape and Not now
+   leave it off. *@
+
+@if (Requests.Pending.FirstOrDefault() is { } request)
+{
+    <div class="modal-backdrop">
+        <div class="modal" role="alertdialog" aria-modal="true" aria-labelledby="ext-request-title"
+             aria-describedby="ext-request-body" tabindex="-1" @onkeydown="e => OnKey(e, request)">
+            <header class="modal-head">
+                <h2 id="ext-request-title">An agent wants to add @request.Manifest.Name</h2>
+                <span class="faint">@request.Manifest.Version</span>
+            </header>
+
+            <div id="ext-request-body" class="wt-dialog-body">
+                @if (request.Manifest.Description is { Length: > 0 } description)
+                {
+                    <p>@description</p>
+                }
+                <p class="faint truncate" title="@request.Folder">
+                    From <span class="mono">@request.Folder</span>
+                </p>
+                @if (request.AgentFolder is { } where && where != request.Folder)
+                {
+                    <p class="faint truncate" title="@where">
+                        Requested by the agent in <span class="mono">@Path.GetFileName(where.TrimEnd('/', '\\'))</span>
+                    </p>
+                }
+                <p>
+                    Extensions run with your permissions and can read and write your files and start programs.
+                    After you add it, every rebuild of this folder reloads it without asking again.
+                </p>
+                @if (_error is { Length: > 0 })
+                {
+                    <div class="banner danger">@_error</div>
+                }
+            </div>
+
+            <div class="wt-dialog-foot">
+                @if (Requests.Pending.Count > 1)
+                {
+                    <span class="faint spacer">@(Requests.Pending.Count - 1) more waiting</span>
+                }
+                <button class="ghost" @onclick="() => Dismiss(request)">Not now</button>
+                <button class="primary" @onclick="() => Accept(request)" disabled="@_busy">Add and turn on</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private string? _error;
+    private bool _busy;
+
+    protected override void OnInitialized() => Requests.Changed += OnChanged;
+
+    private void OnChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private async Task Accept(ExtensionRequest request)
+    {
+        _busy = true;
+        // Loading copies files and runs the extension's Configure: off the window's thread.
+        _error = await Task.Run(() => Requests.Accept(request));
+        _busy = false;
+    }
+
+    private void Dismiss(ExtensionRequest request)
+    {
+        _error = null;
+        Requests.Dismiss(request);
+    }
+
+    private void OnKey(KeyboardEventArgs e, ExtensionRequest request)
+    {
+        if (e.Key == "Escape")
+        {
+            Dismiss(request);
+        }
+    }
+
+    public void Dispose() => Requests.Changed -= OnChanged;
+}

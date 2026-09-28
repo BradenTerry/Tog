@@ -31,6 +31,47 @@ compiles against `~/.agents-dashboard/sdk/1.0/AgentsDashboard.Extensions.dll`,
 which the app copies there, with its XML docs, every time it starts. No NuGet
 feed, and it always matches the app that will run it.
 
+### Asking an agent to write one
+
+Outside this repository an agent has neither the template nor these docs, so
+the app carries both. `ExtensionSkill` publishes the template to
+`~/.agents-dashboard/sdk/<major>.<minor>/template/` beside the API assembly on
+every start, and holds a skill (`templates/skill/SKILL.md`) whose placeholders
+it fills with those paths and the API version. It reaches the agent two ways:
+
+```mermaid
+flowchart TD
+    S["templates/skill/SKILL.md<br/>shipped in the app"] --> R["ExtensionSkill.Text()<br/>paths and API filled in"]
+    R -->|"Settings, Extensions, Add skill<br/>(the user's click)"| K["~/.claude/skills/agents-dashboard-extension"]
+    R -->|"MCP: dashboard_extension_guide"| M["an agent the dashboard runs"]
+    K --> T["an agent in a terminal"]
+    M --> B["scaffold, dotnet build"]
+    T --> B
+    B -->|"MCP: dashboard_extension_add"| Q["ExtensionRequests"]
+    Q --> P["prompt in every window"]
+    P -->|"Add and turn on"| L["ExtensionHost.Link: on,<br/>reloaded on every build"]
+    P -->|"Not now"| X["nothing changes"]
+```
+
+- **The skill.** Settings, Extensions, *Write one with an agent* writes it for
+  each agent that has a skills folder (`ExtensionSkill.Targets`: Claude Code
+  today, when its config folder exists; another agent is another target). It
+  is the one file the app writes into `~/.claude`, and only from that button.
+  The installed copy names absolute paths and an API version, so any
+  difference from this build's text shows as *out of date*, with Update.
+- **The guide tool.** Agents the dashboard runs need no skill: the MCP tool
+  `dashboard_extension_guide` returns the same text.
+- **The add tool.** `dashboard_extension_add` never links anything. It checks
+  the folder has a manifest and a built entry assembly, queues an
+  `ExtensionRequest`, and returns. `ExtensionRequestDialog` shows it in every
+  window until the user answers in one; only *Add and turn on* links the
+  folder. Since a linked folder reloads on every build without asking, the
+  prompt says so: accepting trusts what the agent writes there next, too.
+  Requests live in memory and go with the app.
+
+The repository's own `.claude/skills/new-extension` covers extensions that
+live in this repository (`extensions/`), which the shipped skill does not.
+
 ## What an extension is
 
 A folder with an `extension.json`:
@@ -296,6 +337,8 @@ sandbox it, and a load context is not a security boundary. So:
   you enable it again.
 - A folder you linked, or passed with `--extension`, is code you are writing.
   It is not asked about again on every build.
+- An agent can only ask to link one (`dashboard_extension_add`). You answer a
+  prompt; nothing is linked until you accept.
 - Adding an extension folder is the choice to run what is in it, now and later,
   so an extension found there is on until you disable it. Disabling is saved,
   and it stays off when it next appears.
