@@ -94,4 +94,21 @@ internal sealed class ExtensionBuilder(ExtensionInfo info) : IExtensionBuilder
         Services.AddSingleton<TTool>();
         AgentTools.Add(typeof(TTool));
     }
+
+    public List<ExtensionSetting> Settings { get; } = [];
+
+    public void AddSetting(ExtensionSetting setting)
+    {
+        if (Settings.Any(s => s.Id == setting.Id))
+        {
+            throw new InvalidOperationException($"{Info.Id} adds the setting \"{setting.Id}\" twice.");
+        }
+
+        if (!setting.Accepts(setting.Default))
+        {
+            throw new InvalidOperationException($"The default of {Info.Id}'s setting \"{setting.Id}\" is not one of its values.");
+        }
+
+        Settings.Add(setting);
+    }
 }

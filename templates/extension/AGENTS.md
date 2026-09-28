@@ -83,6 +83,13 @@ it. `GetAsync(name)` hands you the value, for a library that wants it. Never
 give a secret to an agent: not in a tool result, a prompt or a file. A secret
 asked for while answering an agent tool call throws.
 
+Settings the user changes under your extension in Settings, Extensions (API
+1.9): declare each in `Configure` with `builder.AddSetting(ExtensionSetting.Toggle(...))`
+or `ExtensionSetting.Choice(...)`, and read them with `IExtensionSettings`,
+taken in your services' constructors or with `Context.Get<IExtensionSettings>()`
+in a view (not `@inject`: it is the extension's own). Values are strings; its
+`Changed` event says which one moved.
+
 ## Rules
 
 - The view re-renders about once a second, because the page does. If it draws a

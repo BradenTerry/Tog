@@ -318,6 +318,7 @@
         _line = Doc.Line;
         _landOnChange = Doc.Line is null;
         Read();
+        LoadCodeOnOpen();
     }
 
     protected override void OnParametersSet()
@@ -646,6 +647,36 @@
         }
     }
 
+    /// <summary>
+    /// The one exception to waiting for Load: a provider whose user chose, in
+    /// its settings, to load a worktree as soon as one of its files is open.
+    /// Asked again when a provider arrives, so turning the extension on with a
+    /// file already open loads it too.
+    /// </summary>
+    private void LoadCodeOnOpen()
+    {
+        if (Intelligence is not { } intelligence || CodeStatus.State != CodeLoadState.NotLoaded)
+        {
+            return;
+        }
+
+        bool wanted;
+        try
+        {
+            wanted = intelligence.LoadsOnOpen(WorktreePath);
+        }
+        catch (Exception)
+        {
+            // Extension code on the window's thread: a throw here would end the circuit.
+            return;
+        }
+
+        if (wanted)
+        {
+            LoadCode();
+        }
+    }
+
     private void LoadCodeAgain()
     {
         Touch();
@@ -711,6 +742,7 @@
     /// </summary>
     private void OnCodeProvidersChanged() => _ = InvokeAsync(async () =>
     {
+        LoadCodeOnOpen();
         Touch();
         StateHasChanged();
         await RefreshSemantics();

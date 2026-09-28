@@ -90,6 +90,7 @@ in a query can complete synchronously.
 stateDiagram-v2
     [*] --> NotLoaded
     NotLoaded --> Loading: Load pressed
+    NotLoaded --> Loading: file opened, set to load on open
     Loading --> Ready: MSBuildWorkspace finishes
     Loading --> Failed: no solution, or MSBuild failed
     Loading --> NotLoaded: Cancel pressed
@@ -105,6 +106,14 @@ stateDiagram-v2
   agent's changes need tracing, not for every worktree glanced at. Hover,
   definition, references and colouring answer with nothing until then, and
   none of them starts a load.
+- **Unless the user says otherwise.** The extension's one setting, "Load a
+  worktree's solution" in Settings, Extensions, is "When I press Load" by
+  default and can be "When a C# file opens". The provider says which through
+  `ICodeIntelligence.LoadsOnOpen` (API 1.9, false unless implemented), and
+  `FileDocument` asks it when the file opens and when a provider arrives, and
+  starts the load itself if the worktree is not loaded. A query still never
+  loads. A worktree the user unloaded answers false until Load is pressed
+  there again, so Unload is not undone by opening the next file.
 - A load belongs to the worktree, not to the tab that asked for it. It runs on
   its own cancellation token, which only Reload, Unload and Cancel trip; a
   caller's token only stops that caller waiting. When it was the first

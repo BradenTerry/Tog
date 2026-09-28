@@ -22,7 +22,7 @@ you actually need from them are the three things a terminal is worst at.
 | An agent is blocked and you do not notice | Agents waiting on you sort to the top of the agent list, longest-blocked first, with the question Claude recorded. An OS notification when one starts waiting. |
 | Reviewing the agent's work means eyeballing a terminal | A PR-style diff with line comments, submitted in one go as a markdown file the agent can act on, plus staging. See [docs/review.md](docs/review.md) and [docs/staging.md](docs/staging.md). |
 | Starting and steering agents means more terminals | Agents run in the dashboard over the Agent Client Protocol: replies stream in live, and permission prompts are answered in the app. See [docs/agent-control.md](docs/agent-control.md). |
-| Reading an agent's code means guessing what a symbol is | Hover, go to definition, find references and call hierarchy, from an extension per language. The C# one runs Roslyn in-process, off until you press Load in a worktree. See [docs/code-intelligence.md](docs/code-intelligence.md). |
+| Reading an agent's code means guessing what a symbol is | Hover, go to definition, find references and call hierarchy, from an extension per language. The C# one runs Roslyn in-process, off until you press Load in a worktree, or set it in Settings to load when a C# file opens. See [docs/code-intelligence.md](docs/code-intelligence.md). |
 | You want a view the app does not have | Write an extension: a small Razor project, usually by asking Claude, linked in Settings and reloaded on every build. See [docs/extensions.md](docs/extensions.md). |
 
 ## Screens

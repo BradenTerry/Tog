@@ -21,7 +21,8 @@ public sealed record ExtensionEntry(
     ExtensionStatus Status,
     string? Message,
     int Generation,
-    IReadOnlyList<ExtensionView> Views);
+    IReadOnlyList<ExtensionView> Views,
+    IReadOnlyList<(ExtensionSetting Setting, string Value)> Settings);
 
 /// <summary>A view, with the context its components are given.</summary>
 public sealed record LiveView(ExtensionView View, ExtensionContext Context, int Generation);
@@ -86,6 +87,7 @@ public sealed class ExtensionHost : IDisposable
         public required IReadOnlyDictionary<string, object> Indicators { get; init; }
         public required IReadOnlyList<ICodeIntelligence> CodeIntelligence { get; init; }
         public required IReadOnlyList<IAgentTool> AgentTools { get; init; }
+        public required ExtensionSettingValues Settings { get; init; }
         public required CancellationTokenSource Stopping { get; init; }
         public required string CopyDirectory { get; init; }
 
@@ -197,7 +199,9 @@ public sealed class ExtensionHost : IDisposable
                 {
                     var (status, message) = _states.GetValueOrDefault(f.Id, (ExtensionStatus.Disabled, null));
                     var loaded = _loaded.GetValueOrDefault(f.Id);
-                    return new ExtensionEntry(f, status, message, loaded?.Generation ?? 0, loaded?.Views ?? []);
+                    return new ExtensionEntry(
+                        f, status, message, loaded?.Generation ?? 0, loaded?.Views ?? [],
+                        loaded is null ? [] : [.. loaded.Settings.Declared.Select(d => (d, loaded.Settings.Get(d.Id)))]);
                 }).ToList();
             }
         }
@@ -414,7 +418,7 @@ public sealed class ExtensionHost : IDisposable
         }
 
         var hash = found.IsDev ? null : ExtensionCatalog.Hash(found);
-        SaveState(id, new ExtensionState { Enabled = true, TrustedHash = hash });
+        SaveState(id, s => s with { Enabled = true, TrustedHash = hash });
         Unload(id);
         Evaluate(found);
         Raise();
@@ -422,9 +426,48 @@ public sealed class ExtensionHost : IDisposable
 
     public void Disable(string id)
     {
-        SaveState(id, new ExtensionState { Enabled = false });
+        SaveState(id, s => s with { Enabled = false, TrustedHash = null });
         Unload(id);
         SetState(id, ExtensionStatus.Disabled, null);
+        Raise();
+    }
+
+    /// <summary>
+    /// Changes one of a loaded extension's settings, keeps it, and tells the
+    /// extension. The extension hears about it on this thread and its handler is
+    /// its own code, so what it throws is logged rather than passed to the page.
+    /// </summary>
+    public void SetSetting(string id, string settingId, string value)
+    {
+        Loaded? loaded;
+        lock (_gate)
+        {
+            loaded = _loaded.GetValueOrDefault(id);
+        }
+
+        if (loaded is null || !loaded.Settings.Declared.Any(d => d.Id == settingId && d.Accepts(value)))
+        {
+            return;
+        }
+
+        // One in an extension folder runs with nothing stored, and the first
+        // entry written for it must not read as turned off. One passed on the
+        // command line runs whatever is stored, so it is left as it was.
+        SaveState(id, s => s with
+        {
+            Enabled = s.Enabled || loaded.Found.Source != ExtensionSource.CommandLine,
+            Settings = new Dictionary<string, string>(s.Settings, StringComparer.Ordinal) { [settingId] = value },
+        });
+
+        try
+        {
+            loaded.Settings.Set(settingId, value);
+        }
+        catch (Exception e)
+        {
+            _log.LogWarning(e, "Extension {Id} failed handling a change to its setting {Setting}", id, settingId);
+        }
+
         Raise();
     }
 
@@ -461,7 +504,7 @@ public sealed class ExtensionHost : IDisposable
         }
 
         // You linked it, so you meant to run it.
-        SaveState(found.Manifest.Id, new ExtensionState { Enabled = true });
+        SaveState(found.Manifest.Id, s => s with { Enabled = true });
         Unload(found.Manifest.Id);
         Rescan();
         return null;
@@ -610,7 +653,9 @@ public sealed class ExtensionHost : IDisposable
             var builder = new ExtensionBuilder(info);
             ((IDashboardExtension)Activator.CreateInstance(entryTypes[0])!).Configure(builder);
 
-            services = BuildServices(builder, info, hash);
+            var stored = _settings.Load().Extensions.GetValueOrDefault(found.Id)?.Settings ?? new Dictionary<string, string>();
+            var settingValues = new ExtensionSettingValues(builder.Settings, stored);
+            services = BuildServices(builder, info, hash, settingValues);
             var indicators = builder.Indicators.ToDictionary(
                 i => i.ViewId,
                 i => services.GetRequiredService(i.Provider),
@@ -627,6 +672,7 @@ public sealed class ExtensionHost : IDisposable
                 Indicators = indicators,
                 CodeIntelligence = [.. builder.CodeIntelligence.Select(t => (ICodeIntelligence)services.GetRequiredService(t))],
                 AgentTools = [.. builder.AgentTools.Select(t => (IAgentTool)services.GetRequiredService(t))],
+                Settings = settingValues,
                 Stopping = new CancellationTokenSource(),
                 CopyDirectory = copy,
                 Hash = hash,
@@ -707,10 +753,11 @@ public sealed class ExtensionHost : IDisposable
     /// from the app. Built per load, because the app's container is fixed once
     /// the app has started.
     /// </summary>
-    private ServiceProvider BuildServices(ExtensionBuilder builder, ExtensionInfo info, string hash)
+    private ServiceProvider BuildServices(ExtensionBuilder builder, ExtensionInfo info, string hash, IExtensionSettings settings)
     {
         var services = builder.Services;
         services.AddSingleton(info);
+        services.AddSingleton(settings);
         services.AddSingleton(_app.GetRequiredService<IDashboardView>());
         services.AddSingleton(_app.GetRequiredService<INavigation>());
         services.AddSingleton(_app.GetRequiredService<ITextLinker>());
@@ -1068,9 +1115,14 @@ public sealed class ExtensionHost : IDisposable
         }
     }
 
-    private void SaveState(string id, ExtensionState state)
+    /// <summary>
+    /// Changes what is kept for one extension. A change, not a replacement, so
+    /// turning an extension off and on again keeps its settings.
+    /// </summary>
+    private void SaveState(string id, Func<ExtensionState, ExtensionState> change)
     {
         var settings = _settings.Load();
+        var state = change(settings.Extensions.GetValueOrDefault(id) ?? new ExtensionState());
         var states = new Dictionary<string, ExtensionState>(settings.Extensions, StringComparer.Ordinal) { [id] = state };
         _settings.Save(settings with { Extensions = states });
     }

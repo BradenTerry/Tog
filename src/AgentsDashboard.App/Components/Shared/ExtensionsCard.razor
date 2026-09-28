@@ -1,4 +1,5 @@
 @using AgentsDashboard.Core.Extensions
+@using AgentsDashboard.Extensions
 @inject ExtensionHost Extensions
 @inject FolderPicker Folders
 @inject ExtensionSkill Skill
@@ -51,6 +52,51 @@
                 @if (entry.Status == ExtensionStatus.Loaded && entry.Views.Count > 0)
                 {
                     <span class="faint">Adds @string.Join(", ", entry.Views.Select(v => v.Title)).</span>
+                }
+
+                @* An extension's own settings, declared in its code, so they are
+                   only known while it is loaded. The values are kept while it is
+                   off. *@
+                @if (entry.Status == ExtensionStatus.Loaded && entry.Settings.Count > 0)
+                {
+                    <div class="ext-settings">
+                        @foreach (var (setting, value) in entry.Settings)
+                        {
+                            var settingId = setting.Id;
+                            @if (setting.Choices is { } choices)
+                            {
+                                <div class="row ext-setting">
+                                    <div class="stack" style="flex: 1; min-width: 0;">
+                                        <strong>@setting.Title</strong>
+                                        @if (setting.Description is { Length: > 0 } hint)
+                                        {
+                                            <span class="faint">@hint</span>
+                                        }
+                                    </div>
+                                    <Picker AriaLabel="@setting.Title" Class="setting-picker"
+                                            Value="@value"
+                                            Options="@([.. choices.Select(c => new PickerOption(c.Value, c.Label, c.Description))])"
+                                            ValueChanged="v => SetSetting(found.Id, settingId, v)" />
+                                </div>
+                            }
+                            else
+                            {
+                                <label class="row ext-setting">
+                                    <div class="stack" style="flex: 1; min-width: 0;">
+                                        <strong>@setting.Title</strong>
+                                        @if (setting.Description is { Length: > 0 } hint)
+                                        {
+                                            <span class="faint">@hint</span>
+                                        }
+                                    </div>
+                                    <input type="checkbox" class="switch" role="switch"
+                                           checked="@(value == ExtensionSetting.On)"
+                                           aria-label="@setting.Title"
+                                           @onchange="e => SetSetting(found.Id, settingId, (bool)e.Value! ? ExtensionSetting.On : ExtensionSetting.Off)" />
+                                </label>
+                            }
+                        }
+                    </div>
                 }
 
                 @if (_confirming == found.Id && manifest is not null)
@@ -264,6 +310,10 @@
     }
 
     private Task Rescan() => OffWindow(Extensions.Rescan);
+
+    /// <summary>Off the window's thread too: the extension hears about it, and that is its code.</summary>
+    private Task SetSetting(string id, string settingId, string value) =>
+        OffWindow(() => Extensions.SetSetting(id, settingId, value));
 
     /// <summary>
     /// Runs a host action on the pool. Loading an extension copies its files,

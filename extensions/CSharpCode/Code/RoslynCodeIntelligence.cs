@@ -17,6 +17,13 @@ namespace AgentsDashboard.Extensions.CSharpCode;
 /// they answer with nothing until one has been asked for.
 /// </para>
 /// <para>
+/// The user can change that in the extension's settings to load a worktree as
+/// soon as one of its C# files is opened (<see cref="LoadsOnOpen"/>). A
+/// worktree the user unloaded stays unloaded until they press Load again: the
+/// Unload was the answer for that worktree, and opening the next file should
+/// not overrule it.
+/// </para>
+/// <para>
 /// A load belongs to the worktree, not to whoever asked for it. It runs on a
 /// token of its own that only <see cref="ReloadAsync"/> and <see cref="Unload"/>
 /// cancel, and a caller's token only stops that caller waiting. Tying the load
@@ -31,7 +38,7 @@ namespace AgentsDashboard.Extensions.CSharpCode;
 /// started with rather than blocking.
 /// </para>
 /// </remarks>
-public sealed class RoslynCodeIntelligence(SolutionLoader loader) : ICodeIntelligence, IDisposable
+public sealed class RoslynCodeIntelligence(SolutionLoader loader, IExtensionSettings settings) : ICodeIntelligence, IDisposable
 {
     private sealed class Entry
     {
@@ -47,6 +54,9 @@ public sealed class RoslynCodeIntelligence(SolutionLoader loader) : ICodeIntelli
 
     private readonly Lock _gate = new();
     private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
+
+    /// <summary>Worktrees the user unloaded, which opening a file does not load again.</summary>
+    private readonly HashSet<string> _unloaded = new(StringComparer.Ordinal);
 
     /// <inheritdoc />
     public string Name => "Roslyn";
@@ -71,6 +81,22 @@ public sealed class RoslynCodeIntelligence(SolutionLoader loader) : ICodeIntelli
         }
     }
 
+    /// <inheritdoc />
+    public bool LoadsOnOpen(string worktreePath)
+    {
+        if (settings.Get(CSharpSettings.Load) != CSharpSettings.LoadOnOpen)
+        {
+            return false;
+        }
+
+        var key = Key(worktreePath);
+
+        lock (_gate)
+        {
+            return !_unloaded.Contains(key);
+        }
+    }
+
     /// <summary>
     /// Start the load if it has not run, or join the one in flight. Returns at
     /// once when the solution is ready, and a failed load is retried rather than
@@ -84,6 +110,7 @@ public sealed class RoslynCodeIntelligence(SolutionLoader loader) : ICodeIntelli
 
         lock (_gate)
         {
+            _unloaded.Remove(key);
             var entry = EntryFor(key);
 
             switch (entry.Status.State)
@@ -129,6 +156,7 @@ public sealed class RoslynCodeIntelligence(SolutionLoader loader) : ICodeIntelli
 
         lock (_gate)
         {
+            _unloaded.Add(key);
             var entry = EntryFor(key);
             lifetime = entry.Lifetime;
             entry.Lifetime = null;

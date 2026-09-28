@@ -253,7 +253,7 @@ public class CodeQueriesTests
     [Fact]
     public void Code_intelligence_starts_not_loaded_and_ignores_edits_until_it_is()
     {
-        var intelligence = new RoslynCodeIntelligence(new SolutionLoader());
+        var intelligence = new RoslynCodeIntelligence(new SolutionLoader(), new FakeSettings());
 
         // No MSBuild is touched here: nothing loads until EnsureLoadedAsync runs.
         intelligence.UpdateDocument(Worktree, "src/A.cs", "class X;");
@@ -267,7 +267,7 @@ public class CodeQueriesTests
     [Fact]
     public async Task Queries_never_start_a_load()
     {
-        var intelligence = new RoslynCodeIntelligence(new SolutionLoader());
+        var intelligence = new RoslynCodeIntelligence(new SolutionLoader(), new FakeSettings());
         var token = TestContext.Current.CancellationToken;
 
         var hover = await intelligence.HoverAsync(Worktree, "src/A.cs", 1, 1, token);
@@ -283,7 +283,7 @@ public class CodeQueriesTests
     [Fact]
     public async Task A_failed_load_is_reported_and_unload_turns_it_off_again()
     {
-        var intelligence = new RoslynCodeIntelligence(new SolutionLoader());
+        var intelligence = new RoslynCodeIntelligence(new SolutionLoader(), new FakeSettings());
         var missing = Path.Combine(Path.GetTempPath(), "no-such-worktree-" + Guid.NewGuid().ToString("N"));
 
         // A missing directory fails before MSBuild is touched.
@@ -294,6 +294,48 @@ public class CodeQueriesTests
         intelligence.Unload(missing);
 
         Assert.Equal(CodeLoadState.NotLoaded, intelligence.Status(missing).State);
+    }
+
+    [Fact]
+    public void Opening_a_file_loads_nothing_unless_the_setting_says_so()
+    {
+        var settings = new FakeSettings();
+        var intelligence = new RoslynCodeIntelligence(new SolutionLoader(), settings);
+
+        Assert.False(intelligence.LoadsOnOpen(Worktree));
+
+        settings.Value = CSharpSettings.LoadOnOpen;
+
+        Assert.True(intelligence.LoadsOnOpen(Worktree));
+    }
+
+    [Fact]
+    public async Task A_worktree_the_user_unloaded_is_not_loaded_again_by_opening_a_file()
+    {
+        var intelligence = new RoslynCodeIntelligence(
+            new SolutionLoader(), new FakeSettings { Value = CSharpSettings.LoadOnOpen });
+        var missing = Path.Combine(Path.GetTempPath(), "no-such-worktree-" + Guid.NewGuid().ToString("N"));
+
+        intelligence.Unload(missing);
+        Assert.False(intelligence.LoadsOnOpen(missing));
+        Assert.True(intelligence.LoadsOnOpen(Worktree));
+
+        // Pressing Load again is the user changing their mind.
+        await Assert.ThrowsAsync<DirectoryNotFoundException>(
+            () => intelligence.LoadAsync(missing, TestContext.Current.CancellationToken));
+        Assert.True(intelligence.LoadsOnOpen(missing));
+    }
+
+    private sealed class FakeSettings : IExtensionSettings
+    {
+        public string Value { get; set; } = CSharpSettings.LoadOnClick;
+
+        public event Action<string>? Changed { add { } remove { } }
+
+        public string Get(string id) =>
+            id == CSharpSettings.Load ? Value : throw new ArgumentException(id);
+
+        public bool IsOn(string id) => Get(id) == ExtensionSetting.On;
     }
 
     [Fact(Skip = "Loads the real SDK; run by hand")]
