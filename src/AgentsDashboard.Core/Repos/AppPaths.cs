@@ -45,6 +45,9 @@ public sealed class AppPaths
     /// <summary>Where anything outside the app drops a request to open a file in it. See <c>OpenRequests</c>.</summary>
     public string OpenRequestsDir => Path.Combine(Root, "open");
 
+    /// <summary>Where the running app's agent tools are served, for the stdio bridge. See <c>McpLink</c>.</summary>
+    public string McpLinkFile => Path.Combine(Root, "mcp-link.json");
+
     /// <summary>The extension API assembly, for extensions to compile against.</summary>
     public string SdkDir => Path.Combine(Root, "sdk");
 
