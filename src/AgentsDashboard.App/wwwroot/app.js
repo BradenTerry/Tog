@@ -778,6 +778,19 @@ window.agentsDashboard = {
             growComposer(box);
         }
     },
+    // An agent brought into view takes the keyboard, with the caret after any
+    // draft. Not while a dialog is up or you are typing somewhere else, such as
+    // the editor: the chat is rebuilt for reasons besides a switch.
+    focusComposer: (box) => {
+        const at = document.activeElement;
+        if (!box || box.disabled || document.querySelector('[aria-modal="true"]')
+            || (at && at !== box && at.matches?.('input, textarea, select, [contenteditable="true"]'))) {
+            return;
+        }
+
+        box.focus({ preventScroll: true });
+        box.setSelectionRange(box.value.length, box.value.length);
+    },
     resetComposer: (box) => {
         if (box) {
             box.value = '';
@@ -994,6 +1007,41 @@ function bindMenuKeys(menu) {
         items[next].scrollIntoView({ block: 'nearest' });
     });
 }
+
+// Tab inside a modal dialog. The window is WebKit, which like Safari tabs only
+// between text fields unless the Mac's keyboard navigation setting is on, and
+// a dialog such as New agent is mostly buttons (every Picker is one), so Tab
+// went from the prompt straight out of it. This walks every control, and wraps
+// at the ends so focus stays in the dialog rather than reaching the page behind.
+(() => {
+    const focusable = 'a[href], button:not(:disabled), input:not(:disabled):not([type="hidden"]), '
+        + 'select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key !== 'Tab' || event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) {
+            return;
+        }
+
+        const dialogs = document.querySelectorAll('[aria-modal="true"]');
+        const dialog = dialogs[dialogs.length - 1];
+        if (!dialog) {
+            return;
+        }
+
+        const stops = [...dialog.querySelectorAll(focusable)]
+            .filter((el) => el.getClientRects().length > 0 && !el.closest('[inert]'));
+        if (stops.length === 0) {
+            return;
+        }
+
+        event.preventDefault();
+        const at = stops.indexOf(document.activeElement);
+        const next = at < 0
+            ? (event.shiftKey ? stops.length - 1 : 0)
+            : (at + (event.shiftKey ? -1 : 1) + stops.length) % stops.length;
+        stops[next].focus();
+    });
+})();
 
 // Back and forward through the jumps go to definition has made, on the mouse's
 // side buttons as in VS Code. The keys (Ctrl+- and Ctrl+Shift+- by default) are
