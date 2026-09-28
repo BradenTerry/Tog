@@ -47,30 +47,41 @@ else
                             title="Open this agent's worktree, @agent.Where, in place of the one open now">Change to worktree</button>
                 }
             }
-            @if (agent.State is ChatState.Active or ChatState.Waiting)
-            {
-                <button class="ghost small" @onclick="() => Act(() => Host.CancelAsync(agent.SessionId))" disabled="@_busy"
-                        title="Stop the turn in progress. The agent stays, with everything so far kept.">Stop turn</button>
-            }
-            @if (agent.State is ChatState.Parked)
+            @if (agent.State is ChatState.Parked && CanSend(agent))
             {
                 @* Sending resumes a stopped agent too, but until it runs it has
                    not listed its commands or settings, which you may want before
                    deciding what to send. Resuming starts no turn. *@
-                @if (CanSend(agent))
-                {
-                    <button class="ghost small" @onclick="() => Act(() => Host.WakeAsync(agent.SessionId))" disabled="@_busy"
-                            title="Pick its session up again without sending anything, with its conversation kept.">@(_busy ? "Resuming..." : "Resume")</button>
-                }
+                <button class="ghost small" @onclick="() => Act(() => Host.WakeAsync(agent.SessionId))" disabled="@_busy"
+                        title="Pick its session up again without sending anything, with its conversation kept.">@(_busy ? "Resuming..." : "Resume")</button>
             }
-            else
-            {
-                <button class="ghost small" @onclick="() => Act(() => Host.StopAsync(agent.SessionId))" disabled="@_busy"
-                        title="End the agent's session. Its conversation is kept, and a message picks it up again.">End session</button>
-            }
-            <button class="ghost small" @onclick="() => Act(() => Host.RemoveAsync(agent.SessionId))" disabled="@_busy"
-                    title="Take it off the list. The conversation stays saved and can be resumed from New agent.">Remove</button>
+            @* Ending and removing are rare and hard to take back, so they sit behind
+               a menu rather than beside the title where a stray click lands. *@
+            <button type="button" class="icon-btn chat-more" @onclick="OpenMore" disabled="@_busy"
+                    aria-haspopup="menu" aria-expanded="@(_more is not null ? "true" : "false")"
+                    aria-label="Session actions" title="Session actions">
+                <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                    <circle cx="3.5" cy="8" r="1.3" fill="currentColor" />
+                    <circle cx="8" cy="8" r="1.3" fill="currentColor" />
+                    <circle cx="12.5" cy="8" r="1.3" fill="currentColor" />
+                </svg>
+            </button>
         </header>
+
+        @if (_more is { } at)
+        {
+            <ContextMenu X="at.X" Y="at.Y" OnClose="() => _more = null">
+                @if (agent.State is not ChatState.Parked)
+                {
+                    <button type="button" class="context-item" role="menuitem"
+                            @onclick="() => MoreAct(() => Host.StopAsync(agent.SessionId))"
+                            title="Its conversation is kept, and a message picks it up again.">End session</button>
+                }
+                <button type="button" class="context-item destructive" role="menuitem"
+                        @onclick="() => MoreAct(() => Host.RemoveAsync(agent.SessionId))"
+                        title="The conversation stays saved and can be resumed from New agent.">Remove from list</button>
+            </ContextMenu>
+        }
 
         @if (_viewing is { } viewing)
         {
@@ -364,6 +375,14 @@ else
                           aria-autocomplete="list"
                           disabled="@(!CanSend(agent))"
                           @oninput="e => { _draft = e.Value?.ToString() ?? string.Empty; Drafts.Set(agent.SessionId, _draft); }"></textarea>
+                @* Beside Send rather than up in the header: it is what you reach
+                   for while watching a turn go wrong, and a message sent during a
+                   turn is queued, not an interruption, so both stay. *@
+                @if (agent.State is ChatState.Active or ChatState.Waiting)
+                {
+                    <button type="button" class="chat-stop" @onclick="() => Act(() => Host.CancelAsync(agent.SessionId))" disabled="@_busy"
+                            title="Stop the turn in progress. The agent stays, with everything so far kept.">Stop</button>
+                }
                 <button type="submit" class="primary"
                         disabled="@(_sending || string.IsNullOrWhiteSpace(_draft) || !CanSend(agent))">
                     Send
@@ -742,6 +761,17 @@ else
         {
             // The circuit went away. Nothing to reset.
         }
+    }
+
+    /// <summary>Where the session actions menu was opened, while it is open.</summary>
+    private (double X, double Y)? _more;
+
+    private void OpenMore(MouseEventArgs e) => _more = _more is null ? (e.ClientX, e.ClientY) : null;
+
+    private Task MoreAct(Func<Task<HostResult>> action)
+    {
+        _more = null;
+        return Act(action);
     }
 
     private async Task Act(Func<Task<HostResult>> action)
