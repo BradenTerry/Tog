@@ -2412,6 +2412,15 @@ button.icon-btn:hover:where(:not(:disabled)) { background: var(--surface-2); }
 label.setting-row { cursor: pointer; }
 .setting-picker { width: 220px; flex: none; }
 
+/* An extension's own settings, indented under it so they read as its. */
+.ext-settings {
+    margin-top: 8px;
+    border-left: 2px solid var(--border);
+    padding-left: 12px;
+}
+.ext-setting { padding: 8px 0; gap: 20px; border: none; }
+label.ext-setting { cursor: pointer; }
+
 @media (max-width: 760px) {
     .settings-layout { grid-template-columns: minmax(0, 1fr); gap: 14px; }
     .settings-nav { position: static; flex-direction: row; flex-wrap: wrap; }

@@ -73,6 +73,13 @@ It never starts the agent: the user presses Start. Call it from a click.
 `OfferAsync` (API 1.7) also returns the started session id, or null if none
 was started.
 
+Settings the user changes under your extension in Settings, Extensions (API
+1.8): declare each in `Configure` with `builder.AddSetting(ExtensionSetting.Toggle(...))`
+or `ExtensionSetting.Choice(...)`, and read them with `IExtensionSettings`,
+taken in your services' constructors or with `Context.Get<IExtensionSettings>()`
+in a view (not `@inject`: it is the extension's own). Values are strings; its
+`Changed` event says which one moved.
+
 ## Rules
 
 - The view re-renders about once a second, because the page does. If it draws a

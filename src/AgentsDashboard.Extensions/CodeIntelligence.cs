@@ -17,7 +17,8 @@ namespace AgentsDashboard.Extensions;
 /// <see cref="LoadAsync"/>. Until then every query answers with nothing, and a
 /// query must never start a load of its own: indexing a repository is the most
 /// expensive thing the dashboard could do, and most worktrees are only ever read
-/// as a diff.
+/// as a diff. A provider can offer a setting to load on opening a file instead,
+/// through <see cref="LoadsOnOpen"/>; the app starts that load, not a query.
 /// </para>
 /// <para>
 /// Paths are worktree-relative with forward slashes. Lines and columns are
@@ -46,6 +47,15 @@ public interface ICodeIntelligence
     /// stops the caller waiting, not the load: the load belongs to the worktree.
     /// </summary>
     Task LoadAsync(string worktreePath, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Whether opening a file it handles in a worktree that is not loaded should
+    /// load it, rather than wait for Load. False unless the provider says
+    /// otherwise, which it should only do when the user asked for it in one of
+    /// its settings. Answer from memory: it is asked on the window's thread.
+    /// Since API 1.8.
+    /// </summary>
+    bool LoadsOnOpen(string worktreePath) => false;
 
     /// <summary>Drop what is loaded and load it again, for when a project file changed.</summary>
     Task ReloadAsync(string worktreePath, CancellationToken cancellationToken);

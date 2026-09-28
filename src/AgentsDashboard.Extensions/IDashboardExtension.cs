@@ -82,7 +82,8 @@ public interface IExtensionBuilder
     /// <summary>
     /// Adds navigation for a language in the editor: hover, go to definition,
     /// references, callers and colouring by symbol. Off in every worktree until
-    /// the user presses Load on a file it handles.
+    /// the user presses Load on a file it handles, or opens one when the provider
+    /// answers <see cref="ICodeIntelligence.LoadsOnOpen"/> with true.
     /// </summary>
     void AddCodeIntelligence<TProvider>() where TProvider : class, ICodeIntelligence;
 
@@ -91,6 +92,12 @@ public interface IExtensionBuilder
     /// extension that adds one needs <c>"apiVersion": "1.2"</c> in its manifest.
     /// </summary>
     void AddAgentTool<TTool>() where TTool : class, IAgentTool;
+
+    /// <summary>
+    /// Adds a setting the user changes under this extension in Settings,
+    /// Extensions. Read it through <see cref="IExtensionSettings"/>. Since API 1.8.
+    /// </summary>
+    void AddSetting(ExtensionSetting setting);
 }
 
 /// <summary>

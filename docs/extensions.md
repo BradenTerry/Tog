@@ -104,6 +104,7 @@ does not load.
 | `AddWorker<T>(id)` | Background work while loaded, restarted with backoff if it throws |
 | `AddCodeIntelligence<T>()` | Navigation for a language in the editor: hover, definition, references, callers, colouring. See [code-intelligence.md](code-intelligence.md) |
 | `AddAgentTool<T>()` | A tool the agents the dashboard runs can call. Since 1.2; see below |
+| `AddSetting(setting)` | A setting shown under the extension in Settings, Extensions. Since 1.8; see below |
 | `Services` | The extension's own DI container |
 
 `ViewLocation` says which panel the view is a tab in (see
@@ -148,6 +149,44 @@ closed, another offer replaces it, or the window goes away. The Ideas extension
 uses it to take an idea off its list once an agent is working on it. The task
 can wait as long as the dialog stays open, so do not hold anything on it that
 the view needs meanwhile.
+
+## Settings
+
+An extension declares its settings in `Configure` with `AddSetting` (API 1.8),
+each an on/off switch (`ExtensionSetting.Toggle`) or one value out of a few
+(`ExtensionSetting.Choice`), and Settings, Extensions draws them under the
+extension's row. The app draws them so every extension's settings look and
+behave the same, and so the user finds them in one place rather than in
+whichever view the extension happened to put a gear in.
+
+```mermaid
+sequenceDiagram
+    participant U as Settings, Extensions
+    participant H as ExtensionHost
+    participant F as settings.json
+    participant E as extension (IExtensionSettings)
+
+    Note over H,E: on load: declared settings + stored values
+    U->>H: SetSetting(extension, setting, value)
+    H->>F: Extensions[id].Settings[setting] = value
+    H->>E: value in memory, Changed(setting)
+```
+
+- The declarations live in the extension's code, so they are only drawn while
+  it is loaded. The values are kept in `settings.json` under the extension's
+  id, with its enabled flag, and survive reloads, rebuilds and turning it off.
+- Values are strings. A stored value the setting no longer accepts, such as a
+  choice that was renamed, reads as the default, so an extension never sees a
+  value it did not declare.
+- `IExtensionSettings` is a singleton in the extension's own container: a
+  service takes it in its constructor, a view calls
+  `Context.Get<IExtensionSettings>()`. It answers from memory, so it is safe on
+  every render and from a code intelligence provider on the window's thread.
+- `Changed` fires on the pool thread that saved the change. Whatever the
+  handler throws is logged, not shown.
+
+The C# extension uses one to choose when a worktree's solution is loaded; see
+[code-intelligence.md](code-intelligence.md#loading-a-solution).
 
 ## Agent views and worktree views
 

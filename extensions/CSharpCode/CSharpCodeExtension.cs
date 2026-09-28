@@ -12,6 +12,7 @@ public sealed class CSharpCodeExtension : IDashboardExtension
 {
     public void Configure(IExtensionBuilder builder)
     {
+        builder.AddSetting(CSharpSettings.LoadSetting);
         builder.Services.AddSingleton<SolutionLoader>();
         builder.AddCodeIntelligence<RoslynCodeIntelligence>();
     }

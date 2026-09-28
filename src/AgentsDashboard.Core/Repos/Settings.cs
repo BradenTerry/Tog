@@ -90,4 +90,11 @@ public sealed record ExtensionState
     /// A different hash means different code, which is asked about again.
     /// </summary>
     public string? TrustedHash { get; init; }
+
+    /// <summary>
+    /// The values of the settings the extension declares, by setting id, as
+    /// strings. Kept while the extension is off, so turning it back on keeps them.
+    /// </summary>
+    public IReadOnlyDictionary<string, string> Settings { get; init; } =
+        new Dictionary<string, string>();
 }
