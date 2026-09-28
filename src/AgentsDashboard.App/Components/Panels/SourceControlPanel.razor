@@ -1,5 +1,8 @@
 @inject Workbench Bench
 @inject IJSRuntime Js
+@inject DashboardState State
+@inject MonitorService Monitor
+@inject IGitCli Git
 @implements IDisposable
 
 @* The right panel's Source control: what to compare against, the changed files
@@ -11,6 +14,22 @@
     <Picker AriaLabel="What to diff against" Class="panel-picker" Value="@Model.Base.ToString()" Options="BaseOptions"
             ValueChanged="OnBase" />
     <span class="spacer"></span>
+    @if (_sync is { Upstream: { } upstream } sync)
+    {
+        @* VS Code's sync count: commits to push up, commits to pull down. Behind
+           is only as fresh as the last fetch, so pressing it fetches. *@
+        <button class="scm-sync" @onclick="Fetch" disabled="@_fetching"
+                title="@SyncTitle(sync.Ahead, sync.Behind, upstream)" aria-label="@SyncTitle(sync.Ahead, sync.Behind, upstream)">
+            <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+                <path d="M8 13V3M4 7l4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <span class="@(sync.Ahead > 0 ? "" : "faint")">@sync.Ahead</span>
+            <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+                <path d="M8 3v10M4 9l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <span class="@(sync.Behind > 0 ? "" : "faint")">@sync.Behind</span>
+        </button>
+    }
     <button class="icon-btn" @onclick="() => Bench.OpenChanges(WorktreePath)" title="Open every change in one document" aria-label="Open every change in one document">
         <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
             <path d="M3 2.5h6l3 3v8H3zM6 7h4M8 5v4M6 11h4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
@@ -50,6 +69,15 @@
                 <button class="danger small" @onclick="Discard" disabled="@Model.IsStaging">Discard</button>
                 <button class="ghost small" @onclick="() => { _discarding = null; Touch(); }">Cancel</button>
             </div>
+        </div>
+    }
+
+    @if (_fetchError is { Length: > 0 } fetchError)
+    {
+        <div class="banner danger panel-banner">
+            <strong>Fetch failed.</strong>
+            <p class="mono muted" style="margin: 5px 0 8px;">@fetchError</p>
+            <button class="ghost small" @onclick="() => { _fetchError = null; Touch(); }">Dismiss</button>
         </div>
     }
 
@@ -297,6 +325,9 @@
             return;
         }
 
+        _sync = SyncNow();
+        State.Changed += OnSnapshot;
+
         _model = Model;
         _model.Changed += OnModelChanged;
         _model.PickRecipient(SessionId);
@@ -311,6 +342,56 @@
         Touch();
         StateHasChanged();
     });
+
+    /// <summary>Where the branch stands against its upstream, as last rendered.</summary>
+    private sealed record Sync(int Ahead, int Behind, string? Upstream);
+
+    private Sync? _sync;
+    private bool _fetching;
+    private string? _fetchError;
+
+    private Sync? SyncNow() =>
+        State.Worktree(WorktreePath)?.Status is { } s ? new Sync(s.Ahead, s.Behind, s.Upstream) : null;
+
+    /// <summary>
+    /// Renders on a snapshot only when the push and pull counts moved: a
+    /// snapshot lands every second and almost never changes them.
+    /// </summary>
+    private void OnSnapshot()
+    {
+        var now = SyncNow();
+        if (now == _sync)
+        {
+            return;
+        }
+
+        _ = InvokeAsync(() =>
+        {
+            _sync = now;
+            Touch();
+            StateHasChanged();
+        });
+    }
+
+    private static string SyncTitle(int ahead, int behind, string upstream) =>
+        $"{Fmt.Count(ahead, "commit")} to push, {Fmt.Count(behind, "commit")} to pull from {upstream}, as of the last fetch. Click to fetch.";
+
+    /// <summary>
+    /// Fetches the branch's remote so the pull count is current. Fetching only
+    /// moves remote-tracking refs, never the branch or the files, and it only
+    /// runs when asked.
+    /// </summary>
+    private async Task Fetch()
+    {
+        Touch();
+        _fetching = true;
+        _fetchError = null;
+        var result = await Git.RunAsync(WorktreePath, ["fetch", "--prune"]);
+        _fetching = false;
+        _fetchError = result.Ok ? null : result.Message.Trim();
+        Monitor.InvalidateStatus(WorktreePath);
+        Touch();
+    }
 
     private static readonly IReadOnlyList<PickerOption> BaseOptions =
     [
@@ -678,6 +759,7 @@
 
     public void Dispose()
     {
+        State.Changed -= OnSnapshot;
         if (_model is not null)
         {
             _model.Changed -= OnModelChanged;

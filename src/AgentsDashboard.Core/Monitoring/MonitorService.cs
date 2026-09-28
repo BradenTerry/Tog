@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using AgentsDashboard.Core.Claude;
 using AgentsDashboard.Core.Git;
 using AgentsDashboard.Core.Model;
@@ -59,6 +60,9 @@ public sealed class MonitorService : IAsyncDisposable
     private readonly Dictionary<string, string> _repoNames = new(StringComparer.Ordinal);
     private readonly Dictionary<string, AgentStatus> _lastStatus = new(StringComparer.Ordinal);
 
+    /// <summary>Worktrees whose status a view has asked to re-read, taken by the loop's next pass.</summary>
+    private readonly ConcurrentDictionary<string, byte> _staleStatus = new(StringComparer.Ordinal);
+
     /// <summary>Worktree paths views are showing, counted, since two windows can show one agent.</summary>
     private readonly Dictionary<string, int> _watched = new(StringComparer.Ordinal);
     private readonly Lock _watchGate = new();
@@ -110,6 +114,13 @@ public sealed class MonitorService : IAsyncDisposable
 
     /// <summary>Force the next pass to re-list worktrees rather than reuse the cache.</summary>
     public void InvalidateWorktrees() => _worktreesRefreshedAt = DateTimeOffset.MinValue;
+
+    /// <summary>
+    /// Re-read a worktree's git status on the next pass rather than when its
+    /// interval runs out: after a fetch, which moves the upstream without
+    /// touching anything an agent turn would signal.
+    /// </summary>
+    public void InvalidateStatus(string worktreePath) => _staleStatus[worktreePath] = 0;
 
     /// <summary>
     /// Keep the git status of a worktree current until the returned handle is
@@ -330,7 +341,8 @@ public sealed class MonitorService : IAsyncDisposable
             }
 
             var fresh = _statusCache.TryGetValue(worktree.Path, out var cached) && now - cached.At < StatusInterval;
-            if (fresh && !moved.Any(cwd => IsUnder(cwd, worktree.Path)))
+            var asked = _staleStatus.TryRemove(worktree.Path, out _);
+            if (fresh && !asked && !moved.Any(cwd => IsUnder(cwd, worktree.Path)))
             {
                 continue;
             }
