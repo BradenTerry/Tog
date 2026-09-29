@@ -1,0 +1,58 @@
+/* The Node tests example. Every class is prefixed with the extension id so
+   none can collide with the app's; colours come from the app's variables so it
+   follows the light and dark themes. */
+
+.node-tests { display: flex; flex-direction: column; height: 100%; min-height: 0; font-size: 12px; }
+
+.node-tests-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border);
+    flex: none;
+}
+
+.node-tests-count { display: inline-flex; align-items: center; gap: 3px; font-variant-numeric: tabular-nums; }
+.node-tests-count.passed { color: var(--active); }
+.node-tests-count.failed { color: var(--danger); }
+
+.node-tests-list { flex: 1; min-height: 0; overflow: auto; padding: 4px 0; }
+
+.node-tests-file,
+.node-tests-test {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 24px;
+    padding: 0 8px;
+}
+.node-tests-file { font-weight: 600; margin-top: 4px; }
+.node-tests-test { padding-left: 28px; color: var(--text-dim); }
+.node-tests-test.failed { color: var(--text); }
+
+.node-tests-icon { flex: none; color: var(--text-faint); }
+.node-tests-icon.passed { color: var(--active); }
+.node-tests-icon.failed { color: var(--danger); }
+.node-tests-icon.running { color: var(--accent); animation: node-tests-spin 0.9s linear infinite; }
+
+@keyframes node-tests-spin { to { transform: rotate(360deg); } }
+
+.node-tests-failure {
+    margin: 2px 8px 6px 28px;
+    padding: 6px 8px;
+    border-left: 2px solid var(--danger);
+    background: var(--surface-2);
+    color: var(--text);
+    font-size: 11.5px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 160px;
+    overflow: auto;
+}
+
+.node-tests-foot { padding: 4px 8px 6px; font-size: 11px; border-top: 1px solid var(--border); flex: none; }
+
+@media (prefers-reduced-motion: reduce) {
+    .node-tests-icon.running { animation: none; }
+}

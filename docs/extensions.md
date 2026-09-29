@@ -8,6 +8,11 @@ this repository in the user's extension folder
 (`tog-extensions/DotnetTestExplorer` and `CSharpCode`). None is
 shipped with the app.
 
+One example lives in this repository, [examples/NodeTests](../examples/NodeTests):
+a Tests tab for `node:test`, written to be read as a model, with notes on what
+it runs and when. The README's GIF shows an agent writing it; its README says
+how that is recorded.
+
 The design and its rationale are in [design/extensions.md](design/extensions.md).
 This file is what exists and what is easy to get wrong.
 

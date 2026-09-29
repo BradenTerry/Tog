@@ -1,27 +1,32 @@
-// Retakes the README screenshots in assets/screenshots.
+// Retakes the README screenshots and the extension GIF in assets/screenshots.
 //
 //   npm ci --prefix tools/screenshots
 //   npx --prefix tools/screenshots playwright install chromium
 //   node tools/screenshots/take.mjs
 //
 // It builds the app, makes the sample project (sample.mjs), starts the app in
-// --browser mode against it with no extensions and its own data folder, and
-// drives a headless Chromium through it. Your own settings, agents and Claude
-// config are never read: CLAUDE_CONFIG_DIR points the app at the sample's.
+// --browser mode against it with its own data folder, and drives a headless
+// Chromium through it. Your own settings, agents and Claude config are never
+// read: CLAUDE_CONFIG_DIR points the app at the sample's.
+//
+// The GIF needs ffmpeg on the PATH, and is recorded against a second run of
+// the app whose agent is replay-agent.mjs rather than Claude; see gif.mjs.
 //
 // CHROME=/path/to/chrome uses that browser instead of Playwright's download.
-// --no-build skips the build. The sample is left on disk to look at, and
-// replaced on the next run.
+// --no-build skips the build, --no-gif and --gif-only do what they say. The
+// sample is left on disk to look at, and replaced on the next run.
 
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { chromium } from 'playwright';
+import { recordGif } from './gif.mjs';
 import { createSample } from './sample.mjs';
 
-const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const here = dirname(fileURLToPath(import.meta.url));
+const repoRoot = resolve(here, '../..');
 const out = join(repoRoot, 'assets', 'screenshots');
 const appDir = join(repoRoot, 'src', 'Tog.App');
 const args = new Set(process.argv.slice(2));
@@ -38,35 +43,71 @@ if (!existsSync(dll)) {
   throw new Error(`No build at ${dll}. Run without --no-build.`);
 }
 
-const sample = createSample(sampleRoot);
 mkdirSync(out, { recursive: true });
 
-const app = spawn('dotnet', [dll, '--browser', '--no-extensions', '--data-dir', sample.dataDir], {
-  cwd: appDir,
-  env: { ...process.env, CLAUDE_CONFIG_DIR: sample.claudeDir, TZ: 'UTC', ASPNETCORE_ENVIRONMENT: 'Production' },
-  stdio: ['ignore', 'pipe', 'pipe'],
-});
-app.stderr.resume();
-
-try {
-  const url = await new Promise((done, fail) => {
-    let seen = '';
-    const timer = setTimeout(() => fail(new Error(`The app printed no address in 60s:\n${seen}`)), 60_000);
-    app.stdout.on('data', chunk => {
-      seen += chunk;
-      const match = /(http:\/\/\S+\?ui-key=\S+)/.exec(seen);
-      if (match) {
-        clearTimeout(timer);
-        done(match[1]);
-      }
-    });
-    app.on('exit', code => fail(new Error(`The app exited (${code}) before it printed an address:\n${seen}`)));
-  });
-
-  await shoot(url);
+if (!args.has('--gif-only')) {
+  const sample = createSample(sampleRoot);
+  await withApp(['--no-extensions', '--data-dir', sample.dataDir], appDir, { CLAUDE_CONFIG_DIR: sample.claudeDir }, shoot);
   console.log(`Screenshots written to ${out}`);
-} finally {
-  app.kill();
+}
+
+// Once per theme, each against a fresh sample, since the agent's turn and the
+// extension it adds are part of the picture.
+for (const scheme of args.has('--no-gif') ? [] : ['light', 'dark']) {
+  const sample = createSample(sampleRoot, { demo: true });
+  const target = join(sample.extensionsDir, 'NodeTests');
+
+  // The app finds its agent bridge under its content root, which is the
+  // folder it starts in. Starting it from a folder whose acp/ holds the
+  // replay agent swaps Claude out without touching the app or its build.
+  const contentRoot = join(sampleRoot, 'app');
+  const bridge = join(contentRoot, 'acp', 'node_modules', '@agentclientprotocol', 'claude-agent-acp', 'dist', 'index.js');
+  mkdirSync(dirname(bridge), { recursive: true });
+  writeFileSync(bridge, `import(${JSON.stringify(pathToFileURL(join(here, 'replay-agent.mjs')).href)});\n`);
+
+  await withApp(['--data-dir', sample.dataDir], contentRoot, {
+    CLAUDE_CONFIG_DIR: sample.claudeDir,
+    TOG_DEMO_EXAMPLE: join(repoRoot, 'examples', 'NodeTests'),
+    TOG_DEMO_TARGET: target,
+    TOG_DEMO_SDK: join(sample.dataDir, 'sdk'),
+  }, async url => {
+    const browser = await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : {});
+    try {
+      await recordGif(browser, url, join(out, `extension-${scheme}.gif`), { colorScheme: scheme, settle, target });
+    } finally {
+      await browser.close();
+    }
+  });
+  console.log(`extension-${scheme}.gif written to ${out}`);
+}
+
+async function withApp(appArgs, cwd, env, use) {
+  const app = spawn('dotnet', [dll, '--browser', ...appArgs], {
+    cwd,
+    env: { ...process.env, ...env, TZ: 'UTC', ASPNETCORE_ENVIRONMENT: 'Production' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  app.stderr.resume();
+
+  try {
+    const url = await new Promise((done, fail) => {
+      let seen = '';
+      const timer = setTimeout(() => fail(new Error(`The app printed no address in 60s:\n${seen}`)), 60_000);
+      app.stdout.on('data', chunk => {
+        seen += chunk;
+        const match = /(http:\/\/\S+\?ui-key=\S+)/.exec(seen);
+        if (match) {
+          clearTimeout(timer);
+          done(match[1]);
+        }
+      });
+      app.on('exit', code => fail(new Error(`The app exited (${code}) before it printed an address:\n${seen}`)));
+    });
+
+    await use(url);
+  } finally {
+    app.kill();
+  }
 }
 
 async function shoot(url) {

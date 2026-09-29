@@ -1,0 +1,134 @@
+@inherits WorktreeViewBase
+@implements IDisposable
+
+@* The worktree's node:test tests, by file, with Run all and a Run per file.
+   Opening the tab only reads the files; nothing runs until a button is pressed. *@
+
+@{
+    var tests = Runner.For(Worktree.Path);
+}
+
+<div class="node-tests">
+    <div class="node-tests-bar">
+        @if (tests.Running)
+        {
+            <button type="button" class="small" @onclick="() => Runner.Stop(Worktree.Path)">Stop</button>
+        }
+        else
+        {
+            <button type="button" class="primary small" disabled="@(tests.Files.Count == 0)"
+                    @onclick="() => Runner.RunAsync(Worktree.Path)">Run all</button>
+        }
+        <button type="button" class="ghost small" disabled="@tests.Running" title="Read the test files again"
+                @onclick="() => Runner.ListAsync(Worktree.Path)">Refresh</button>
+        <span class="spacer"></span>
+        @if (tests.Files.Count > 0)
+        {
+            <span class="node-tests-count passed" title="Passed">@Icon(TestStatus.Passed) @tests.Count(TestStatus.Passed)</span>
+            <span class="node-tests-count failed" title="Failed">@Icon(TestStatus.Failed) @tests.Count(TestStatus.Failed)</span>
+            <span class="node-tests-count faint" title="Not run or skipped">@Icon(TestStatus.NotRun) @(tests.Count(TestStatus.NotRun) + tests.Count(TestStatus.Skipped))</span>
+        }
+    </div>
+
+    @if (tests.Error is { } error)
+    {
+        <div class="banner danger">@error</div>
+    }
+
+    @if (!tests.Listed)
+    {
+        <div class="empty">Looking for tests...</div>
+    }
+    else if (tests.Files.Count == 0)
+    {
+        <div class="empty">
+            No test files in this worktree. Node's test runner picks up files named
+            <span class="mono">*.test.js</span> or <span class="mono">*.test.ts</span>.
+        </div>
+    }
+    else
+    {
+        <div class="node-tests-list">
+            @foreach (var file in tests.Files)
+            {
+                <div class="node-tests-file">
+                    @Icon(file.Status)
+                    <span class="mono truncate" title="@file.Path">@file.Path</span>
+                    <span class="spacer"></span>
+                    <button type="button" class="ghost small" disabled="@tests.Running" title="Run this file"
+                            @onclick="() => Runner.RunAsync(Worktree.Path, file.Path)">Run</button>
+                </div>
+                @if (file.Error is { } fileError)
+                {
+                    <pre class="node-tests-failure mono">@fileError</pre>
+                }
+                @foreach (var test in file.Tests)
+                {
+                    <div class="node-tests-test @StatusClass(test.Status)" title="@(test.Suite is null ? test.Name : $"{test.Suite} > {test.Name}")">
+                        @Icon(test.Status)
+                        <span class="truncate">@test.Name</span>
+                        <span class="spacer"></span>
+                        @if (test.Duration is { } duration && test.Status is TestStatus.Passed or TestStatus.Failed)
+                        {
+                            <span class="faint nums">@Duration(duration)</span>
+                        }
+                    </div>
+                    @if (test.Failure is { } failure)
+                    {
+                        <pre class="node-tests-failure mono">@failure</pre>
+                    }
+                }
+            }
+        </div>
+        @if (tests.LastRun is { } last)
+        {
+            <div class="node-tests-foot faint">Last run at @last.ToString("t")</div>
+        }
+    }
+</div>
+
+@code {
+    private TestRunner Runner => Context.Get<TestRunner>();
+    private string? _listed;
+
+    protected override void OnInitialized() => Runner.Changed += OnChanged;
+
+    protected override void OnParametersSet()
+    {
+        // Listed once per worktree the tab is shown for. The runner keeps the
+        // result, so switching back to a worktree shows it at once.
+        if (_listed != Worktree.Path)
+        {
+            _listed = Worktree.Path;
+            if (!Runner.For(Worktree.Path).Listed)
+            {
+                _ = Runner.ListAsync(Worktree.Path);
+            }
+        }
+    }
+
+    // The runner reports from its own threads; a render has to happen on the window's.
+    private void OnChanged() => _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Runner.Changed -= OnChanged;
+
+    private static string StatusClass(TestStatus status) => status.ToString().ToLowerInvariant();
+
+    private static string Duration(TimeSpan time) =>
+        time.TotalSeconds >= 1 ? $"{time.TotalSeconds:0.0} s" : $"{Math.Max(1, (int)time.TotalMilliseconds)} ms";
+
+    private static RenderFragment Icon(TestStatus status) => __builder =>
+    {
+        var (label, path) = status switch
+        {
+            TestStatus.Passed => ("Passed", "M3.5 8.5l3 3 6-7"),
+            TestStatus.Failed => ("Failed", "M4.5 4.5l7 7M11.5 4.5l-7 7"),
+            TestStatus.Skipped => ("Skipped", "M4 8h8"),
+            TestStatus.Running => ("Running", "M8 2.5a5.5 5.5 0 1 1-5.5 5.5"),
+            _ => ("Not run", "M8 2.5a5.5 5.5 0 1 1 0 11a5.5 5.5 0 1 1 0-11"),
+        };
+        <svg class="node-tests-icon @StatusClass(status)" width="14" height="14" viewBox="0 0 16 16" role="img" aria-label="@label">
+            <path d="@path" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+    };
+}

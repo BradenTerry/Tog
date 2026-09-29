@@ -1,0 +1,9 @@
+{
+  "id": "node-tests",
+  "name": "Node tests",
+  "version": "1.0.0",
+  "apiVersion": "1.4",
+  "entry": "NodeTests.dll",
+  "output": "bin/tog",
+  "description": "Lists the node:test tests in the worktree in view and runs them with node --test, when you press Run."
+}

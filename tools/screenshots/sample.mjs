@@ -59,7 +59,7 @@ Requests are authenticated with an API key in the \`x-api-key\` header.
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p .",
-    "test": "vitest run"
+    "test": "node --test"
   },
   "dependencies": {
     "express": "^5.1.0",
@@ -67,10 +67,8 @@ Requests are authenticated with an API key in the \`x-api-key\` header.
   },
   "devDependencies": {
     "@types/express": "^5.0.3",
-    "supertest": "^7.1.0",
     "tsx": "^4.20.0",
-    "typescript": "^5.9.0",
-    "vitest": "^3.2.0"
+    "typescript": "^5.9.0"
   }
 }
 `,
@@ -224,26 +222,27 @@ orders.post('/', async (req, res) => {
   res.status(201).json(order);
 });
 `,
-  'test/orders.test.ts': `import request from 'supertest';
-import { describe, expect, it } from 'vitest';
-import { app } from '../src/server.js';
+  'test/money.test.ts': `import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+import { formatCents, totalCents } from '../src/lib/money.ts';
 
-const key = { 'x-api-key': 'test-key' };
-
-describe('POST /orders', () => {
-  it('prices each line from the catalogue', async () => {
-    const res = await request(app).post('/orders').set(key)
-      .send({ lines: [{ productId: 'mug', quantity: 2 }] });
-
-    expect(res.status).toBe(201);
-    expect(res.body.totalCents).toBe(2400);
+describe('totalCents', () => {
+  it('adds each line as quantity times unit price', () => {
+    assert.equal(totalCents([{ quantity: 2, unitCents: 1200 }, { quantity: 1, unitCents: 450 }]), 2850);
   });
 
-  it('refuses an unknown product', async () => {
-    const res = await request(app).post('/orders').set(key)
-      .send({ lines: [{ productId: 'nope', quantity: 1 }] });
+  it('is zero for no lines', () => {
+    assert.equal(totalCents([]), 0);
+  });
+});
 
-    expect(res.status).toBe(404);
+describe('formatCents', () => {
+  it('formats cents as dollars', () => {
+    assert.equal(formatCents(2850), '$28.50');
+  });
+
+  it('keeps a whole-dollar amount to two places', () => {
+    assert.equal(formatCents(1200), '$12.00');
   });
 });
 `,
@@ -301,18 +300,38 @@ const ordersAfter = base['src/routes/orders.ts']
   .replace("orders.post('/', async (req, res) => {",
     "// Placing an order reserves stock, so it gets a tighter limit than reads.\norders.post('/', rateLimit({ limit: 10, windowMs: 60_000 }), async (req, res) => {");
 
-const testAfter = base['test/orders.test.ts'] + `
-describe('rate limiting', () => {
-  it('answers 429 with Retry-After once a client runs out', async () => {
-    const order = { lines: [{ productId: 'mug', quantity: 1 }] };
-    for (let i = 0; i < 10; i++) {
-      await request(app).post('/orders').set(key).send(order);
-    }
+const rateLimitTest = `import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+import { rateLimit } from '../src/middleware/rateLimit.ts';
 
-    const res = await request(app).post('/orders').set(key).send(order);
+// Just enough of Express's req and res for the middleware.
+function call(limiter: ReturnType<typeof rateLimit>) {
+  const headers: Record<string, unknown> = {};
+  const res = {
+    locals: { client: { id: 'acme' } },
+    statusCode: 200,
+    setHeader: (name: string, value: unknown) => void (headers[name] = value),
+    status(code: number) { this.statusCode = code; return this; },
+    json: () => undefined,
+  };
+  let passed = false;
+  limiter({ ip: '127.0.0.1' } as never, res as never, () => { passed = true; });
+  return { passed, status: res.statusCode, headers };
+}
 
-    expect(res.status).toBe(429);
-    expect(Number(res.header['retry-after'])).toBeGreaterThan(0);
+describe('rateLimit', () => {
+  it('lets a client through up to its limit', () => {
+    const limiter = rateLimit({ limit: 3, windowMs: 60_000 });
+    assert.deepEqual([call(limiter), call(limiter), call(limiter)].map(r => r.passed), [true, true, true]);
+  });
+
+  it('answers 429 with Retry-After once a client runs out', () => {
+    const limiter = rateLimit({ limit: 1, windowMs: 60_000 });
+    call(limiter);
+    const res = call(limiter);
+
+    assert.equal(res.status, 429);
+    assert.ok(Number(res.headers['Retry-After']) > 0);
   });
 });
 `;
@@ -332,7 +351,7 @@ const agents = [
     work(dir) {
       write(dir, { 'src/middleware/rateLimit.ts': rateLimit, 'src/server.ts': serverAfter });
       git(dir, 'add', 'src/server.ts');
-      write(dir, { 'src/routes/orders.ts': ordersAfter, 'test/orders.test.ts': testAfter, 'README.md': readmeAfter });
+      write(dir, { 'src/routes/orders.ts': ordersAfter, 'test/rateLimit.test.ts': rateLimitTest, 'README.md': readmeAfter });
     },
     turns: dir => [
       ['said', "I'll look at how requests reach the routes first, so the limit sits after the API key check and can key on the client."],
@@ -343,9 +362,9 @@ const agents = [
       ['write', join(dir, 'src/middleware/rateLimit.ts'), rateLimit],
       ['edit', join(dir, 'src/server.ts'), "app.use(requireApiKey);\n", "app.use(requireApiKey);\napp.use(rateLimit({ limit: 60, windowMs: 60_000 }));\n"],
       ['edit', join(dir, 'src/routes/orders.ts'), "orders.post('/', async (req, res) => {", "// Placing an order reserves stock, so it gets a tighter limit than reads.\norders.post('/', rateLimit({ limit: 10, windowMs: 60_000 }), async (req, res) => {"],
-      ['edit', join(dir, 'test/orders.test.ts'), "});\n", testAfter.slice(base['test/orders.test.ts'].length - 4)],
-      ['bash', 'npm test', ' ✓ test/orders.test.ts (3 tests) 212ms\n\n Test Files  1 passed (1)\n      Tests  3 passed (3)'],
-      ['said', `Done. Every client now gets 60 requests a minute, and placing an order is held to 10 a minute on top of that. The limiter in src/middleware/rateLimit.ts is a token bucket per client, keyed on the client auth resolved. A throttled request gets a 429 with Retry-After, and the new test drains the order limit to check it. All 3 tests pass.
+      ['write', join(dir, 'test/rateLimit.test.ts'), rateLimitTest],
+      ['bash', 'npm test', '▶ rateLimit\n  ✔ lets a client through up to its limit (0.4ms)\n  ✔ answers 429 with Retry-After once a client runs out (0.1ms)\n✔ rateLimit (1.1ms)\nℹ tests 6\nℹ pass 6\nℹ fail 0'],
+      ['said', `Done. Every client now gets 60 requests a minute, and placing an order is held to 10 a minute on top of that. The limiter in src/middleware/rateLimit.ts is a token bucket per client, keyed on the client auth resolved. A throttled request gets a 429 with Retry-After, and the new tests check both sides of the limit. All 6 tests pass.
 
 The buckets are in memory, so each instance counts on its own. If the API runs behind a load balancer, this wants Redis; say if you want that next.`],
     ],
@@ -370,11 +389,21 @@ The buckets are in memory, so each instance counts on its own. If the API runs b
     prompt: 'Upgrade the project to Node 22 and make sure the tests still pass.',
     work() {},
     turns: () => [
-      ['bash', 'npm test', ' Test Files  1 passed (1)\n      Tests  2 passed (2)'],
+      ['bash', 'npm test', 'ℹ tests 4\nℹ pass 4\nℹ fail 0'],
       ['said', 'Upgraded to Node 22: engines in package.json, the CI image and .nvmrc. The tests pass unchanged.'],
     ],
   },
 ];
+
+// The agent the extension GIF talks to: a fresh one with nothing said yet,
+// whose one turn replay-agent.mjs plays.
+const demoAgent = {
+  name: 'tests-tab',
+  sessionId: '6d2f8b41-9c3e-4a57-8e1d-0b7c5a3f9e34',
+  title: 'Add a Tests tab',
+  start: '2026-03-12T14:29:00Z',
+  work() {},
+};
 
 function transcript({ sessionId, prompt, start, turns }, cwd) {
   let clock = Date.parse(start);
@@ -417,13 +446,14 @@ function transcript({ sessionId, prompt, start, turns }, cwd) {
 
 // Claude names a project's transcript folder after its working directory,
 // with every separator, dot and space turned into a dash.
-const slug = cwd => cwd.replace(/[\\/:. ]/g, '-');
+export const slug = cwd => cwd.replace(/[\\/:. ]/g, '-');
 
 /**
  * Makes the sample under root, replacing any earlier one. Returns the paths
- * the app is pointed at.
+ * the app is pointed at. With demo, adds the agent the extension GIF is
+ * recorded with and opens on it.
  */
-export function createSample(root) {
+export function createSample(root, { demo = false } = {}) {
   rmSync(root, { recursive: true, force: true });
   const repo = join(root, 'acme-store');
   const claudeDir = join(root, 'claude');
@@ -436,10 +466,16 @@ export function createSample(root) {
   git(repo, 'commit', '-q', '-m', 'Orders, products and API keys');
 
   const records = [];
-  for (const agent of agents) {
+  const shown = demo ? [...agents, demoAgent] : agents;
+  for (const agent of shown) {
     const dir = join(repo, '.claude', 'worktrees', agent.name);
     git(repo, 'worktree', 'add', '-q', '-b', agent.name, dir);
     agent.work(dir);
+
+    if (!agent.turns) {
+      records.push({ SessionId: agent.sessionId, Cwd: dir, Title: agent.title, AddedAt: agent.start });
+      continue;
+    }
 
     const { text, endedAt } = transcript(agent, dir);
     write(join(claudeDir, 'projects', slug(dir)), { [`${agent.sessionId}.jsonl`]: text });
@@ -454,13 +490,21 @@ export function createSample(root) {
     });
   }
 
+  if (demo) {
+    // A taller chat than the default, since the GIF is about what the agent does.
+    const panel = views => ({ Open: true, Sections: [{ Views: views, Active: null, Collapsed: false, Weight: 1 }] });
+    write(dataDir, {
+      'layout.json': JSON.stringify({ Left: panel([]), Right: panel([]), Bottom: { ...panel([]), Sections: [{ Views: [], Active: 'chat', Collapsed: false, Weight: 1 }] }, Sizes: { 'wb-bottom': '470' } }),
+    });
+  }
+
   write(dataDir, {
     'settings.json': JSON.stringify({ RepoRoots: [repo], HiddenRoots: [], TrustedRoots: [repo], NotifyOnWaiting: false }, null, 2),
     'agents.json': JSON.stringify(records, null, 2),
-    'last-view.json': JSON.stringify({ SessionId: agents[0].sessionId, WorktreePath: records[0].Cwd, RepoRoot: repo, Pinned: false }),
+    'last-view.json': JSON.stringify({ SessionId: records.at(demo ? -1 : 0).SessionId, WorktreePath: records.at(demo ? -1 : 0).Cwd, RepoRoot: repo, Pinned: false }),
     // Every finished turn counts as read, so no agent carries an unread dot.
-    'seen-turns.json': JSON.stringify(Object.fromEntries(records.map(r => [r.SessionId, r.TurnEndedAt]))),
+    'seen-turns.json': JSON.stringify(Object.fromEntries(records.filter(r => r.TurnEndedAt).map(r => [r.SessionId, r.TurnEndedAt]))),
   });
 
-  return { repo, claudeDir, dataDir };
+  return { repo, claudeDir, dataDir, extensionsDir: join(root, 'extensions') };
 }

@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Writes the .deps.json Tog loads this extension's own
+         dependencies from. -->
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <!-- One fixed folder, which extension.json points at. -->
+    <OutputPath>bin/tog/</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <!-- Tog copies its API here every time it starts. Any 1.x from the
+         manifest's apiVersion up builds this, since 1.x only adds. -->
+    <TogSdk Condition="'$(TogSdk)' == ''">$([System.Environment]::GetFolderPath(SpecialFolder.UserProfile))/.tog/sdk/1.12</TogSdk>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <!-- Compile against the API, never ship it: Tog's own copy is the
+         one that runs. -->
+    <Reference Include="Tog.Extensions">
+      <HintPath>$(TogSdk)/Tog.Extensions.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Served at /_ext/<id>/ while the extension is loaded. extension.css is
+         linked into the page automatically. -->
+    <None Include="assets\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
