@@ -1,15 +1,15 @@
-# An Togue extension
+# An Tog extension
 
-This project adds a view to the Togue: a tab in each agent's view,
-next to Chat, Changes and Files. Togue loads it at runtime; it is not
-part of Togue's source.
+This project adds a view to the Tog: a tab in each agent's view,
+next to Chat, Changes and Files. Tog loads it at runtime; it is not
+part of Tog's source.
 
 ## The loop
 
-1. `dotnet build` (or `dotnet watch build`). Output goes to `bin/togue/`.
-2. Once: in Togue, Settings, Extensions, Extension folders, Choose
+1. `dotnet build` (or `dotnet watch build`). Output goes to `bin/tog/`.
+2. Once: in Tog, Settings, Extensions, Extension folders, Choose
    folder..., and pick this folder. If it sits in a folder added there with
-   `/*` it is already found. Or start Togue with
+   `/*` it is already found. Or start Tog with
    `--extension <this folder>`.
 3. Every later build is picked up by the running app and the tab reloads.
    Nothing needs restarting. Build errors show in the terminal; load errors show
@@ -17,10 +17,10 @@ part of Togue's source.
 
 ## The API
 
-Everything comes from `Togue.Extensions` (API 1.0), referenced from
-`~/.togue/sdk/1.0/` with its XML docs. Nothing else from Togue is available, on purpose.
+Everything comes from `Tog.Extensions` (API 1.0), referenced from
+`~/.tog/sdk/1.0/` with its XML docs. Nothing else from Tog is available, on purpose.
 
-- `ITogueExtension.Configure(IExtensionBuilder b)` is the entry point. Keep
+- `ITogExtension.Configure(IExtensionBuilder b)` is the entry point. Keep
   exactly one public class implementing it.
 - `b.AddView<TComponent>(id, title, defaultLocation:, order:, appliesTo:)` adds a
   tab to a panel: `ViewLocation.RightPanel` (the default, beside Source control),
@@ -43,14 +43,14 @@ Everything comes from `Togue.Extensions` (API 1.0), referenced from
   `Language`. The app draws the chip, its Load button and the results. Load
   nothing until `LoadAsync`; a query must never start a load. Positions are
   one-based.
-- `b.AddAgentTool<T>()` (API 1.2) gives the agents Togue runs a tool:
+- `b.AddAgentTool<T>()` (API 1.2) gives the agents Tog runs a tool:
   `IAgentTool` has a `Name` (lower case, prefixed, e.g. `tests_run`), a
   `Description` written for the agent, an `InputSchema` (JSON Schema text) and
   `CallAsync(AgentToolCall, ct)`, which gets the arguments, the agent's
   folder and (API 1.6) its session as `AgentId`, both vouched for by the app,
   and returns text. Start long work and return; do not hold the call.
 - `b.Services` is the extension's own DI container. Views reach it through
-  `Context.Get<T>()`, not `@inject`: `@inject` resolves from Togue's
+  `Context.Get<T>()`, not `@inject`: `@inject` resolves from Tog's
   container, which only has the API services below.
 
 A view inherits `AgentViewBase` and gets `Agent` (an `AgentContext`: id, label,
@@ -60,7 +60,7 @@ and `Context`. A worktree view inherits `WorktreeViewBase` and gets `Worktree`,
 and `Context`; pass `<LinkedText Text="..." Worktree="Worktree" />` there.
 
 Services available to `@inject` and to your own services' constructors:
-`ITogueView` (every worktree, with git counts only for the one on screen, every agent as `Current.Agents` (API 1.10), and a `Changed` event about once a second, on
+`ITogView` (every worktree, with git counts only for the one on screen, every agent as `Current.Agents` (API 1.10), and a `Changed` event about once a second, on
 a background thread: use `InvokeAsync`), `INavigation` (a link that opens a file in the
 agent's editor), `ITextLinker` and the `<LinkedText Text="..." Agent="Agent" />`
 component (paths in text become links), `IExtensionStorage` (a data folder of
@@ -80,7 +80,7 @@ with `"read": true` only if you need the value itself. Asking for an undeclared
 name, or sending to an undeclared host, throws. The user binds each need to
 one of their secrets, per build, before you get anything, and the call waits
 until they do, so pass a cancellation token. Prefer
-`SendAsync(name, request, SecretAuth.Bearer)`: Togue sends the https
+`SendAsync(name, request, SecretAuth.Bearer)`: Tog sends the https
 request with the secret added and you never hold it. `GetAsync(name)` hands
 you the value, only for a need declared with `read`. Never give a secret to an
 agent: not in a tool result, a prompt or a file. A secret asked for while
@@ -89,7 +89,7 @@ answering an agent tool call throws.
 `b.AddOverlay<T>(id)` (API 1.10) draws a component once per window over
 the layout, written against `OverlayBase`: a celebration, a toast. The layer
 lets clicks through; give what should be clickable `pointer-events: auto`. It is not re-rendered for you: call `StateHasChanged`
-from `ITogueView.Changed` or your own timer. To notice an agent finishing,
+from `ITogView.Changed` or your own timer. To notice an agent finishing,
 compare each agent's `TurnEndedAt` between ticks rather than its `State`.
 
 `IDialogs` (API 1.10, a view's or an overlay's `@inject`) shows a component
@@ -133,7 +133,7 @@ in a view (not `@inject`: it is the extension's own). Values are strings; its
 
 ## Looking native
 
-Use Togue's classes and it will look like part of the app, light and
+Use Tog's classes and it will look like part of the app, light and
 dark: `card`, `card-head`, `card-body`, `row`, `stack`, `inline`, `spacer`,
 `chip` (`active`, `danger`, `accent`), `banner` (`info`, `danger`), `faint`,
 `muted`, `mono`, `truncate`, `empty`, and buttons with `primary`, `ghost`,
@@ -142,4 +142,4 @@ dark: `card`, `card-head`, `card-body`, `row`, `stack`, `inline`, `spacer`,
 `--waiting`. Your own styles go in `assets/extension.css`.
 
 The test explorer and C# code intelligence in
-`togue-extensions` are extensions built this way.
+`tog-extensions` are extensions built this way.

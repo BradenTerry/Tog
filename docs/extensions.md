@@ -5,7 +5,7 @@ Anything else, such as following a language's test runs, is an extension: a
 small Razor project, built on its own, that the running app loads and adds a tab
 for. The test explorer and C# navigation in the editor are two, kept outside
 this repository in the user's extension folder
-(`togue-extensions/DotnetTestExplorer` and `CSharpCode`). None is
+(`tog-extensions/DotnetTestExplorer` and `CSharpCode`). None is
 shipped with the app.
 
 The design and its rationale are in [design/extensions.md](design/extensions.md).
@@ -15,7 +15,7 @@ This file is what exists and what is easy to get wrong.
 
 ```mermaid
 flowchart TD
-    A["dotnet new togue-extension -n BuildStatus<br/>(install once: dotnet new install templates/extension)"] --> B["Settings, Extensions, General, Add or remove<br/>or --extension path"]
+    A["dotnet new tog-extension -n BuildStatus<br/>(install once: dotnet new install templates/extension)"] --> B["Settings, Extensions, General, Add or remove<br/>or --extension path"]
     B --> C["dotnet build, or dotnet watch build"]
     C --> D["the app sees a new entry assembly<br/>and reloads it"]
     D --> E["the tab rebuilds in the open window"]
@@ -28,7 +28,7 @@ extension from inside its folder without reading this repository. Its
 `CLAUDE.md` is one line, `@AGENTS.md`: Claude Code skips every `AGENTS.md` once
 it finds a `CLAUDE.md` in the folder or above it, which is the usual case for an
 extension created inside a repository that already has one. The project
-compiles against `~/.togue/sdk/1.0/Togue.Extensions.dll`,
+compiles against `~/.tog/sdk/1.0/Tog.Extensions.dll`,
 which the app copies there, with its XML docs, every time it starts. No NuGet
 feed, and it always matches the app that will run it.
 
@@ -36,19 +36,19 @@ feed, and it always matches the app that will run it.
 
 Outside this repository an agent has neither the template nor these docs, so
 the app carries both. `ExtensionSkill` publishes the template to
-`~/.togue/sdk/<major>.<minor>/template/` beside the API assembly on
+`~/.tog/sdk/<major>.<minor>/template/` beside the API assembly on
 every start, and holds a skill (`templates/skill/SKILL.md`) whose placeholders
 it fills with those paths and the API version. It reaches the agent two ways:
 
 ```mermaid
 flowchart TD
     S["templates/skill/SKILL.md<br/>shipped in the app"] --> R["ExtensionSkill.Text()<br/>paths and API filled in"]
-    R -->|"Settings, Extensions, Add skill<br/>(the user's click)"| K["~/.claude/skills/togue-extension"]
-    R -->|"MCP: togue_extension_guide"| M["an agent Togue runs"]
+    R -->|"Settings, Extensions, Add skill<br/>(the user's click)"| K["~/.claude/skills/tog-extension"]
+    R -->|"MCP: tog_extension_guide"| M["an agent Tog runs"]
     K --> T["an agent in a terminal"]
     M --> B["scaffold, dotnet build"]
     T --> B
-    B -->|"MCP: togue_extension_add"| Q["ExtensionRequests"]
+    B -->|"MCP: tog_extension_add"| Q["ExtensionRequests"]
     Q --> P["prompt in every window"]
     P -->|"Add and turn on"| L["ExtensionHost.Link: on,<br/>reloaded on every build"]
     P -->|"Not now"| X["nothing changes"]
@@ -60,9 +60,9 @@ flowchart TD
   is the one file the app writes into `~/.claude`, and only from that button.
   The installed copy names absolute paths and an API version, so any
   difference from this build's text shows as *out of date*, with Update.
-- **The guide tool.** Agents Togue runs need no skill: the MCP tool
-  `togue_extension_guide` returns the same text.
-- **The add tool.** `togue_extension_add` never links anything. It checks
+- **The guide tool.** Agents Tog runs need no skill: the MCP tool
+  `tog_extension_guide` returns the same text.
+- **The add tool.** `tog_extension_add` never links anything. It checks
   the folder has a manifest and a built entry assembly, queues an
   `ExtensionRequest`, and returns. `ExtensionRequestDialog` shows it in every
   window until the user answers in one; only *Add and turn on* links the
@@ -81,7 +81,7 @@ A folder with an `extension.json`:
   "version": "0.1.0",
   "apiVersion": "1.4",
   "entry": "DotnetTestExplorer.dll",
-  "output": "bin/togue"
+  "output": "bin/tog"
 }
 ```
 
@@ -92,7 +92,7 @@ Settings can list an extension that does not load and say why. An extension
 built for API 1.x loads when x is not newer than the app's; a different major
 does not load.
 
-`ITogueExtension.Configure` registers:
+`ITogExtension.Configure` registers:
 
 | Call | Adds |
 | --- | --- |
@@ -102,7 +102,7 @@ does not load.
 | `AddWorktreeIndicator<T>(viewId)` | The same, worked out from a worktree. Since 1.4 |
 | `AddWorker<T>(id)` | Background work while loaded, restarted with backoff if it throws |
 | `AddCodeIntelligence<T>()` | Navigation for a language in the editor: hover, definition, references, callers, colouring. See [code-intelligence.md](code-intelligence.md) |
-| `AddAgentTool<T>()` | A tool the agents Togue runs can call. Since 1.2; see below |
+| `AddAgentTool<T>()` | A tool the agents Tog runs can call. Since 1.2; see below |
 | `AddSetting(setting)` | A setting shown on the extension's own page in Settings, Extensions. Since 1.9; see below |
 | `AddOverlay<T>(id)` | A component drawn once per window over everything. Since 1.10; see below |
 | `Services` | The extension's own DI container |
@@ -217,7 +217,7 @@ A view is drawn in a panel for the agent or worktree in view, which is the
 wrong shape for news about any agent, such as a celebration when one finishes.
 API 1.10 adds both halves of that:
 
-- `ITogueView.Current.Agents` is every agent Togue runs, as
+- `ITogView.Current.Agents` is every agent Tog runs, as
   `AgentContext`, taken with the snapshot, so it is up to a tick old.
   `AgentContext.TurnEndedAt` says when each last finished a turn. Watch it
   rather than `State`: a turn that starts and ends between two snapshots never
@@ -227,7 +227,7 @@ API 1.10 adds both halves of that:
 
 ```mermaid
 flowchart LR
-    Monitor[Monitor tick] --> Adapter[TogueViewAdapter]
+    Monitor[Monitor tick] --> Adapter[TogViewAdapter]
     Host[AgentHost] --> Directory[AgentDirectory] --> Adapter
     Adapter -->|Changed, Current.Agents| Overlay[Extension overlay]
     Layout[MainLayout] --> Layer[ExtensionOverlays] --> OverlayHost[ExtensionOverlayHost] --> Overlay
@@ -239,7 +239,7 @@ clickable sets `pointer-events: auto` itself. The layer sits under the
 dialogs, so nothing an extension draws there can cover the app's own prompts
 or pass for one; a dialog goes through `IDialogs`, below. The layer takes no parameters, so the layout's once-a-second render
 passes it by and an overlay renders only when it calls `StateHasChanged`,
-usually from `ITogueView.Changed`. Each overlay has its own error boundary,
+usually from `ITogView.Changed`. Each overlay has its own error boundary,
 drawn clickable so its Retry works through the layer.
 
 ## Dialogs
@@ -367,9 +367,9 @@ does with `IAgentOffers`.
 `AddAgentTool<T>()` (API 1.2) gives the agents a tool: an `IAgentTool` with a
 name, a description written for the agent, a JSON Schema for its arguments,
 and `CallAsync`. The app serves every loaded extension's tools as one MCP
-server, `togue`, and hands it to each session it starts or resumes
+server, `tog`, and hands it to each session it starts or resumes
 in `session/new` and `session/resume`, so a tool shows up in the agent as
-`mcp__togue__<name>`.
+`mcp__tog__<name>`.
 
 ```mermaid
 sequenceDiagram
@@ -396,7 +396,7 @@ sequenceDiagram
   its own: minted when it starts or resumes, revoked when it stops, is
   removed, or the bridge exits. The server entry handed to the agent carries
   no key: the SDK puts it on the Claude CLI's command line, which any process
-  can list. Its `Authorization` header names `${TOGUE_MCP_KEY}`
+  can list. Its `Authorization` header names `${TOG_MCP_KEY}`
   instead, which the CLI expands. The bridge runs every session in one
   process, so the value cannot go in its environment; it goes in the
   session's `_meta.claudeCode.options.env`, which the bridge hands the SDK and
@@ -415,8 +415,8 @@ sequenceDiagram
   worktree. `AgentId` is null for a call that arrives before `session/new`
   has answered, and the key of a session being created is bound to its id
   as soon as it has.
-- **The app's own tools** are served beside them, prefixed `togue_`
-  (`togue_open_file`, see `docs/editor.md`). An extension tool with the
+- **The app's own tools** are served beside them, prefixed `tog_`
+  (`tog_open_file`, see `docs/editor.md`). An extension tool with the
   same name as one of the app's is dropped and logged.
 - **Names** are lower case, prefixed with what the extension is about
   (`tests_run`), and unique across extensions; a clash keeps the one loaded
@@ -427,13 +427,13 @@ sequenceDiagram
   MCP server. That runs `claude mcp add-json --scope user`, giving Claude a stdio
   server that is the app itself started with `mcp` (`McpStdioBridge`). Claude's
   config is written once but the port changes every start, so the bridge finds
-  the running app on every message through `~/.togue/mcp-link.json`
+  the running app on every message through `~/.tog/mcp-link.json`
   (`McpLink`): the URL and a terminal key minted per start, readable by the user
   alone, removed when the app exits. The terminal key cannot say which agent is
   calling, so it is the one caller whose folder comes from the request (the
   folder the bridge started in, in a header) and whose calls have no agent id.
-  With Togue closed the bridge answers with no tools, and it sends
-  `tools/list_changed` when the app opens or closes. A session Togue
+  With Tog closed the bridge answers with no tools, and it sends
+  `tools/list_changed` when the app opens or closes. A session Tog
   started has its own key in the environment, and the bridge uses that first.
   The entry is added through Claude's own command rather than by editing
   `~/.claude.json`, which every Claude session rewrites, and at user scope,
@@ -442,12 +442,12 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant C as claude (terminal)
-    participant B as togue mcp (stdio)
+    participant B as tog mcp (stdio)
     participant L as mcp-link.json
     participant S as AgentToolServer (/_mcp)
     C->>B: tools/list
     B->>L: read URL and terminal key
-    B->>S: POST, Bearer terminal key, X-Togue-Cwd
+    B->>S: POST, Bearer terminal key, X-Tog-Cwd
     S-->>B: tools
     B-->>C: tools (listChanged: true)
 ```
@@ -537,10 +537,10 @@ sequenceDiagram
 ```
 
 **Where things are.** The value goes straight into the OS store under the
-service `togue`: the login keychain on macOS (through
+service `tog`: the login keychain on macOS (through
 Security.framework, so it is never on a command line), Credential Manager on
 Windows, the Secret Service through `secret-tool` on Linux (the value on its
-standard input). `~/.togue/secrets.json` has the secrets' names and
+standard input). `~/.tog/secrets.json` has the secrets' names and
 the bindings, with when each was last used, never a value, and is a file of
 its own rather than part of `settings.json`: the Settings page saves its whole
 copy of the settings on every change and would undo a binding made meanwhile.
@@ -559,7 +559,7 @@ byte-identical entry keeps the binding; a linked extension being developed is
 asked again on every build that changes it. Settings binds for the build that
 is running, or, when the extension is off, the one on disk.
 
-**Never an agent's.** No agent tool serves a secret, and the `togue`
+**Never an agent's.** No agent tool serves a secret, and the `tog`
 MCP server has no way to set one. No session's environment carries one: the
 app's own environment never holds them, and the only thing added to a
 session's is its MCP key. `AgentToolServer` handles every MCP request, listing
@@ -598,7 +598,7 @@ Touch ID and Windows Hello, which is not built. The Settings page says so.
 
 | Source | Where | Runs when |
 | --- | --- | --- |
-| Installed | `~/.togue/extensions/<id>/` | Enabled, and its code unchanged since |
+| Installed | `~/.tog/extensions/<id>/` | Enabled, and its code unchanged since |
 | In a folder | A folder directly inside a folder added as `<folder>/*` (`ExtensionFolders` in `settings.json`) | Unless disabled. Reloaded on every build |
 | Linked | Any folder, added without the `*` (`LinkedExtensions` in `settings.json`) | Enabled. Reloaded on every build |
 | This run | `--extension <path>` | Always, not saved |
@@ -646,7 +646,7 @@ sequenceDiagram
 ```
 
 **Shared assemblies come from the app.** `ExtensionLoadContext` resolves
-`Togue.Extensions`, `Microsoft.AspNetCore.*`,
+`Tog.Extensions`, `Microsoft.AspNetCore.*`,
 `Microsoft.Extensions.*`, `Microsoft.JSInterop` and `System.*` from the default
 context, and falls back to the extension's own copy only when the app has none:
 `System.Composition`, which Roslyn needs, is a package rather than part of the
@@ -657,7 +657,7 @@ different type from the app's, and nothing would cast. That is also why an
 extension references the API with `Private="false"`: it must never ship it.
 
 **Always from a copy.** The build output is copied to
-`~/.togue/extension-cache/<id>/<generation>/` and loaded from there,
+`~/.tog/extension-cache/<id>/<generation>/` and loaded from there,
 so the next build can overwrite the original while this copy runs (on Windows a
 loaded assembly is locked). The cache is cleared at startup, when nothing is
 loaded.
@@ -696,7 +696,7 @@ app cannot prevent that short of running extensions in another process.
 
 **Two containers.** The app's container is fixed once it starts, so each load
 builds the extension its own, holding what it registered plus the API services
-(`ITogueView`, `INavigation`, `ITextLinker`, `IExtensionStorage`,
+(`ITogView`, `INavigation`, `ITextLinker`, `IExtensionStorage`,
 `ILogger<T>`), plus `ISecrets` bound to that extension and build, which only
 this container has. A component's `@inject` resolves from the *app's* container,
 where only the API services are, so an extension's own services are reached
@@ -737,7 +737,7 @@ sandbox it, and a load context is not a security boundary. So:
   you enable it again.
 - A folder you linked, or passed with `--extension`, is code you are writing.
   It is not asked about again on every build.
-- An agent can only ask to link one (`togue_extension_add`). You answer a
+- An agent can only ask to link one (`tog_extension_add`). You answer a
   prompt; nothing is linked until you accept.
 - Adding an extension folder turns on what is in it then. One that appears
   there later is off, and a prompt asks in every window, as the add tool's

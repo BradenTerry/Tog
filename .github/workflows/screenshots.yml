@@ -9,7 +9,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'src/Togue.App/**'
+      - 'src/Tog.App/**'
       - 'tools/screenshots/**'
       - '.github/workflows/screenshots.yml'
   workflow_dispatch:
@@ -43,7 +43,7 @@ jobs:
           node-version: 22
 
       - name: Restore
-        run: dotnet restore Togue.slnx --locked-mode
+        run: dotnet restore Tog.slnx --locked-mode
 
       - name: Install Playwright
         run: |

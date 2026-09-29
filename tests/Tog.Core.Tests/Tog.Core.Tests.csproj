@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Tog.Core.Tests</RootNamespace>
+    <OutputType>Exe</OutputType>
+    <IsTestProject>true</IsTestProject>
+    <!-- xunit.v3 generates a console-runner entry point by default and only
+         speaks Microsoft.Testing.Platform when asked. Without this the TRX
+         extension is never registered and `dotnet test` finds zero tests. -->
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+    <!-- Always write a TRX. Tog watches these files, so its own suite
+         is the live fixture for the test monitor. -->
+    <TestingPlatformCommandLineArguments>$(TestingPlatformCommandLineArguments) --report-trx</TestingPlatformCommandLineArguments>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="Microsoft.Testing.Extensions.TrxReport" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Tog.Core\Tog.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <!--
+    xunit.v3's Microsoft.Testing.Platform runner depends on
+    Microsoft.Testing.Extensions.Telemetry, which registers itself through this
+    hook and sends usage data to Microsoft through Application Insights on every
+    test run unless TESTINGPLATFORM_TELEMETRY_OPTOUT is set. That is most of the
+    transitive packages in packages.lock.json. The package cannot be dropped, since
+    xunit depends on it, but without the hook it is never registered and never
+    runs, on any machine, with no variable to remember.
+  -->
+  <ItemGroup>
+    <TestingPlatformBuilderHook Remove="98058041-B5B6-4A75-9834-58E6DF796A22" />
+  </ItemGroup>
+
+</Project>

@@ -1,5 +1,5 @@
 {
-  "name": "togue-screenshots",
+  "name": "tog-screenshots",
   "private": true,
   "description": "Retakes the README screenshots of the app against a sample project. See take.mjs.",
   "type": "module",

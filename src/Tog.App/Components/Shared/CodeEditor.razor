@@ -1,0 +1,497 @@
+@using Tog.Extensions
+@implements IAsyncDisposable
+@inject IJSRuntime Js
+@inject CodeNavigation Code
+
+<div class="code-editor" @ref="_host"></div>
+
+@code {
+    /// <summary>The file's worktree-relative path, which is what picks the language.</summary>
+    [Parameter, EditorRequired]
+    public string Path { get; set; } = "";
+
+    /// <summary>
+    /// The same file as an absolute path, which is what the Monaco model is named
+    /// after. A definition in another file can only be expressed to Monaco as a
+    /// file URI, so an unnamed model would drop every cross-file jump.
+    /// </summary>
+    [Parameter]
+    public string AbsolutePath { get; set; } = "";
+
+    /// <summary>The worktree the file is in, which is what the queries run against.</summary>
+    [Parameter]
+    public string WorktreePath { get; set; } = "";
+
+    [Parameter]
+    public string Text { get; set; } = "";
+
+    /// <summary>
+    /// The stamp the text was read with. It is not used here beyond identity:
+    /// a new stamp for the same path means the file was saved or re-read, and the
+    /// editor has to be pushed back into step with the disk.
+    /// </summary>
+    [Parameter]
+    public string Stamp { get; set; } = "";
+
+    [Parameter]
+    public int? Line { get; set; }
+
+    [Parameter]
+    public bool ReadOnly { get; set; }
+
+    /// <summary>
+    /// The text to compare against. Set, the editor is a diff with this on the
+    /// left and <see cref="Text"/> on the right; null, it is a plain editor. It
+    /// decides the kind of editor once, when it is built, and after that only
+    /// its text moves.
+    /// </summary>
+    [Parameter]
+    public string? Original { get; set; }
+
+    /// <summary>
+    /// Names a diff's model apart from the plain file's, so the same file can be
+    /// open in a diff tab and its own tab at once (two Monaco models may not
+    /// share a URI).
+    /// </summary>
+    [Parameter]
+    public string? Variant { get; set; }
+
+    /// <summary>Whether a diff shows side by side or inline. Kept by the browser for every diff, so reported, like word wrap.</summary>
+    [Parameter]
+    public EventCallback<bool> OnSideBySideChanged { get; set; }
+
+    /// <summary>Changed lines, drawn in the gutter and the scrollbar the way VS Code does.</summary>
+    [Parameter]
+    public IReadOnlyList<ChangeMark> Marks { get; set; } = [];
+
+    /// <summary>Called with the editor's current text when the user asks to save.</summary>
+    [Parameter]
+    public EventCallback<string> OnSave { get; set; }
+
+    [Parameter]
+    public EventCallback<bool> OnDirtyChanged { get; set; }
+
+    /// <summary>
+    /// A jump to another file: an absolute path, because that is what Monaco's
+    /// editor opener hands over. The tab turns it back into a worktree-relative
+    /// path, which is the only form the rest of the app deals in.
+    /// </summary>
+    [Parameter]
+    public EventCallback<(string AbsolutePath, int Line, int Column, int FromLine)> OnNavigate { get; set; }
+
+    /// <summary>A definition in this same file, which Monaco moved to itself; the line it left, for going back.</summary>
+    [Parameter]
+    public EventCallback<int> OnJumpedWithin { get; set; }
+
+    /// <summary>
+    /// Changed to reveal <see cref="Line"/> again when it has not changed, as
+    /// going back to a line the caret has since left needs to.
+    /// </summary>
+    [Parameter]
+    public int RevealKey { get; set; }
+
+    [Parameter]
+    public EventCallback<IReadOnlyList<CodeLocation>> OnReferences { get; set; }
+
+    [Parameter]
+    public EventCallback<CallHierarchy?> OnCallHierarchy { get; set; }
+
+    /// <summary>The buffer after a pause in typing, for the solution to answer from.</summary>
+    [Parameter]
+    public EventCallback<string> OnTextChanged { get; set; }
+
+    /// <summary>
+    /// Whether long lines wrap. The setting is the browser's, shared by every
+    /// editor, so this reports it rather than being a parameter.
+    /// </summary>
+    [Parameter]
+    public EventCallback<bool> OnWordWrapChanged { get; set; }
+
+    private ElementReference _host;
+    private DotNetObjectReference<CodeEditor>? _self;
+    private int? _handle;
+
+    /// <summary>
+    /// Cancelled on dispose. A Roslyn query outlives the click that started it
+    /// often enough to matter, and answering into a component that is gone is
+    /// how a navigation turns into an exception on the circuit.
+    /// </summary>
+    private readonly CancellationTokenSource _queries = new();
+
+    private string _shownPath = "";
+    private string _shownStamp = "";
+    private int? _shownLine;
+    private int _shownReveal;
+    private IReadOnlyList<ChangeMark>? _shownMarks;
+    private string? _shownOriginal;
+    private bool _rendered;
+
+    /// <summary>
+    /// The host div is rendered once and Monaco owns everything under it. The
+    /// worktree page re-renders every second because the monitor publishes a
+    /// snapshot that often, and a re-render here would hand the diff an element
+    /// full of children it did not create.
+    /// </summary>
+    protected override bool ShouldRender() => !_rendered;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Creation happens after the first render, when the host element exists,
+        // so the first parameter set has nothing to push yet.
+        if (_handle is null)
+        {
+            return;
+        }
+
+        await Sync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        _rendered = true;
+        _self = DotNetObjectReference.Create(this);
+
+        try
+        {
+            _handle = await Js.InvokeAsync<int>(
+                "agentsEditor.create",
+                _host,
+                _self,
+                new
+                {
+                    text = Text,
+                    path = Path,
+                    absolutePath = AbsolutePath,
+                    readOnly = ReadOnly,
+                    original = Original,
+                    variant = Variant,
+                    line = Line,
+                    languages = Code.Languages,
+                });
+
+            _shownPath = Path;
+            _shownStamp = Stamp;
+            _shownLine = Line;
+            _shownReveal = RevealKey;
+            _shownOriginal = Original;
+
+            // Parameters can have moved on while Monaco was being fetched, which
+            // takes long enough on a cold load for a click to land in the middle.
+            await Sync();
+        }
+        catch (JSException)
+        {
+            // Monaco could not load. The tab still shows the header and the file
+            // is still reachable through the VS Code link.
+        }
+        catch (InvalidOperationException)
+        {
+            // Prerendering, where there is no JS runtime yet.
+        }
+    }
+
+    private async Task Sync()
+    {
+        if (_handle is not { } handle)
+        {
+            return;
+        }
+
+        var changed = !string.Equals(Path, _shownPath, StringComparison.Ordinal)
+            || !string.Equals(Stamp, _shownStamp, StringComparison.Ordinal);
+
+        var marksChanged = changed || !ReferenceEquals(Marks, _shownMarks);
+        var originalChanged = Original is not null && !string.Equals(Original, _shownOriginal, StringComparison.Ordinal);
+
+        // Revealing puts the caret at the start of the line, so it happens only
+        // when the line was asked for again or another file came in. A file opened
+        // at a line (go to definition, a reference) keeps that Line for as long as
+        // it is open, and the marks are reread on every save and every touch of
+        // .git/index: revealing on those snapped the caret back under the user's
+        // hands, and word-by-word movement looked like it did nothing.
+        var reveal = !string.Equals(Path, _shownPath, StringComparison.Ordinal)
+            || Line != _shownLine
+            || RevealKey != _shownReveal;
+
+        if (!changed && !marksChanged && !originalChanged && !reveal)
+        {
+            return;
+        }
+
+        _shownPath = Path;
+        _shownStamp = Stamp;
+        _shownLine = Line;
+        _shownReveal = RevealKey;
+        _shownMarks = Marks;
+        _shownOriginal = Original;
+
+        try
+        {
+            if (originalChanged)
+            {
+                await Js.InvokeVoidAsync("agentsEditor.setOriginal", handle, Original);
+            }
+
+            if (changed)
+            {
+                await Js.InvokeVoidAsync("agentsEditor.setText", handle, Text, Stamp, Path, AbsolutePath, Line is not null);
+            }
+
+            if (marksChanged)
+            {
+                await Js.InvokeVoidAsync("agentsEditor.setMarks", handle, MarksForJs());
+            }
+
+            if (reveal && Line is { } line)
+            {
+                await Js.InvokeVoidAsync("agentsEditor.revealLine", handle, line);
+            }
+        }
+        catch (JSException)
+        {
+            // The editor is gone, or the circuit is on its way down.
+        }
+        catch (InvalidOperationException)
+        {
+        }
+    }
+
+    /// <summary>The marks as the browser takes them: a line and a word for the kind.</summary>
+    private object[] MarksForJs() =>
+        Marks.Select(object (m) => new { line = m.Line, kind = m.Kind.ToString().ToLowerInvariant() }).ToArray();
+
+    /// <summary>
+    /// The text as the browser currently has it, for a save the keyboard did not
+    /// start. Null when the editor is not there to ask.
+    /// </summary>
+    public async Task<string?> GetTextAsync()
+    {
+        if (_handle is not { } handle)
+        {
+            return null;
+        }
+
+        try
+        {
+            return await Js.InvokeAsync<string>("agentsEditor.getText", handle);
+        }
+        catch (JSException)
+        {
+            return null;
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    [JSInvokable]
+    public Task SaveFromEditor(string text) => OnSave.InvokeAsync(text);
+
+    [JSInvokable]
+    public Task SetDirty(bool dirty) => OnDirtyChanged.InvokeAsync(dirty);
+
+    [JSInvokable]
+    public async Task<object?> Hover(int line, int column)
+    {
+        var info = await Query((i, w, p, t) => i.HoverAsync(w, p, line, column, t), null);
+
+        return info is null ? null : new { signature = info.Signature, summary = info.Summary };
+    }
+
+    /// <summary>
+    /// The kind of every name in the file, for Monaco's semantic colouring. Sent
+    /// as the distinct kinds and a flat run of numbers, four per name (line,
+    /// column, length, index into the kinds), because a large file has thousands
+    /// of names and an object apiece would be most of the message.
+    /// </summary>
+    [JSInvokable]
+    public async Task<object?> Classify()
+    {
+        if (Code.For(Path) is null)
+        {
+            return null;
+        }
+
+        var runs = await Query((i, w, p, t) => i.ClassifyAsync(w, p, t), []);
+        var kinds = new List<string>();
+        var data = new int[runs.Count * 4];
+        for (var i = 0; i < runs.Count; i++)
+        {
+            var kind = kinds.IndexOf(runs[i].Kind);
+            if (kind < 0)
+            {
+                kind = kinds.Count;
+                kinds.Add(runs[i].Kind);
+            }
+
+            data[i * 4] = runs[i].Line;
+            data[(i * 4) + 1] = runs[i].Column;
+            data[(i * 4) + 2] = runs[i].Length;
+            data[(i * 4) + 3] = kind;
+        }
+
+        return new { kinds, data };
+    }
+
+    /// <summary>
+    /// Definitions for Monaco, which wants absolute paths: it addresses files by
+    /// URI, and a worktree-relative one would be resolved against the page.
+    /// </summary>
+    [JSInvokable]
+    public async Task<object[]> Definition(int line, int column)
+    {
+        var found = await Query(
+            (i, w, p, t) => i.DefinitionAsync(w, p, line, column, t),
+            (IReadOnlyList<CodeLocation>)[]);
+
+        return found
+            .Select(l => new { Location = l, Absolute = WorktreeFiles.Resolve(WorktreePath, l.Path) })
+            .Where(x => x.Absolute is not null)
+            .Select(object (x) => new
+            {
+                path = x.Absolute,
+                line = x.Location.Line,
+                column = x.Location.Column,
+                endLine = x.Location.EndLine,
+                endColumn = x.Location.EndColumn,
+            })
+            .ToArray();
+    }
+
+    /// <summary>A definition in another file, handed over by Monaco's editor opener.</summary>
+    [JSInvokable]
+    public Task OpenLocation(string absolutePath, int line, int column, int fromLine) =>
+        OnNavigate.InvokeAsync((absolutePath, line, column, fromLine));
+
+    [JSInvokable]
+    public Task JumpedWithin(int fromLine) => OnJumpedWithin.InvokeAsync(fromLine);
+
+    [JSInvokable]
+    public async Task ShowReferences(int line, int column)
+    {
+        if (Code.For(Path) is null)
+        {
+            return;
+        }
+
+        var found = await Query(
+            (i, w, p, t) => i.ReferencesAsync(w, p, line, column, t),
+            (IReadOnlyList<CodeLocation>)[]);
+
+        await OnReferences.InvokeAsync(found);
+    }
+
+    [JSInvokable]
+    public async Task ShowCallHierarchy(int line, int column)
+    {
+        if (Code.For(Path) is null)
+        {
+            return;
+        }
+
+        var hierarchy = await Query(
+            (i, w, p, t) => i.CallHierarchyAsync(w, p, line, column, t),
+            null);
+
+        await OnCallHierarchy.InvokeAsync(hierarchy);
+    }
+
+    [JSInvokable]
+    public Task TextChanged(string text) => OnTextChanged.InvokeAsync(text);
+
+    [JSInvokable]
+    public Task WordWrapChanged(bool on) => OnWordWrapChanged.InvokeAsync(on);
+
+    [JSInvokable]
+    public Task SideBySideChanged(bool on) => OnSideBySideChanged.InvokeAsync(on);
+
+    /// <summary>Shows every open diff inline, or side by side again, as VS Code's Toggle Inline View does.</summary>
+    public async Task ToggleSideBySideAsync()
+    {
+        try
+        {
+            await Js.InvokeVoidAsync("agentsEditor.toggleSideBySide");
+        }
+        catch (JSException)
+        {
+        }
+        catch (InvalidOperationException)
+        {
+        }
+    }
+
+    /// <summary>Wraps long lines in every open editor, or stops wrapping them, as Alt+Z does.</summary>
+    public async Task ToggleWordWrapAsync()
+    {
+        try
+        {
+            await Js.InvokeVoidAsync("agentsEditor.toggleWordWrap");
+        }
+        catch (JSException)
+        {
+        }
+        catch (InvalidOperationException)
+        {
+        }
+    }
+
+    /// <summary>
+    /// Runs a query against the extension that answers for this file, if one is
+    /// loaded, and swallows its failures. The keyboard actions are on the editor
+    /// whatever the file is, and a file no extension handles answers with
+    /// nothing. The provider is extension code, so any exception is caught: one
+    /// out of a JSInvokable takes the circuit down with it.
+    /// </summary>
+    /// <remarks>
+    /// The provider runs on the thread pool with a deadline, never on this
+    /// component's thread, which is the window's only dispatcher (see
+    /// <see cref="CodeNavigation.Run{T}"/>). The worktree and path are read here
+    /// and handed in, because the parameters may change before the pool gets to
+    /// it; the await brings the answer back to the circuit.
+    /// </remarks>
+    private async Task<T> Query<T>(Func<ICodeIntelligence, string, string, CancellationToken, Task<T>> query, T fallback)
+    {
+        if (_queries.IsCancellationRequested || WorktreePath.Length == 0 || Code.For(Path) is not { } intelligence)
+        {
+            return fallback;
+        }
+
+        var worktree = WorktreePath;
+        var path = Path;
+
+        return await CodeNavigation.Run(intelligence, (i, t) => query(i, worktree, path, t), fallback, _queries.Token);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await _queries.CancelAsync();
+
+        if (_handle is { } handle)
+        {
+            try
+            {
+                await Js.InvokeVoidAsync("agentsEditor.dispose", handle);
+            }
+            catch (JSDisconnectedException)
+            {
+                // The browser closed the circuit first, which disposes the editor
+                // along with the page it was in.
+            }
+            catch (JSException)
+            {
+            }
+            catch (InvalidOperationException)
+            {
+            }
+        }
+
+        _self?.Dispose();
+        _queries.Dispose();
+    }
+}

@@ -29,7 +29,7 @@ by `git status` into two sections, as VS Code does:
 Each section is a tree. A flat list is fine for a handful of files and useless
 for a hundred: the paths share a long prefix, so the part that tells them apart
 is the part that gets clipped. Directory chains with nothing to branch on are
-drawn as one row (`src/Togue.Core/Git` rather than three rows each
+drawn as one row (`src/Tog.Core/Git` rather than three rows each
 holding one child). Folders start expanded, so every change is one click away,
 and each section's header can fold or open them all. A file's row carries a
 letter for its kind: A added, M modified, D deleted, R renamed, U untracked.

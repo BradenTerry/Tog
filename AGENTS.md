@@ -1,18 +1,18 @@
-# Togue - project notes
+# Tog - project notes
 
 A cross-platform Blazor Server desktop app (Photino window over a loopback host)
 for watching Claude Code agents across git worktrees: who needs an answer, and
 reviewing their diffs. Anything else is an extension.
 
-- `src/Togue.Core` - all logic, no ASP.NET dependency. Claude readers,
+- `src/Tog.Core` - all logic, no ASP.NET dependency. Claude readers,
   git layer and parsers, the monitor loop, extension discovery.
-- `src/Togue.App` - Blazor Server UI, the Photino window, the
+- `src/Tog.App` - Blazor Server UI, the Photino window, the
   extension host.
-- `src/Togue.Extensions` - the extension API. Versioned: 1.x only adds.
+- `src/Tog.Extensions` - the extension API. Versioned: 1.x only adds.
 - `templates/extension` - the `dotnet new` template extensions start from.
 - `tests/*` - xUnit v3 on Microsoft.Testing.Platform.
 
-`dotnet build`, `dotnet test`, `dotnet run --project src/Togue.App`.
+`dotnet build`, `dotnet test`, `dotnet run --project src/Tog.App`.
 
 ## Documentation
 
@@ -75,22 +75,22 @@ the app ends the agents; `agents.json` brings them back as stopped, and a messag
 resumes them. The bridge logs to stderr constantly, so its error stream must
 always be drained, or the pipe fills and it blocks. See `docs/agent-control.md`.
 
-**Togue does not perform file or terminal work for agents.** It
+**Tog does not perform file or terminal work for agents.** It
 advertises no `fs` or `terminal` capability, so the agent uses its own tools. It
 answers `session/request_permission` and, since it advertises form elicitation,
 `elicitation/create`: Claude's AskUserQuestion, an MCP server's form, and the
 bridge's model-retry prompt, told apart on the card. Do not add client
 capabilities without reading what the agent will then route through us.
 
-**Agents get Togue's own MCP server.** Every session is handed
-`togue`, which serves the tools extensions add with `AddAgentTool`
+**Agents get Tog's own MCP server.** Every session is handed
+`tog`, which serves the tools extensions add with `AddAgentTool`
 (API 1.2). The key is never in the server entry, which ends up on the CLI's
-command line: a header names `${TOGUE_MCP_KEY}` and the value is only
+command line: a header names `${TOG_MCP_KEY}` and the value is only
 in that session's CLI environment, sent in `session/new`'s `_meta`. Each session
 has its own key, and the key alone says which agent and worktree a call is
 from; never trust anything the caller puts in the request for that. The one
 exception is the terminal key in `mcp-link.json`, used by the stdio bridge
-(`togue mcp`) that Settings adds to Claude for terminal agents: it
+(`tog mcp`) that Settings adds to Claude for terminal agents: it
 takes its folder from a header and has no agent id. Nothing may write to stdout
 in the `mcp` path of `Program.cs`, it is the MCP channel. See
 `docs/extensions.md`.
@@ -161,7 +161,7 @@ Extensions live outside this repository. Tests moved out for that reason. A new 
 extension, and if the API cannot express it, the API grows (a minor version).
 
 **Extension types must come from the app's copy.** `ExtensionLoadContext` sends
-`Togue.Extensions`, `Microsoft.AspNetCore.*`, `Microsoft.Extensions.*`
+`Tog.Extensions`, `Microsoft.AspNetCore.*`, `Microsoft.Extensions.*`
 and `System.*` to the default context, and only falls back to the extension's
 own copy when the app has none (Roslyn's `System.Composition`). Load a second copy of any of them and the
 extension's `IComponent` is a different type from the app's, and nothing casts.
@@ -177,7 +177,7 @@ services are registered there. An extension's own services come from
 - Spaces, not tabs. No em dashes or emojis in UI copy or comments.
 - Comments explain why, not what. Prefer a short paragraph on the non-obvious
   decision over a line-by-line narration.
-- Nothing Togue or an agent does on its own writes into `~/.claude`;
+- Nothing Tog or an agent does on its own writes into `~/.claude`;
   the app only reads it. You can still open and edit a file there yourself,
   and it is saved when you press Save, like any file. The only changes the app
   makes to Claude's config are the extension skill and the MCP server entry

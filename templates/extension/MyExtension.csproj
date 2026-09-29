@@ -4,22 +4,22 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <!-- Writes the .deps.json Togue loads this extension's own
+    <!-- Writes the .deps.json Tog loads this extension's own
          dependencies from. -->
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <!-- One fixed folder, which extension.json points at. -->
-    <OutputPath>bin/togue/</OutputPath>
+    <OutputPath>bin/tog/</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-    <!-- Togue copies its API here every time it starts. -->
-    <TogueSdk Condition="'$(TogueSdk)' == ''">$([System.Environment]::GetFolderPath(SpecialFolder.UserProfile))/.togue/sdk/1.0</TogueSdk>
+    <!-- Tog copies its API here every time it starts. -->
+    <TogSdk Condition="'$(TogSdk)' == ''">$([System.Environment]::GetFolderPath(SpecialFolder.UserProfile))/.tog/sdk/1.0</TogSdk>
   </PropertyGroup>
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
-    <!-- Compile against the API, never ship it: Togue's own copy is the
+    <!-- Compile against the API, never ship it: Tog's own copy is the
          one that runs. -->
-    <Reference Include="Togue.Extensions">
-      <HintPath>$(TogueSdk)/Togue.Extensions.dll</HintPath>
+    <Reference Include="Tog.Extensions">
+      <HintPath>$(TogSdk)/Tog.Extensions.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>

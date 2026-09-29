@@ -1,5 +1,5 @@
 {
-  "name": "togue-vendor-monaco",
+  "name": "tog-vendor-monaco",
   "private": true,
   "dependencies": {
     "monaco-editor": "0.56.0"

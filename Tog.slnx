@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Tog.App/Tog.App.csproj" />
+    <Project Path="src/Tog.Core/Tog.Core.csproj" />
+    <Project Path="src/Tog.Extensions/Tog.Extensions.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Tog.Core.Tests/Tog.Core.Tests.csproj" />
+  </Folder>
+</Solution>

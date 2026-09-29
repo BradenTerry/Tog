@@ -1,6 +1,6 @@
 # Running agents over ACP
 
-Togue runs its agents itself, over the
+Tog runs its agents itself, over the
 [Agent Client Protocol](https://agentclientprotocol.com) (ACP): JSON-RPC, one
 message per line, on the agent process's standard input and output. It is the
 same protocol editors such as Zed use for external agents, which is what lets
@@ -8,7 +8,7 @@ another agent be added later as a second backend rather than a second app.
 
 Claude does not speak ACP natively. The official bridge,
 `@agentclientprotocol/claude-agent-acp`, wraps the Claude Agent SDK and does.
-`tools/vendor-acp.mjs` installs it into `src/Togue.App/acp/` on the
+`tools/vendor-acp.mjs` installs it into `src/Tog.App/acp/` on the
 first build with `npm ci` from the lockfile in `tools/vendor/acp`, install
 scripts off (git ignores it, like Monaco), and the app runs it with
 `node`, so Node 22 or newer has to be on `PATH`. Without either, the app opens
@@ -38,11 +38,11 @@ flowchart LR
   process per agent would cost memory for nothing. It is started on first use and
   again after it dies.
 - **`HostedAgentStore`** is the list of agents in the agent list, kept in
-  `~/.togue/agents.json` so they come back after a restart.
+  `~/.tog/agents.json` so they come back after a restart.
 
 ## The app is the host
 
-Agents run inside Togue, so closing it ends them, like local agents in an
+Agents run inside Tog, so closing it ends them, like local agents in an
 editor. Nothing is lost: the SDK saves every conversation to the same transcripts
 the Claude CLI uses, and the agent list shows the agents again on the next start as
 **Stopped**. Sending one a message resumes it with `session/resume` and then
@@ -143,14 +143,14 @@ names it keeps rewriting itself; the tool is in the tooltip and the transcript.
 ## Permissions
 
 The client advertises no file system and no terminal capability, so the agent
-uses its own tools for both, exactly as in a terminal: Togue watches the
+uses its own tools for both, exactly as in a terminal: Tog watches the
 work, it does not perform it. When a tool call needs your approval, the agent
 sends `session/request_permission`; the chat shows the call's title and
 description with the options the agent offered (typically Yes and No), and the
 agent list marks the agent as waiting on you. **Stop** declines an open prompt
 and cancels the turn.
 
-Every session is also given Togue's own MCP server, when the agent
+Every session is also given Tog's own MCP server, when the agent
 says it can reach one over HTTP (`mcpCapabilities.http`): the tools extensions
 add with `AddAgentTool`. See [extensions.md](extensions.md#agent-tools).
 
@@ -159,7 +159,7 @@ Accept edits, Plan, Auto, Bypass permissions), plus your own Claude settings: a
 command your settings already allow is not asked about.
 
 Starting the first agent in a repository asks you to confirm that Claude may read
-and change every file in it. The answer is kept in Togue's own settings
+and change every file in it. The answer is kept in Tog's own settings
 (`TrustedRoots`), never in Claude's config.
 
 ## Questions (form elicitation)
@@ -189,7 +189,7 @@ mode, all answered by the same card:
   take it, the CLI asks before switching: one `oneOf` field, retry on the other
   model or keep the refusal.
 
-URL mode is not advertised. It would route MCP OAuth sign-ins through Togue to open in a browser, and the bridge declines those on its own
+URL mode is not advertised. It would route MCP OAuth sign-ins through Tog to open in a browser, and the bridge declines those on its own
 without it. A url-mode request that arrives anyway is declined.
 
 `QuestionForm.Parse` turns the schema into questions, folding each "Other" box
@@ -214,7 +214,7 @@ by what the bridge sends:
 | Bridge (refusal fallback) | no `toolCallId`, one `choice` field between `retry_fallback` and `cancelled` | "Claude Code is asking" |
 | MCP server | anything else | "An MCP server the agent uses is asking" |
 
-A server's form is headed in Togue's words, its message is shown below
+A server's form is headed in Tog's words, its message is shown below
 as "The server says:", the card is edged red, and every free-text box on it has
 "Only answer if you trust this server. Do not paste passwords or tokens." beside
 it. What the agent waits for, in the agent list and the OS notification, is the

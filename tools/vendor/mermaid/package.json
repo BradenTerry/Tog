@@ -1,5 +1,5 @@
 {
-  "name": "togue-vendor-mermaid",
+  "name": "tog-vendor-mermaid",
   "private": true,
   "dependencies": {
     "mermaid": "12.0.0"

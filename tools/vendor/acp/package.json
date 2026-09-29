@@ -1,7 +1,7 @@
 {
-  "name": "togue-acp",
+  "name": "tog-acp",
   "private": true,
-  "description": "The Claude ACP bridge the app launches. tools/vendor-acp.mjs installs exactly this lockfile into src/Togue.App/acp with npm ci, install scripts off.",
+  "description": "The Claude ACP bridge the app launches. tools/vendor-acp.mjs installs exactly this lockfile into src/Tog.App/acp with npm ci, install scripts off.",
   "dependencies": {
     "@agentclientprotocol/claude-agent-acp": "0.81.2"
   }

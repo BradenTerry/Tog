@@ -1,5 +1,5 @@
 {
-  "name": "togue-vendor-textmate",
+  "name": "tog-vendor-textmate",
   "private": true,
   "dependencies": {
     "tm-grammars": "1.32.22",

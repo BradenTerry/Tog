@@ -1,11 +1,11 @@
 # Where the agent data comes from
 
 Nothing is installed, no hooks are added, and no settings file of yours is
-edited. Claude Code already writes everything Togue shows, and Togue only reads it.
+edited. Claude Code already writes everything Tog shows, and Tog only reads it.
 
 ## Which agents there are
 
-The agents are the ones Togue runs itself over ACP (see
+The agents are the ones Tog runs itself over ACP (see
 `agent-control.md`). `AgentHost` knows their state as it changes, and hands the
 monitor the running ones through `IAgentSessionSource`, which is how they land
 in worktrees in the snapshot, count towards "waiting on you", and raise
@@ -117,7 +117,7 @@ agent is also idle, stopped or failed, and is counted there too.
 
 ## Notifications
 
-Every other signal Togue has terminates inside its own window: the
+Every other signal Tog has terminates inside its own window: the
 waiting rail, the counts, the pulsing dot, the window title. None of them reach
 you once the window is behind your editor, which is exactly when an agent sitting
 on a question costs the most. An OS notification is the only channel that does,
@@ -134,7 +134,7 @@ flowchart TD
   E --> F[it may be announced again<br/>next time it blocks]
 ```
 
-Opening Togue onto three blocked agents should show you three blocked
+Opening Tog onto three blocked agents should show you three blocked
 agents, not fire three notifications about a state you are already looking at.
 
 An agent is waiting when it has a permission prompt or a form of questions

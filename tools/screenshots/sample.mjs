@@ -427,7 +427,7 @@ export function createSample(root) {
   rmSync(root, { recursive: true, force: true });
   const repo = join(root, 'acme-store');
   const claudeDir = join(root, 'claude');
-  const dataDir = join(root, 'togue');
+  const dataDir = join(root, 'tog');
   mkdirSync(repo, { recursive: true });
 
   write(repo, base);

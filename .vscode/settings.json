@@ -9,5 +9,5 @@
     "search.exclude": {
         "**/wwwroot/monaco": true
     },
-    "dotnet.defaultSolution": "Togue.slnx"
+    "dotnet.defaultSolution": "Tog.slnx"
 }

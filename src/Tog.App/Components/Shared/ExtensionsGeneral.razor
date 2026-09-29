@@ -1,0 +1,343 @@
+@using Tog.Core.Extensions
+@inject ExtensionHost Extensions
+@inject FolderPicker Folders
+@inject ExtensionSkill Skill
+@implements IDisposable
+
+@* The General page of Extensions: which ones there are, where they come from,
+   turning them on and off, and adding or removing them. Each extension's own
+   settings are on its page, opened from this list or from the side. *@
+
+<section class="settings-group">
+    <div class="settings-group-head">
+        <div class="stack">
+            <h3>Installed</h3>
+            <span class="faint">Switch one on or off here, or open it to change its settings.</span>
+        </div>
+        <button class="ghost small spacer" @onclick="Rescan">Look again</button>
+    </div>
+
+    <div class="card">
+        @if (Extensions.Entries.Count == 0)
+        {
+            <div class="row faint settings-empty">
+                <span>
+                    None found. Add its folder below, or put a built extension in
+                    <span class="mono">@Paths.ExtensionsDir</span>.
+                </span>
+            </div>
+        }
+
+        @foreach (var entry in Extensions.Entries.OrderBy(e => ExtensionLabels.Name(e.Found), StringComparer.OrdinalIgnoreCase))
+        {
+            var found = entry.Found;
+            var manifest = found.Manifest;
+            var asking = _confirming == found.Id;
+            var on = entry.Status is ExtensionStatus.Loaded or ExtensionStatus.Failed;
+            <div class="row ext-list-row">
+                <button type="button" class="ext-list-open" @onclick="() => OnOpen.InvokeAsync(found.Id)"
+                        title="@($"Open {ExtensionLabels.Name(found)}")">
+                    <span class="ext-status-dot @ExtensionLabels.StatusClass(entry.Status)" aria-hidden="true"></span>
+                    <span class="stack" style="flex: 1; min-width: 0;">
+                        <span class="inline">
+                            <strong>@ExtensionLabels.Name(found)</strong>
+                            @if (manifest is not null)
+                            {
+                                <span class="faint nums">@manifest.Version</span>
+                            }
+                        </span>
+                        @if (manifest?.Description is { Length: > 0 } description)
+                        {
+                            <span class="muted truncate">@description</span>
+                        }
+                    </span>
+                    <span class="chip" title="@ExtensionLabels.SourceTip(found.Source)">@ExtensionLabels.SourceName(found.Source)</span>
+                    <span class="chip @ExtensionLabels.StatusClass(entry.Status)">@ExtensionLabels.StatusName(entry.Status)</span>
+                    <svg class="ext-list-chevron" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                        <path d="M6 3.5l4.5 4.5L6 12.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                </button>
+                @* Checked while its question is open, so Cancel puts the switch back:
+                   the browser has already flipped it, and Blazor only writes the
+                   attribute when the rendered value changes. *@
+                <input type="checkbox" class="switch" role="switch"
+                       checked="@(on || asking)"
+                       disabled="@(!CanSwitch(entry, on))"
+                       title="@SwitchTip(entry, on)"
+                       aria-label="@($"{ExtensionLabels.Name(found)} on")"
+                       @onchange="e => Switch(found, (bool)e.Value!)" />
+            </div>
+            @if (asking)
+            {
+                <ExtensionConsent Found="found" Class="ext-list-consent"
+                                  OnEnable="() => Enable(found.Id)" OnCancel="() => _confirming = null" />
+            }
+        }
+    </div>
+</section>
+
+<section class="settings-group">
+    <div class="settings-group-head">
+        <div class="stack">
+            <h3>Add or remove</h3>
+            <span class="faint">
+                The folders extensions are loaded from. Removing one takes its extensions out of Tog; the files stay where they are.
+            </span>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-body">
+            <div class="inline">
+                <input type="text" placeholder="/path/to/your-extension or /path/to/extensions/*"
+                       aria-label="Extension folder to add"
+                       style="flex: 1; width: auto;"
+                       value="@_path"
+                       @oninput="e => _path = e.Value?.ToString() ?? string.Empty"
+                       @onkeydown="OnPathKey" />
+                @if (Folders.Available)
+                {
+                    <button class="primary" @onclick="Browse" disabled="@_picking">Choose folder...</button>
+                    <button @onclick="Add" disabled="@string.IsNullOrWhiteSpace(_path)">Add</button>
+                }
+                else
+                {
+                    <button class="primary" @onclick="Add" disabled="@string.IsNullOrWhiteSpace(_path)">Add</button>
+                }
+            </div>
+            <p class="faint settings-help">
+                A folder with an <span class="mono">extension.json</span>, usually the project you are
+                writing. End it with <span class="mono">/*</span> to include every extension directly
+                inside it, including ones you add later. Each reloads every time you build it. Only add
+                code you trust. Extensions compile against <span class="mono">@Paths.SdkDir</span>.
+            </p>
+            @if (_error is { Length: > 0 })
+            {
+                <p class="faint settings-help" style="color: var(--danger);">@_error</p>
+            }
+        </div>
+
+        @foreach (var path in Extensions.Paths)
+        {
+            <div class="row">
+                <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" class="faint" style="flex: none;">
+                    <path d="M2 4.5a1 1 0 0 1 1-1h3l1.5 1.5H13a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" />
+                </svg>
+                <span class="mono truncate" style="flex: 1; min-width: 0;" title="@path.Display">@path.Display</span>
+                @if (path.Everything)
+                {
+                    <span class="chip">every extension inside</span>
+                }
+                <button class="ghost small" @onclick="() => OffWindow(() => Extensions.Remove(path))">Remove</button>
+            </div>
+        }
+    </div>
+</section>
+
+@* The skill is the one thing the app writes into an agent's config folder,
+   and only from this button. Agents Tog runs do not need it: its
+   MCP server hands them the same guide. *@
+<section class="settings-group">
+    <div class="settings-group-head">
+        <div class="stack">
+            <h3>Write one with an agent</h3>
+            <span class="faint">
+                Ask an agent to make an extension and it scaffolds one from Tog's template, builds
+                it and asks you here to turn it on. Agents started in Tog already know how; the
+                skill teaches ones you start in a terminal too. It names this machine's SDK and template,
+                so update it after Tog updates.
+            </span>
+        </div>
+    </div>
+
+    <div class="card">
+        @foreach (var (target, state) in _skills)
+        {
+            <div class="row setting-row">
+                <div class="stack" style="flex: 1; min-width: 0;">
+                    <div class="inline">
+                        <strong>@target.AgentName skill</strong>
+                        @if (target.Available)
+                        {
+                            <span class="chip @(state == SkillState.Current ? "active" : state == SkillState.Outdated ? "accent" : "")">@SkillStateName(state)</span>
+                        }
+                    </div>
+                    @if (target.Available)
+                    {
+                        <span class="mono faint truncate" title="@Skill.FileFor(target)">@Skill.FileFor(target)</span>
+                    }
+                    else
+                    {
+                        <span class="faint">@target.AgentName is not set up on this machine (no <span class="mono">@target.SkillsDir</span>).</span>
+                    }
+                </div>
+                @if (target.Available)
+                {
+                    <div class="inline">
+                        @switch (state)
+                        {
+                            case SkillState.Missing:
+                                <button class="small" @onclick="() => InstallSkill(target)">Add skill</button>
+                                break;
+                            case SkillState.Outdated:
+                                <button class="small" @onclick="() => InstallSkill(target)">Update</button>
+                                <button class="ghost small" @onclick="() => RemoveSkill(target)">Remove</button>
+                                break;
+                            default:
+                                <button class="ghost small" @onclick="() => RemoveSkill(target)">Remove</button>
+                                break;
+                        }
+                    </div>
+                }
+            </div>
+        }
+        @if (_skillError is { Length: > 0 })
+        {
+            <div class="card-body">
+                <p class="faint" style="margin: 0; color: var(--danger);">@_skillError</p>
+            </div>
+        }
+    </div>
+</section>
+
+@code {
+    [Inject]
+    private Tog.Core.Repos.AppPaths Paths { get; set; } = default!;
+
+    /// <summary>Turns Settings to an extension's own page, by id.</summary>
+    [Parameter]
+    public EventCallback<string> OnOpen { get; set; }
+
+    private string _path = "";
+    private string? _error;
+    private bool _picking;
+    private string? _confirming;
+    private IReadOnlyList<(SkillTarget Target, SkillState State)> _skills = [];
+    private string? _skillError;
+
+    protected override void OnInitialized()
+    {
+        Extensions.Changed += OnChanged;
+        ReadSkills();
+    }
+
+    /// <summary>Read once and after each button, not per render: it reads files.</summary>
+    private void ReadSkills() => _skills = [.. Skill.Targets.Select(t => (t, t.Available ? Skill.State(t) : SkillState.Missing))];
+
+    private void InstallSkill(SkillTarget target)
+    {
+        _skillError = Skill.Install(target);
+        ReadSkills();
+    }
+
+    private void RemoveSkill(SkillTarget target)
+    {
+        _skillError = Skill.Remove(target);
+        ReadSkills();
+    }
+
+    private static string SkillStateName(SkillState state) => state switch
+    {
+        SkillState.Current => "added",
+        SkillState.Outdated => "out of date",
+        _ => "not added",
+    };
+
+    private void OnChanged() => _ = InvokeAsync(StateHasChanged);
+
+    /// <summary>
+    /// One with no manifest cannot be turned on, and one named on the command
+    /// line cannot be turned off, the same limits as the buttons on its page.
+    /// </summary>
+    private static bool CanSwitch(ExtensionEntry entry, bool on) =>
+        on ? entry.Found.Source != ExtensionSource.CommandLine : entry.Found.Manifest is not null;
+
+    private static string SwitchTip(ExtensionEntry entry, bool on) => CanSwitch(entry, on)
+        ? on ? "Turn off" : "Turn on"
+        : on ? "Named on the command line, so it stays on" : "Its extension.json cannot be read";
+
+    /// <summary>
+    /// A folder you linked is turned on as it is; an installed copy is asked
+    /// about first, below its row, as its page would.
+    /// </summary>
+    private Task Switch(FoundExtension found, bool on)
+    {
+        if (!on)
+        {
+            _confirming = null;
+            return OffWindow(() => Extensions.Disable(found.Id));
+        }
+
+        if (found.IsDev)
+        {
+            return Enable(found.Id);
+        }
+
+        _confirming = found.Id;
+        return Task.CompletedTask;
+    }
+
+    private Task Enable(string id)
+    {
+        _confirming = null;
+        return OffWindow(() => Extensions.Enable(id));
+    }
+
+    private Task Rescan() => OffWindow(Extensions.Rescan);
+
+    /// <summary>
+    /// Runs a host action on the pool. Loading an extension copies its files,
+    /// loads its assemblies and runs its Configure, all extension-sized work
+    /// that on this window's thread freezes the window until it is done.
+    /// </summary>
+    private static Task OffWindow(Action action) => Task.Run(action);
+
+    private async Task OnPathKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await Add();
+        }
+    }
+
+    private async Task Add()
+    {
+        var path = _path;
+        _error = await Task.Run(() => Extensions.Add(path));
+        if (_error is null)
+        {
+            _path = "";
+        }
+    }
+
+    /// <summary>
+    /// Adds the folder the system chooser returns. A folder that is not an
+    /// extension but holds some is taken to mean all of them, since that is
+    /// the only thing picking it could mean.
+    /// </summary>
+    private async Task Browse()
+    {
+        _picking = true;
+        try
+        {
+            var typed = ExtensionCatalog.SplitWildcard(_path).Folder;
+            var start = Directory.Exists(typed) ? typed : null;
+            if (await Folders.PickAsync("Choose an extension, or a folder of them", start) is not { } chosen)
+            {
+                return;
+            }
+
+            _path = !File.Exists(Path.Combine(chosen, ExtensionManifests.FileName)) && ExtensionCatalog.InFolder(chosen).Any()
+                ? Path.Combine(chosen, "*")
+                : chosen;
+        }
+        finally
+        {
+            _picking = false;
+        }
+
+        await Add();
+    }
+
+    public void Dispose() => Extensions.Changed -= OnChanged;
+}

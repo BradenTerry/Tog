@@ -1,8 +1,8 @@
-using Togue.Extensions;
+using Tog.Extensions;
 
 namespace MyExtension;
 
-public sealed class MyExtensionExtension : ITogueExtension
+public sealed class MyExtensionExtension : ITogExtension
 {
     public void Configure(IExtensionBuilder builder)
     {

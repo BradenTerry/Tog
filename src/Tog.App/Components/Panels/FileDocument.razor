@@ -1,0 +1,992 @@
+@using Tog.Extensions
+@inject WorktreeFiles Files
+@inject CodeNavigation Code
+@inject DiffReader Diffs
+@inject WorktreeViews Views
+@inject Workbench Bench
+@inject IJSRuntime Js
+@implements IDisposable
+
+@* One file open in the editor. Every open file is its own document with its
+   own Monaco editor, kept built while another tab is in front, so each keeps
+   its undo history, its scroll and anything not yet saved. A diff tab is the
+   same document with Monaco's diff editor: the file's unstaged changes against
+   the index, editable, or its staged changes against HEAD, read-only. *@
+
+<div class="doc-file">
+    <div class="doc-bar">
+        <span class="mono truncate faint" title="@Path">@Path</span>
+        @if (Intelligence is not null)
+        {
+            <span class="chip @CodeChipKind" title="@(CodeStatus.Message ?? CodeChip)">@CodeChip</span>
+            @switch (CodeStatus.State)
+            {
+                case CodeLoadState.NotLoaded:
+                    <button class="ghost small" @onclick="LoadCode"
+                            title="Load this worktree into @Intelligence.Name for go to definition, references and callers">Load</button>
+                    break;
+                case CodeLoadState.Loading:
+                    <button class="ghost small" @onclick="UnloadCode">Cancel</button>
+                    break;
+                case CodeLoadState.Ready:
+                    <button class="ghost small" @onclick="LoadCodeAgain" title="Load the solution again, for when a project file changed">Reload</button>
+                    <button class="ghost small" @onclick="UnloadCode" title="Drop the solution and free its memory">Unload</button>
+                    break;
+                case CodeLoadState.Failed:
+                    <button class="ghost small" @onclick="LoadCode">Retry</button>
+                    break;
+            }
+        }
+        <span class="spacer"></span>
+        @if (ShowsEditor && IsDiff)
+        {
+            <button class="icon-btn doc-wrap @(_sideBySide ? "" : "active")" @onclick="ToggleSideBySide"
+                    title="@(_sideBySide ? "Show the changes inline" : "Show the changes side by side")"
+                    aria-label="Inline view" aria-pressed="@((!_sideBySide).ToString().ToLowerInvariant())">
+                <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                    @if (_sideBySide)
+                    {
+                        <path d="M2.5 2.5h11v11h-11zM8 2.5v11" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" />
+                    }
+                    else
+                    {
+                        <path d="M2.5 2.5h11v11h-11zM5 6h6M5 10h6" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+                    }
+                </svg>
+            </button>
+        }
+        @if (ShowsEditor)
+        {
+            <button class="icon-btn doc-wrap @(_wrap ? "active" : "")" @onclick="ToggleWrap"
+                    title="@(_wrap ? "Stop wrapping long lines (Alt+Z)" : "Wrap long lines (Alt+Z)")"
+                    aria-label="Word wrap" aria-pressed="@(_wrap.ToString().ToLowerInvariant())">
+                <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                    <path d="M2 3.5h12M2 7.5h10a2 2 0 0 1 0 4H8.5M10 9.5l-2 2 2 2M2 11.5h3.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+            </button>
+        }
+        @if (_file?.Editable == true && !_readOnly)
+        {
+            <button class="icon-btn doc-save" disabled="@(!_unsaved || _saving)" @onclick="Save"
+                    title="@(_saving ? "Saving..." : _unsaved ? "Save (Ctrl+S)" : "No changes to save")"
+                    aria-label="Save">
+                <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                    <path d="M2.5 2.5h9l2 2v9h-11zM5 2.5v3.5h5v-3.5M4.5 13.5v-4h7v4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" />
+                </svg>
+            </button>
+        }
+        @if (CanPreview)
+        {
+            @* Two fixed labels with the current one pressed, rather than one
+               button whose label names the view you are not in. *@
+            <div class="segmented" role="group" aria-label="View">
+                <button class="small @(_preview ? "" : "on")" aria-pressed="@((!_preview).ToString().ToLowerInvariant())"
+                        @onclick="() => SetPreview(false)" title="Edit the file as it is written">Code</button>
+                <button class="small @(_preview ? "on" : "")" aria-pressed="@(_preview.ToString().ToLowerInvariant())"
+                        @onclick="() => SetPreview(true)" title="Show the file as it reads, unsaved changes included">Preview</button>
+            </div>
+        }
+        <span class="faint nums">@Status</span>
+    </div>
+
+    @if (_outside is { } outside)
+    {
+        <div class="banner doc-banner">
+            <div class="inline">
+                <span>That definition is outside this worktree: <span class="mono">@outside</span></span>
+                <span class="spacer"></span>
+                <a class="btn small" href="@EditorLinks.VsCode(outside, _outsideLine)">Open in VS Code</a>
+                <button class="ghost small" @onclick="() => { _outside = null; Touch(); }">Dismiss</button>
+            </div>
+        </div>
+    }
+
+    @if (_conflict)
+    {
+        <div class="banner doc-banner">
+            <div class="inline">
+                <span>The file changed on disk since you opened it.</span>
+                <span class="spacer"></span>
+                <button class="small" @onclick="Reload">Reload from disk</button>
+                <button class="small" @onclick="Overwrite">Overwrite</button>
+            </div>
+        </div>
+    }
+    else if (_failure is { Length: > 0 } failure)
+    {
+        <div class="banner danger doc-banner">@failure</div>
+    }
+
+    @if (_file is null || (IsDiff && _original is null))
+    {
+        <div class="empty"><p>Reading the file...</p></div>
+    }
+    else if (_file.Error is { Length: > 0 } error)
+    {
+        <div class="empty"><p>@error</p></div>
+    }
+    else if (_file.IsBinary)
+    {
+        <div class="empty"><p>Binary file, not shown.</p></div>
+    }
+    else if (_file.Truncated)
+    {
+        <div class="doc-scroll">
+            <div class="row faint">Large file: showing the first part of it. It is too big to edit here.</div>
+            <div class="diff-lines file-lines">
+                @foreach (var (line, index) in _file.Text.Split('\n').Select((l, i) => (l, i)))
+                {
+                    <div class="diff-line">
+                        <span class="ln-static">@(index + 1)</span>
+                        <span class="code">@line</span>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+    else
+    {
+        @if (_preview && CanPreview)
+        {
+            <div class="doc-scroll">
+                <div class="md-preview" @ref="_previewElement">@((MarkupString)_previewHtml)</div>
+            </div>
+        }
+
+        @* Hidden rather than removed while previewing, so the editor keeps its
+           undo history, scroll and anything not yet saved. *@
+        <div class="doc-editor" style="@(_preview && CanPreview ? "display: none;" : "")">
+            <CodeEditor @ref="_editor"
+                        Path="@_file.Path"
+                        AbsolutePath="@(WorktreeFiles.Resolve(WorktreePath, _file.Path) ?? "")"
+                        WorktreePath="@WorktreePath"
+                        Text="@_file.Text"
+                        Stamp="@_stamp"
+                        Line="@_line"
+                        Marks="@_marks"
+                        ReadOnly="@_readOnly"
+                        Original="@_original"
+                        Variant="@(IsDiff ? (Staged ? "staged" : "diff") : null)"
+                        OnSideBySideChanged="SetSideBySide"
+                        OnSave="Save"
+                        OnDirtyChanged="SetUnsaved"
+                        OnNavigate="Navigate"
+                        OnJumpedWithin="line => Bench.RecordJump(WorktreePath, Doc.Key, line)"
+                        RevealKey="@_reveal"
+                        OnReferences="ShowReferences"
+                        OnCallHierarchy="ShowCallHierarchy"
+                        OnTextChanged="PushText"
+                        OnWordWrapChanged="SetWrap" />
+        </div>
+
+        @if (_hierarchy is not null || _references is not null)
+        {
+            <div class="doc-code-panel">
+                <CodePanel Title="@_panelTitle"
+                           Locations="@(_references ?? [])"
+                           Hierarchy="@_hierarchy"
+                           OnPick="Pick"
+                           OnClose="ClosePanel" />
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public string WorktreePath { get; set; } = "";
+
+    [Parameter, EditorRequired]
+    public EditorDoc Doc { get; set; } = default!;
+
+    private string Path => Doc.Path ?? "";
+
+    private bool IsDiff => Doc.Kind is DocKind.Diff or DocKind.StagedDiff;
+
+    private bool Staged => Doc.Kind == DocKind.StagedDiff;
+
+    /// <summary>A diff's left side, null until read and always null for a plain file.</summary>
+    private string? _original;
+
+    /// <summary>
+    /// The staged side of a diff is the index, and a deleted file's working
+    /// side is nothing: neither is a file on disk to save to.
+    /// </summary>
+    private bool _readOnly;
+
+    /// <summary>Whether a diff is side by side rather than inline, as the editor last reported.</summary>
+    private bool _sideBySide = true;
+
+    /// <summary>The staging state the diff's sides were last read against.</summary>
+    private IReadOnlyDictionary<string, FileStage>? _sidesFor;
+
+    private RememberedView _view = new();
+
+    /// <summary>Lines changed against HEAD, for the gutter.</summary>
+    private IReadOnlyList<ChangeMark> _marks = [];
+
+    /// <summary>Whether Markdown files show rendered. Remembered per worktree, so it holds from file to file.</summary>
+    private bool _preview;
+
+    private string _previewHtml = "";
+    private ElementReference _previewElement;
+    private bool _enhance;
+    private DotNetObjectReference<FileDocument>? _self;
+
+    private TextFile? _file;
+    private string _stamp = "";
+    private int? _line;
+
+    /// <summary>The line last taken from the document, so the same request is not revealed twice.</summary>
+    private int? _docLine;
+    private int _docReveal;
+
+    /// <summary>Bumped to reveal a line again that the caret has since left.</summary>
+    private int _reveal;
+
+    /// <summary>
+    /// Set when the file was opened with no line. The first change is the
+    /// likeliest thing worth seeing, so the editor lands there once the marks
+    /// are known.
+    /// </summary>
+    private bool _landOnChange;
+
+    /// <summary>True while the editor holds changes that are not on disk.</summary>
+    private bool _unsaved;
+
+    /// <summary>Whether the editor wraps long lines, as it last reported.</summary>
+    private bool _wrap;
+    private bool _saving;
+    private bool _conflict;
+    private string? _failure;
+    private DateTimeOffset? _savedAt;
+    private Timer? _savedFor;
+
+    /// <summary>A definition that landed outside the worktree, which has no tab to open in.</summary>
+    private string? _outside;
+    private int? _outsideLine;
+
+    private IReadOnlyList<CodeLocation>? _references;
+    private CallHierarchy? _hierarchy;
+    private string _panelTitle = "";
+
+    private CodeEditor? _editor;
+
+    /// <summary>
+    /// Set by anything that changes what this document shows. The layout
+    /// re-renders every second with the monitor's snapshot, and nothing here
+    /// depends on it.
+    /// </summary>
+    private bool _render = true;
+
+    protected override bool ShouldRender()
+    {
+        if (!_render)
+        {
+            return false;
+        }
+
+        _render = false;
+        return true;
+    }
+
+    private void Touch() => _render = true;
+
+    private bool CanPreview =>
+        !IsDiff
+        && _file is { IsBinary: false, Truncated: false, Error: null } file
+        && (file.Path.EndsWith(".md", StringComparison.OrdinalIgnoreCase)
+            || file.Path.EndsWith(".markdown", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// What the bar says about the file. A save is worth confirming for a few
+    /// seconds, after which the counts are more useful.
+    /// </summary>
+    private string Status
+    {
+        get
+        {
+            if (_savedAt is not null)
+            {
+                return "Saved just now";
+            }
+
+            if (_unsaved)
+            {
+                return "Unsaved";
+            }
+
+            if (_file is null || _file.Error is not null || _file.IsBinary)
+            {
+                return _file is null ? "" : Fmt.Bytes(_file.Bytes);
+            }
+
+            return $"{Fmt.Count(LineCount, "line")}, {Fmt.Bytes(_file.Bytes)}";
+        }
+    }
+
+    private int LineCount
+    {
+        get
+        {
+            if (_file is null || _file.Text.Length == 0)
+            {
+                return 0;
+            }
+
+            var lines = _file.Text.Split('\n').Length;
+
+            // A trailing newline produces one empty element that is not a line.
+            return _file.Text.EndsWith('\n') ? lines - 1 : lines;
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        // Reading a file and starting Roslyn are wasted during prerendering.
+        if (!RendererInfo.IsInteractive)
+        {
+            return;
+        }
+
+        Code.StatusChanged += OnCodeStatusChanged;
+        Code.ProvidersChanged += OnCodeProvidersChanged;
+        Bench.FilesChanged += OnFilesChanged;
+        if (IsDiff)
+        {
+            Bench.Changes(WorktreePath).Changed += OnChangesMoved;
+        }
+
+        _view = Views.For(WorktreePath);
+        _preview = _view.MarkdownPreview;
+
+        _docLine = Doc.Line;
+        _docReveal = Doc.Reveal;
+        _line = Doc.Line;
+        _landOnChange = Doc.Line is null;
+        Read();
+        LoadCodeOnOpen();
+    }
+
+    protected override void OnParametersSet()
+    {
+        // A link to a line in a file that is already open moves the caret rather
+        // than rereading the file, which would throw away whatever is being edited.
+        if (Doc.Line != _docLine || Doc.Reveal != _docReveal)
+        {
+            _docLine = Doc.Line;
+            _docReveal = Doc.Reveal;
+            _line = Doc.Line;
+            _reveal++;
+            Touch();
+        }
+    }
+
+    private void Read()
+    {
+        Touch();
+        _unsaved = false;
+        _conflict = false;
+        _failure = null;
+        ClearSaved();
+
+        if (IsDiff)
+        {
+            _ = ReadSides();
+            return;
+        }
+
+        _file = Files.ReadText(WorktreePath, Path);
+        _stamp = _file.Stamp;
+        _marks = [];
+        if (_preview && CanPreview)
+        {
+            Render(_file.Text);
+        }
+
+        _ = ReadMarks();
+    }
+
+    /// <summary>
+    /// Reads both sides of a diff, as VS Code pairs them: unstaged changes are
+    /// the index against the file on disk, staged ones HEAD against the index.
+    /// </summary>
+    /// <remarks>
+    /// Read again whenever the staging state moves, since a stage moves the
+    /// index, which is one side of both. The file on disk is only read when it
+    /// is the right side and nothing is waiting to be saved over it.
+    /// </remarks>
+    private async Task ReadSides()
+    {
+        _sidesFor = Bench.Changes(WorktreePath).Stages;
+
+        TextFile right;
+        if (Staged)
+        {
+            right = await Files.ReadTextAtRevisionAsync(WorktreePath, Path, "");
+            right = right with { Stamp = "index:" + right.Text.GetHashCode() };
+            _readOnly = true;
+        }
+        else if (_file is not null && _unsaved)
+        {
+            right = _file;
+        }
+        else if (WorktreeFiles.Resolve(WorktreePath, Path) is { } full && !File.Exists(full) && !Directory.Exists(full))
+        {
+            // Deleted: the right side is empty, which draws every line removed.
+            right = new TextFile { Path = Path, Stamp = "deleted" };
+            _readOnly = true;
+        }
+        else
+        {
+            right = Files.ReadText(WorktreePath, Path);
+            _readOnly = false;
+        }
+
+        var original = await Files.ReadTextAtRevisionAsync(WorktreePath, Path, Staged ? "HEAD" : "");
+
+        _file = right;
+        _stamp = right.Stamp;
+        _original = original.IsBinary ? "" : original.Text;
+        Touch();
+        StateHasChanged();
+    }
+
+    /// <summary>A stage, unstage or refresh from Source control, which may have moved the index.</summary>
+    private void OnChangesMoved()
+    {
+        if (!ReferenceEquals(Bench.Changes(WorktreePath).Stages, _sidesFor))
+        {
+            _ = InvokeAsync(ReadSides);
+        }
+    }
+
+    private async Task ToggleSideBySide()
+    {
+        if (_editor is not null)
+        {
+            await _editor.ToggleSideBySideAsync();
+        }
+    }
+
+    private void SetSideBySide(bool on)
+    {
+        Touch();
+        _sideBySide = on;
+    }
+
+    /// <summary>
+    /// Switches between the editor and the rendered file. The preview is of what
+    /// the editor holds, saved or not, so a change reads as it will look before
+    /// it is written.
+    /// </summary>
+    private async Task SetPreview(bool preview)
+    {
+        if (preview == _preview)
+        {
+            return;
+        }
+
+        Touch();
+        _preview = preview;
+        _view.MarkdownPreview = _preview;
+        if (_preview && _file is { } file)
+        {
+            var text = await Current() ?? file.Text;
+            Render(text);
+
+            // The document only redraws when told to, and the render that
+            // followed the await above used that up before the preview existed.
+            Touch();
+        }
+    }
+
+    private void Render(string text)
+    {
+        _previewHtml = MarkdownRenderer.Render(text, _file?.Path);
+        _enhance = true;
+    }
+
+    /// <summary>A link in the preview to another file in the repository.</summary>
+    [JSInvokable]
+    public Task OpenLinked(string path) => InvokeAsync(() => Bench.OpenFile(WorktreePath, path, keep: true));
+
+    /// <summary>
+    /// Reads which lines of the file differ from HEAD.
+    /// </summary>
+    /// <remarks>
+    /// Against the file on disk, so it runs whenever the disk and the editor come
+    /// back into step: on opening, saving and reloading.
+    /// </remarks>
+    private async Task ReadMarks()
+    {
+        if (IsDiff || _file is not { } file || file.IsBinary || file.Error is not null)
+        {
+            return;
+        }
+
+        var marks = ChangeMarks.From(
+            await Diffs.ReadFileAsync(WorktreePath, file.Path, DiffBase.WorkingTree));
+
+        if (!ReferenceEquals(_file, file) && _file?.Path != file.Path)
+        {
+            return;
+        }
+
+        _marks = marks;
+        if (_landOnChange)
+        {
+            _landOnChange = false;
+            if (ChangeMarks.First(marks) is { } first)
+            {
+                _line = first;
+            }
+        }
+
+        Touch();
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// The file changed on disk, most often because the agent edited it. With
+    /// nothing unsaved here the editor follows; with unsaved work it is left
+    /// alone, and saving says it changed underneath, as it always has. The
+    /// app's own save lands here too, and finds the stamp it just wrote.
+    /// </summary>
+    private void OnFilesChanged(string worktreePath, IReadOnlySet<string> paths)
+    {
+        if (!string.Equals(worktreePath, WorktreePath, StringComparison.Ordinal) || _unsaved || _file is null)
+        {
+            return;
+        }
+
+        if (paths.Contains(Path) && !Staged && Files.ReadText(WorktreePath, Path) is { } disk && disk.Stamp != _stamp)
+        {
+            RefreshCode(Path);
+            Read();
+            StateHasChanged();
+        }
+        else if (paths.Contains(".git"))
+        {
+            // A commit or a stage moves what the gutter marks against, and
+            // both sides of a staged diff.
+            if (IsDiff)
+            {
+                _ = ReadSides();
+            }
+            else
+            {
+                _ = ReadMarks();
+            }
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_enhance && _preview && _previewElement.Id is not null)
+        {
+            _enhance = false;
+            _self ??= DotNetObjectReference.Create(this);
+            try
+            {
+                await Js.InvokeVoidAsync("tog.enhanceMarkdown", _previewElement, _self);
+            }
+            catch (Exception e) when (e is JSException or InvalidOperationException or TaskCanceledException)
+            {
+            }
+        }
+    }
+
+    /// <summary>The Monaco editor is on screen, which is when wrapping means anything.</summary>
+    private bool ShowsEditor => _file is { IsBinary: false, Truncated: false } file && string.IsNullOrEmpty(file.Error) && !(_preview && CanPreview);
+
+    private void SetWrap(bool on)
+    {
+        Touch();
+        _wrap = on;
+    }
+
+    private async Task ToggleWrap()
+    {
+        if (_editor is not null)
+        {
+            await _editor.ToggleWordWrapAsync();
+        }
+    }
+
+    private void SetUnsaved(bool unsaved)
+    {
+        Touch();
+        _unsaved = unsaved;
+        Bench.SetDirty(WorktreePath, Doc.Key, unsaved);
+    }
+
+    /// <summary>Ctrl+S, which arrives with the text already attached.</summary>
+    private void Save(string text) => Write(text, force: false);
+
+    /// <summary>
+    /// The Save button, which does not have the text: the editor holds it in the
+    /// browser. Fetching it costs the one round trip the shortcut takes anyway,
+    /// and is cheaper than shipping every keystroke up to keep a server copy.
+    /// </summary>
+    private async Task Save()
+    {
+        if (await Current() is { } text)
+        {
+            Write(text, force: false);
+        }
+    }
+
+    private async Task Overwrite()
+    {
+        if (await Current() is { } text)
+        {
+            Write(text, force: true);
+        }
+    }
+
+    private async Task<string?> Current() =>
+        _editor is null ? null : await _editor.GetTextAsync();
+
+    private void Write(string text, bool force)
+    {
+        if (_file is null)
+        {
+            return;
+        }
+
+        Touch();
+        _saving = true;
+        _failure = null;
+
+        var result = Files.Write(WorktreePath, _file.Path, text, _stamp, _file.Eol, _file.HasBom, force);
+
+        _saving = false;
+
+        if (result.Ok)
+        {
+            _stamp = result.Stamp ?? _stamp;
+            SetUnsaved(false);
+            _conflict = false;
+
+            // The editor is already showing this text, so the record of it here is
+            // updated rather than pushed back down: a new Text with the same stamp
+            // would not move the editor anyway, and a new stamp would reset the
+            // undo stack under the user's hands.
+            _file = _file with { Text = text, Stamp = _stamp, Bytes = System.Text.Encoding.UTF8.GetByteCount(text) };
+
+            // The solution was holding the buffer as it was typed. What is on disk
+            // now is the same text, but reading it back is what the rest of the
+            // solution's view of this file is rebuilt from.
+            RefreshCode(_file.Path);
+            MarkSaved();
+            _ = ReadMarks();
+            return;
+        }
+
+        _conflict = result.Conflict;
+        _failure = result.Conflict ? null : result.Message;
+    }
+
+    private void Reload()
+    {
+        // The conflict means someone else wrote the file, so the solution is
+        // holding text that no longer exists anywhere.
+        RefreshCode(Path);
+        Read();
+        Bench.SetDirty(WorktreePath, Doc.Key, false);
+    }
+
+    private void MarkSaved()
+    {
+        _savedAt = DateTimeOffset.UtcNow;
+        _savedFor?.Dispose();
+
+        // Five seconds is long enough to read and short enough that the counts,
+        // which are what the bar is for the rest of the time, come back.
+        _savedFor = new Timer(
+            _ => InvokeAsync(() =>
+            {
+                _savedAt = null;
+                Touch();
+                StateHasChanged();
+            }),
+            null,
+            TimeSpan.FromSeconds(5),
+            Timeout.InfiniteTimeSpan);
+    }
+
+    private void ClearSaved()
+    {
+        _savedAt = null;
+        _savedFor?.Dispose();
+        _savedFor = null;
+    }
+
+    // ---------- code intelligence ----------
+
+    /// <summary>
+    /// The extension that answers for this file, if one is loaded. Asked each
+    /// time rather than kept, because it goes when its extension reloads.
+    /// </summary>
+    private ICodeIntelligence? Intelligence => Code.For(Path);
+
+    private static readonly CodeLoadStatus Off = new(CodeLoadState.NotLoaded, null, 0, 0);
+
+    private CodeLoadStatus CodeStatus => Intelligence?.Status(WorktreePath) ?? Off;
+
+    private string CodeChip => (Intelligence?.Name ?? "") + CodeStatus switch
+    {
+        { State: CodeLoadState.Loading } s => $": {s.Message ?? "loading"}",
+        { State: CodeLoadState.Ready } s => $": ready, {Fmt.Count(s.Projects, "project")}",
+        { State: CodeLoadState.Failed } => ": failed",
+        _ => ": off",
+    };
+
+    private string CodeChipKind => CodeStatus.State switch
+    {
+        CodeLoadState.Loading => "waiting",
+        CodeLoadState.Ready => "accent",
+        CodeLoadState.Failed => "danger",
+        _ => "",
+    };
+
+    /// <summary>
+    /// Code intelligence is off until asked for: opening a file only reads it. A
+    /// load can be seconds of work and hundreds of megabytes, and it is worth it
+    /// only for the worktree whose changes are being traced. Not awaited, and not
+    /// tied to this document: the load belongs to the worktree and carries on
+    /// when this tab closes or another agent is picked. The chip shows the wait.
+    /// </summary>
+    private void LoadCode()
+    {
+        Touch();
+        if (Intelligence is { } intelligence)
+        {
+            var worktree = WorktreePath;
+            Code.Start(() => intelligence.LoadAsync(worktree, CancellationToken.None));
+        }
+    }
+
+    /// <summary>
+    /// The one exception to waiting for Load: a provider whose user chose, in
+    /// its settings, to load a worktree as soon as one of its files is open.
+    /// Asked again when a provider arrives, so turning the extension on with a
+    /// file already open loads it too.
+    /// </summary>
+    private void LoadCodeOnOpen()
+    {
+        if (Intelligence is not { } intelligence || CodeStatus.State != CodeLoadState.NotLoaded)
+        {
+            return;
+        }
+
+        bool wanted;
+        try
+        {
+            wanted = intelligence.LoadsOnOpen(WorktreePath);
+        }
+        catch (Exception)
+        {
+            // Extension code on the window's thread: a throw here would end the circuit.
+            return;
+        }
+
+        if (wanted)
+        {
+            LoadCode();
+        }
+    }
+
+    private void LoadCodeAgain()
+    {
+        Touch();
+        if (Intelligence is { } intelligence)
+        {
+            var worktree = WorktreePath;
+            Code.Start(() => intelligence.ReloadAsync(worktree, CancellationToken.None));
+        }
+    }
+
+    private void UnloadCode()
+    {
+        Touch();
+        if (Intelligence is { } intelligence)
+        {
+            var worktree = WorktreePath;
+            Code.Post(() => intelligence.Unload(worktree));
+        }
+    }
+
+    /// <summary>
+    /// Every call into the provider goes to the thread pool through
+    /// <see cref="CodeNavigation"/>: this component's thread is the window's
+    /// only dispatcher, and the provider is extension code.
+    /// </summary>
+    private void RefreshCode(string relativeFile)
+    {
+        if (Intelligence is { } intelligence)
+        {
+            var worktree = WorktreePath;
+            Code.Post(() => intelligence.RefreshDocumentFromDisk(worktree, relativeFile));
+        }
+    }
+
+    private void OnCodeStatusChanged(string worktreePath)
+    {
+        if (Intelligence is null
+            || (!string.Equals(worktreePath, WorktreePath, StringComparison.Ordinal)
+                && !string.Equals(System.IO.Path.GetFullPath(worktreePath), System.IO.Path.GetFullPath(WorktreePath), StringComparison.Ordinal)))
+        {
+            return;
+        }
+
+        // The event comes off whichever thread the load is on, and the chip is
+        // rendered on the circuit's.
+        _ = InvokeAsync(async () =>
+        {
+            Touch();
+            StateHasChanged();
+
+            // Colouring was asked for before there was a solution and came back
+            // empty, and Monaco does not ask again on its own.
+            if (CodeStatus.State is CodeLoadState.Ready or CodeLoadState.NotLoaded)
+            {
+                await RefreshSemantics();
+            }
+        });
+    }
+
+    /// <summary>
+    /// An extension with a provider loaded or went away: the chip appears or
+    /// goes, and the editor registers the language's providers if it is new.
+    /// </summary>
+    private void OnCodeProvidersChanged() => _ = InvokeAsync(async () =>
+    {
+        LoadCodeOnOpen();
+        Touch();
+        StateHasChanged();
+        await RefreshSemantics();
+    });
+
+    private async Task RefreshSemantics()
+    {
+        try
+        {
+            await Js.InvokeVoidAsync("agentsEditor.refreshSemantics", Code.Languages);
+        }
+        catch (JSException)
+        {
+        }
+        catch (InvalidOperationException)
+        {
+        }
+    }
+
+    /// <summary>The buffer after a pause in typing, so references answer for it.</summary>
+    private void PushText(string text)
+    {
+        if (_file is not null && Intelligence is { } intelligence)
+        {
+            var worktree = WorktreePath;
+            var file = _file.Path;
+            Code.Post(() => intelligence.UpdateDocument(worktree, file, text));
+        }
+    }
+
+    /// <summary>
+    /// A definition Monaco could not open itself. It arrives absolute, because
+    /// that is the only form a Monaco URI has, and everything here works in
+    /// worktree-relative paths.
+    /// </summary>
+    private void Navigate((string AbsolutePath, int Line, int Column, int FromLine) target)
+    {
+        Touch();
+
+        if (Relative(target.AbsolutePath) is not { } relative)
+        {
+            // A source-linked dependency, or a project referenced from outside the
+            // worktree. There is no tab for it, so VS Code is the way out.
+            _outside = target.AbsolutePath;
+            _outsideLine = target.Line;
+            return;
+        }
+
+        _outside = null;
+        Bench.RecordJump(WorktreePath, Doc.Key, target.FromLine);
+        OpenAt(relative, target.Line);
+    }
+
+    private void ShowReferences(IReadOnlyList<CodeLocation> locations)
+    {
+        Touch();
+        _hierarchy = null;
+        _references = locations;
+        _panelTitle = "References";
+    }
+
+    private void ShowCallHierarchy(CallHierarchy? hierarchy)
+    {
+        Touch();
+        _references = null;
+        _hierarchy = hierarchy;
+        _panelTitle = "Call hierarchy";
+    }
+
+    /// <summary>A row in the panel. The panel stays up, so a list can be walked.</summary>
+    private void Pick(CodeLocation location)
+    {
+        Touch();
+        Bench.RecordJump(WorktreePath, Doc.Key, _line);
+        OpenAt(location.Path, location.Line);
+    }
+
+    private void ClosePanel()
+    {
+        Touch();
+        _references = null;
+        _hierarchy = null;
+    }
+
+    /// <summary>
+    /// Opening at a line. This file moves its own caret; another file opens in
+    /// its own tab, so nothing here is ever thrown away to follow a jump.
+    /// </summary>
+    private void OpenAt(string path, int line)
+    {
+        if (string.Equals(path, Path, StringComparison.Ordinal))
+        {
+            _line = line;
+            _reveal++;
+            return;
+        }
+
+        Bench.OpenFile(WorktreePath, path, line, keep: true);
+    }
+
+    /// <summary>The worktree-relative form of an absolute path, or null when it is outside.</summary>
+    private string? Relative(string absolutePath)
+    {
+        var separator = System.IO.Path.DirectorySeparatorChar;
+        var root = System.IO.Path.GetFullPath(WorktreePath).TrimEnd(separator) + separator;
+        var full = System.IO.Path.GetFullPath(absolutePath);
+
+        // Monaco's fsPath lowercases a drive letter, so c:\x and C:\x meet here.
+        return full.StartsWith(root, Tog.Core.Repos.RealPaths.Comparison)
+            ? full[root.Length..].Replace(separator, '/')
+            : null;
+    }
+
+    public void Dispose()
+    {
+        Code.StatusChanged -= OnCodeStatusChanged;
+        Code.ProvidersChanged -= OnCodeProvidersChanged;
+        if (IsDiff)
+        {
+            Bench.Changes(WorktreePath).Changed -= OnChangesMoved;
+        }
+        Bench.FilesChanged -= OnFilesChanged;
+        _self?.Dispose();
+        _savedFor?.Dispose();
+    }
+}

@@ -9,7 +9,7 @@
     0.0.0 plus the commit count. Without git at all (a source archive) it is
     0.0.0+unknown, and the build goes on.
 
-    Version drives AssemblyVersion and FileVersion; Togue.Extensions
+    Version drives AssemblyVersion and FileVersion; Tog.Extensions
     fixes those itself, since they are its API contract, and takes only the
     informational one. AppVersion in Core reads the result at run time.
   -->

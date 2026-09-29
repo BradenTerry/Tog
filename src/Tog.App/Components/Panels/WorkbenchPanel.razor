@@ -1,0 +1,458 @@
+@inherits StateComponent
+@inject Workbench Bench
+@inject ExtensionHost Extensions
+@inject AgentDirectory Directory
+
+@* One of the three panels: a column of sections, each a strip of tabs over what
+   the tab in front shows. Which view is in which section is the layout's
+   (PanelLayout), so a tab dragged here from any panel, or split off into a
+   section of its own, stays there across restarts. A section folds down to its
+   strip when the panel has more than one. A tab you have opened stays built
+   while another is in front, hidden rather than thrown away, so it keeps its
+   scroll and what it had read. The app's own tabs are rebuilt when the panel
+   moves to another agent or worktree; an extension's is parked instead, so
+   switching back does not load it again. *@
+
+<section class="wb-panel" aria-label="@Label" data-panel="@Side">
+    @{
+        var dragging = Bench.DraggingView is not null;
+        var tabs = Tabs;
+        var sections = Bench.Layout.Arrange(Side, tabs.Select(t => new PanelView(t.Key, Bench.DefaultSide(t.Key))).ToList());
+        var byKey = tabs.ToDictionary(t => t.Key, StringComparer.Ordinal);
+        var agent = Agent;
+        var worktree = Worktree;
+    }
+
+    @if (agent is null && worktree is null)
+    {
+        <div class="panel-note faint">@(Bench.SessionId is null ? "Pick an agent, or open a worktree from the title bar." : "That agent is not in the list.")</div>
+    }
+    else if (sections.Count == 0)
+    {
+        <div class="panel-note faint">
+            @(Bench.Layout.Arranged && Bench.Panel(Side).Sections.All(x => x.Views.Count == 0)
+                ? "Nothing here. Drag a tab onto this panel to move it here."
+                : agent is null
+                    ? "Pick an agent to talk to it here."
+                    : Side == PanelSide.Bottom ? "Nothing to show." : "This agent is not working in a git worktree, so there is nothing to show here.")
+        </div>
+        @if (dragging)
+        {
+            <div class="view-drop whole" data-view-drop
+                 @ondragover:preventDefault="true" @ondrop="() => Bench.DropView(Side, 0, null)" @ondrop:preventDefault="true">
+                <span class="drop-label">Move here</span>
+            </div>
+        }
+    }
+    else
+    {
+        var many = sections.Count > 1;
+        <div class="psections">
+            @for (var i = 0; i < sections.Count; i++)
+            {
+                var section = sections[i];
+                var index = section.Index;
+                var folded = many && section.Section.Collapsed;
+                var active = section.Active;
+                if (i > 0 && !folded && !(many && sections[i - 1].Section.Collapsed))
+                {
+                    <div class="section-sash" role="separator" aria-orientation="horizontal" title="Drag to resize. Double-click to even."></div>
+                }
+
+                <div class="psection @(folded ? "collapsed" : "")" data-section="@index" @key="section.Section"
+                     style="@(folded ? null : FormattableString.Invariant($"flex-grow: {section.Section.Weight}"))">
+                    <div class="ptabs @(section.Views.Count == 1 ? "single" : "")" role="tablist" aria-label="@Label" data-view-drop="@dragging"
+                         @ondragover:preventDefault="@dragging" @ondrop="() => Bench.DropView(Side, index, null)" @ondrop:preventDefault="true">
+                        @if (many)
+                        {
+                            <button type="button" class="psection-fold" aria-expanded="@(folded ? "false" : "true")"
+                                    title="@(folded ? "Unfold" : "Fold") this section" @onclick="() => Bench.ToggleSection(Side, index)">
+                                <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M5 6l3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
+                            </button>
+                        }
+                        @foreach (var key in section.Views)
+                        {
+                            var tab = byKey[key];
+                            var front = key == active;
+                            <button type="button" role="tab" class="ptab @(front ? "active" : "")" aria-selected="@(front ? "true" : "false")"
+                                    draggable="true" data-view-drop="@dragging"
+                                    @onclick="() => OnTab(index, key, folded)"
+                                    @ondragstart="() => Bench.StartViewDrag(key)" @ondragend="Bench.EndViewDrag"
+                                    @ondrop="() => Bench.DropView(Side, index, key)" @ondrop:preventDefault="true" @ondrop:stopPropagation="true"
+                                    @oncontextmenu="e => _menu = (key, e.ClientX, e.ClientY)" @oncontextmenu:preventDefault="true">
+                                @tab.Title
+                                @if (tab.Count is { Length: > 0 } count)
+                                {
+                                    <span class="count @tab.Tone" title="@tab.Tooltip">@count</span>
+                                }
+                            </button>
+                        }
+                    </div>
+
+                    <div class="ptab-body">
+                        @* One loop for the tabs on screen and the parked ones, so a parked view
+                           coming back matches its own key among the same siblings and keeps
+                           its instance. A parked view is drawn in the section it is placed in. *@
+                        @foreach (var (tab, layerKey, parked) in Layers(section, byKey))
+                        {
+                            var front = !parked && tab.Key == active;
+                            var visible = front && !folded && Bench.Panel(Side).Open;
+                            <div class="ptab-layer @(front ? "" : "hidden")" @key="layerKey">
+                                @switch (tab.Key)
+                                {
+                                    case Workbench.FilesTab:
+                                        <FileTreePanel WorktreePath="@(worktree!)" />
+                                        break;
+
+                                    case Workbench.SourceControlTab:
+                                        <SourceControlPanel WorktreePath="@(worktree!)" />
+                                        break;
+
+                                    case Workbench.ChatTab:
+                                        <ChatPanel SessionId="@agent!.SessionId" IsVisible="@visible" />
+                                        break;
+
+                                    default:
+                                        @* Keyed by generation as well, so a reloaded extension's view
+                                           is built fresh from the new copy's type rather than handed
+                                           new parameters. *@
+                                        <div class="panel-scroll ext-view">
+                                            <ExtensionViewHost Live="tab.View!" Agent="@tab.Agent" Worktree="@tab.Worktree" IsVisible="@visible" Parked="parked" />
+                                        </div>
+                                        break;
+                                }
+                            </div>
+                        }
+
+                        @* Drawn only while a view is dragged, over the section, so the
+                           views under it (Monaco among them) never take the drop. The
+                           body has one target: the section stays where it is and the
+                           view takes the bottom half. Joining the strip is the strip's
+                           drop. A section holding only the dragged view has nothing
+                           to split from. *@
+                        @if (dragging && !folded && !(section.Views.Count == 1 && section.Views[0] == Bench.DraggingView))
+                        {
+                            <div class="view-drops">
+                                <div class="view-drop split" data-view-drop
+                                     @ondragover:preventDefault="true" @ondrop="() => Bench.DropViewSplit(Side, index, below: true)" @ondrop:preventDefault="true">
+                                    <span class="drop-label">Split down</span>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    }
+
+    @if (_menu is { } menu && sections.FirstOrDefault(x => x.Views.Contains(menu.Key)) is { } home)
+    {
+        <ContextMenu X="menu.X" Y="menu.Y" OnClose="() => _menu = null">
+            @foreach (var (side, name) in Sides.Where(x => x.Side != Side))
+            {
+                <button type="button" class="context-item" role="menuitem" @onclick="() => FromMenu(() => Bench.MoveView(menu.Key, side))">
+                    Move to @name
+                </button>
+            }
+            <button type="button" class="context-item" role="menuitem" disabled="@(home.Section.Views.Count < 2)"
+                    @onclick="() => FromMenu(() => Bench.SplitView(menu.Key))">
+                Split down
+            </button>
+            <hr class="context-sep" />
+            <button type="button" class="context-item" role="menuitem" disabled="@(!Bench.Layout.Arranged)"
+                    @onclick="() => FromMenu(Bench.ResetViews)">
+                Reset panel layout
+            </button>
+        </ContextMenu>
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired]
+    public PanelSide Side { get; set; }
+
+    private sealed record Tab(string Key, string Title, LiveView? View = null, string? Count = null, string? Tone = null, string? Tooltip = null)
+    {
+        /// <summary>What an extension's view is drawn for: an agent view gets the agent, a worktree view the worktree and the agent in it, if any.</summary>
+        public Tog.Extensions.AgentContext? Agent { get; init; }
+
+        public Tog.Extensions.WorktreeContext? Worktree { get; init; }
+    }
+
+    /// <summary>The tabs opened for the agent on screen, which stay built until the panel moves to another.</summary>
+    private readonly HashSet<string> _visited = new(StringComparer.Ordinal);
+    private (string?, string?) _shown;
+
+    /// <summary>What a layer is keyed by: a tab, the extension copy it came from, and whom it was built for.</summary>
+    private readonly record struct LayerKey(string Tab, int? Generation, string? SessionId, string? Worktree);
+
+    /// <summary>
+    /// Extension views built for an agent or worktree no longer on screen, kept
+    /// hidden so switching back finds them as they were. An extension may read a
+    /// lot when it starts, and paying that on every switch would make the app
+    /// feel slow for something it does not control. The app's own tabs are cheap
+    /// to rebuild and should show the worktree afresh, so they are not kept.
+    /// </summary>
+    private readonly Dictionary<LayerKey, Tab> _parked = [];
+
+    /// <summary>
+    /// The tabs as last drawn. By the time a switch is noticed <see cref="Tabs"/>
+    /// already describes the agent arriving, so the one leaving is parked from these.
+    /// </summary>
+    private List<Tab> _drawn = [];
+
+    /// <remarks>
+    /// A layer on screen is keyed by <see cref="_shown"/>, the pair
+    /// <see cref="Track"/> parks by and takes back by, and never by the agent and
+    /// worktree read again while drawing. Those can differ: the agent picked may
+    /// have left the list (its id is still picked, the agent reads null), or the
+    /// monitor may publish a new snapshot between the two reads. A layer keyed
+    /// by the one while a parked view is keyed by the other can then give two
+    /// siblings the same key, which ends the circuit (Blazor reports it as
+    /// "Attempting to return wrong pooled instance"). Keyed by one pair, nothing parked can match a
+    /// layer on screen, since Track takes back everything parked for it.
+    /// </remarks>
+    private IEnumerable<(Tab Tab, LayerKey Key, bool Parked)> Layers(ArrangedSection section, Dictionary<string, Tab> byKey)
+    {
+        var (sessionId, worktree) = _shown;
+        foreach (var key in section.Views.Where(_visited.Contains))
+        {
+            var tab = byKey[key];
+            yield return (tab, new LayerKey(tab.Key, tab.View?.Generation, sessionId, worktree), false);
+        }
+
+        foreach (var (key, tab) in _parked)
+        {
+            if (Bench.Layout.Locate(key.Tab, Bench.DefaultSide(key.Tab)) == (Side, section.Index))
+            {
+                yield return (tab, key, true);
+            }
+        }
+    }
+
+    /// <summary>The tab whose menu is open, and where.</summary>
+    private (string Key, double X, double Y)? _menu;
+
+    private static readonly (PanelSide Side, string Name)[] Sides =
+    [
+        (PanelSide.Left, "left panel"),
+        (PanelSide.Right, "right panel"),
+        (PanelSide.Bottom, "bottom panel"),
+    ];
+
+    private string Label => Side switch
+    {
+        PanelSide.Left => "Left panel",
+        PanelSide.Right => "Right panel",
+        _ => "Bottom panel",
+    };
+
+    private ChatTarget? Agent => Bench.Agent(Snapshot.Value);
+
+    /// <summary>The agent's worktree, or with no agent in view the one left open when it went.</summary>
+    private string? Worktree => Bench.WorktreeInView(Snapshot.Value);
+
+    /// <summary>
+    /// Every view that can show now, in whichever panel: the layout says which of
+    /// them are here. The app's own come first, so with nothing arranged they lead
+    /// their panels.
+    /// </summary>
+    private List<Tab> Tabs
+    {
+        get
+        {
+            var tabs = new List<Tab>();
+            var agent = Agent;
+            var worktree = Worktree;
+
+            // The files and the diff need a worktree, which outlasts its agent;
+            // the conversation needs an agent.
+            if (worktree is not null)
+            {
+                tabs.Add(new Tab(Workbench.FilesTab, "Files"));
+                tabs.Add(new Tab(Workbench.SourceControlTab, "Source control", Count: ChangeCount(worktree)));
+            }
+
+            if (agent is not null)
+            {
+                tabs.Add(new Tab(Workbench.ChatTab, "Chat"));
+            }
+
+            // An agent view needs an agent. A worktree view needs only the
+            // worktree in view, which is there with no agent picked, and is
+            // told about the agent only when that agent works in it.
+            var api = agent is null ? null : ApiModel.Agent(agent, State);
+            var tree = worktree is null ? null : ApiModel.Worktree(worktree, State);
+            var agentHere = api is not null && api.Worktree?.Path == tree?.Path ? api : null;
+            foreach (var live in Extensions.Views)
+            {
+                var (forAgent, forWorktree) = live.View.ForWorktree ? (agentHere, tree) : (api, null);
+                if (live.View.ForWorktree ? forWorktree is null || !Applies(live, forWorktree) : forAgent is null || !Applies(live, forAgent))
+                {
+                    continue;
+                }
+
+                var indicator = forWorktree is not null
+                    ? Extensions.IndicatorFor(live.View, forWorktree)
+                    : Extensions.IndicatorFor(live.View, forAgent!);
+                tabs.Add(new Tab(live.View.Key, live.View.Title, live, indicator?.Text, indicator is null ? null : ToneClass(indicator.Tone), indicator?.Tooltip)
+                {
+                    Agent = forAgent,
+                    Worktree = forWorktree,
+                });
+            }
+
+            return tabs;
+        }
+    }
+
+    /// <summary>The sections drawn here now.</summary>
+    private IReadOnlyList<ArrangedSection> Sections =>
+        Bench.Layout.Arrange(Side, Tabs.Select(t => new PanelView(t.Key, Bench.DefaultSide(t.Key))).ToList());
+
+    /// <summary>A click on a tab: in front of its section, and a folded section unfolds to show it.</summary>
+    private void OnTab(int section, string key, bool folded)
+    {
+        if (folded)
+        {
+            Bench.ToggleSection(Side, section);
+        }
+
+        Bench.Activate(Side, section, key);
+    }
+
+    private void FromMenu(Action action)
+    {
+        _menu = null;
+        action();
+    }
+
+    /// <summary>A view whose filter throws is left out rather than taking the panel down with it.</summary>
+    private static bool Applies(LiveView live, Tog.Extensions.AgentContext agent)
+    {
+        try
+        {
+            return live.View.AppliesTo?.Invoke(agent) ?? true;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    private static bool Applies(LiveView live, Tog.Extensions.WorktreeContext worktree)
+    {
+        try
+        {
+            return live.View.WorktreeAppliesTo?.Invoke(worktree) ?? true;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    private string? ChangeCount(string path) =>
+        State.Worktree(path)?.Status is { } s && s.Changed + s.Staged + s.Untracked is > 0 and var n
+            ? n.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : null;
+
+    private static string ToneClass(Tog.Extensions.Tone tone) => tone switch
+    {
+        Tog.Extensions.Tone.Danger => "danger",
+        Tog.Extensions.Tone.Warning => "warning",
+        Tog.Extensions.Tone.Success => "success",
+        Tog.Extensions.Tone.Info => "info",
+        _ => "",
+    };
+
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+        Bench.Changed += OnChanged;
+        Extensions.Changed += OnChanged;
+    }
+
+    private void OnChanged() => _ = InvokeAsync(StateHasChanged);
+
+    protected override void OnParametersSet() => Track();
+
+    /// <summary>
+    /// Keeps the set of built tabs. Moving to another agent parks the extension
+    /// views built for the one leaving, clears the rest, and takes back what was
+    /// parked for the one arriving. The tab in front of each section is always added.
+    /// </summary>
+    private void Track()
+    {
+        var shown = (Bench.SessionId, Worktree);
+        if (_shown != shown)
+        {
+            var (leftSession, leftWorktree) = _shown;
+            foreach (var tab in _drawn.Where(t => t.View is not null && _visited.Contains(t.Key)))
+            {
+                _parked[new LayerKey(tab.Key, tab.View!.Generation, leftSession, leftWorktree)] = tab;
+            }
+
+            _shown = shown;
+            _visited.Clear();
+
+            foreach (var key in _parked.Keys.Where(k => k.SessionId == shown.SessionId && k.Worktree == shown.Worktree).ToList())
+            {
+                _parked.Remove(key);
+                _visited.Add(key.Tab);
+            }
+        }
+
+        foreach (var section in Sections)
+        {
+            _visited.Add(section.Active);
+        }
+
+        _drawn = Tabs;
+        Prune();
+    }
+
+    /// <summary>
+    /// Drops parked views whose agent has gone from the list, whose worktree has
+    /// gone, or whose extension has been reloaded or removed, so the cache holds
+    /// only what could still be switched back to.
+    /// </summary>
+    private void Prune()
+    {
+        if (_parked.Count == 0)
+        {
+            return;
+        }
+
+        var agents = Directory.Targets(Snapshot.Value).Select(t => t.SessionId).ToHashSet(StringComparer.Ordinal);
+        var live = Extensions.Views.Select(v => (v.View.Key, v.Generation)).ToHashSet();
+        foreach (var key in _parked.Keys.ToList())
+        {
+            if ((key.SessionId is { } id && !agents.Contains(id))
+                || (key.Worktree is { } path && State.Worktree(path) is null)
+                || !live.Contains((key.Tab, key.Generation ?? -1)))
+            {
+                _parked.Remove(key);
+            }
+        }
+    }
+
+    protected override bool ShouldRender()
+    {
+        // Every render path comes through here, the snapshot's and the bench's,
+        // so this is where the tabs in front are marked as built.
+        Track();
+        return true;
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            Bench.Changed -= OnChanged;
+            Extensions.Changed -= OnChanged;
+        }
+
+        base.Dispose(disposing);
+    }
+}

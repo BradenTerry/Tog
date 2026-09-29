@@ -4,7 +4,7 @@ The editor in the middle of the window edits files, it does not just show them.
 Files open in it from the Files tree on the left, a tab per file (see
 [workbench.md](workbench.md) for the tabs). An agent leaves a worktree in a state
 you want to nudge rather than rewrite: a wrong constant, a stray line, a comment
-that is now a lie. Opening VS Code for that is a context switch away from Togue you are watching. So the editor edits in place, and keeps a VS Code
+that is now a lie. Opening VS Code for that is a context switch away from Tog you are watching. So the editor edits in place, and keeps a VS Code
 link for the times a real editor is the right tool.
 
 ## Monaco, and why it is not committed
@@ -151,26 +151,26 @@ app's origin.
 ## Opening a file from outside
 
 Anything on the machine can ask the running app to show a file by
-dropping a request into `~/.togue/open/` (under `--data-dir` when one
+dropping a request into `~/.tog/open/` (under `--data-dir` when one
 is given):
 
 ```sh
-f=~/.togue/open/$(uuidgen)
+f=~/.tog/open/$(uuidgen)
 printf '{"path": "%s"}' /tmp/shot.png > "$f.tmp" && mv "$f.tmp" "$f.json"
 ```
 
 `{"path": "/abs/file", "line": 12}`; the path has to be absolute. Written under
 another name and renamed, so a half-written request is never read. This is how
 an agent in a terminal shows you a screenshot it took: see the
-`open-in-togue` skill.
+`open-in-tog` skill.
 
 A folder rather than an HTTP route because the port changes on every start,
 and because a route on the loopback host is reachable from any page open in
 any browser, where a file in the user's home can only come from the user's own
 processes.
 
-An agent Togue runs has a better route: the `togue_open_file` tool
-on Togue's own MCP server (`OpenFileTool`). It takes a path relative to
+An agent Tog runs has a better route: the `tog_open_file` tool
+on Tog's own MCP server (`OpenFileTool`). It takes a path relative to
 the agent's folder as well as an absolute one, refuses a file that is not
 there, and answers whether a window took it or it is held for the first,
 where a dropped request can only be checked by watching the folder empty. It
@@ -189,7 +189,7 @@ An external text file is edited like any other, in Monaco, and saved the same
 way (`WorktreeFiles.WriteOutside`): only on the user's own Save, with the stamp
 check that refuses to overwrite a change made since it was read, and the same
 Reload and Overwrite when it does. This is how you edit your own
-`~/.claude/settings.json` or `CLAUDE.md` from Togue. It has no code
+`~/.claude/settings.json` or `CLAUDE.md` from Tog. It has no code
 intelligence, whose providers answer for a worktree's files, and a file too
 large or binary is shown read-only as in a worktree. Asking for the file again
 while it has unsaved changes brings the tab forward without reading it again.

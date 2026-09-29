@@ -2,25 +2,25 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Togue (native window)",
+            "name": "Tog (native window)",
             "type": "coreclr",
             "request": "launch",
             "preLaunchTask": "build",
-            "program": "${workspaceFolder}/src/Togue.App/bin/Debug/net10.0/togue.dll",
+            "program": "${workspaceFolder}/src/Tog.App/bin/Debug/net10.0/tog.dll",
             "args": [],
-            "cwd": "${workspaceFolder}/src/Togue.App",
+            "cwd": "${workspaceFolder}/src/Tog.App",
             "stopAtEntry": false,
             "console": "internalConsole",
             "env": { "ASPNETCORE_ENVIRONMENT": "Development" }
         },
         {
-            "name": "Togue (browser, port 5178)",
+            "name": "Tog (browser, port 5178)",
             "type": "coreclr",
             "request": "launch",
             "preLaunchTask": "build",
-            "program": "${workspaceFolder}/src/Togue.App/bin/Debug/net10.0/togue.dll",
+            "program": "${workspaceFolder}/src/Tog.App/bin/Debug/net10.0/tog.dll",
             "args": ["--browser", "--port", "5178", "--verbose"],
-            "cwd": "${workspaceFolder}/src/Togue.App",
+            "cwd": "${workspaceFolder}/src/Tog.App",
             "stopAtEntry": false,
             "console": "integratedTerminal",
             "serverReadyAction": {

@@ -5,7 +5,7 @@
             "label": "build",
             "type": "shell",
             "command": "dotnet",
-            "args": ["build", "Togue.slnx"],
+            "args": ["build", "Tog.slnx"],
             "group": { "kind": "build", "isDefault": true },
             "problemMatcher": "$msCompile",
             "presentation": { "reveal": "silent", "clear": true }
@@ -14,7 +14,7 @@
             "label": "test",
             "type": "shell",
             "command": "dotnet",
-            "args": ["test", "Togue.slnx"],
+            "args": ["test", "Tog.slnx"],
             "group": { "kind": "test", "isDefault": true },
             "problemMatcher": "$msCompile"
         },
@@ -29,7 +29,7 @@
             "label": "run in browser",
             "type": "shell",
             "command": "dotnet",
-            "args": ["run", "--project", "src/Togue.App", "--", "--browser", "--port", "5178"],
+            "args": ["run", "--project", "src/Tog.App", "--", "--browser", "--port", "5178"],
             "isBackground": true,
             "problemMatcher": [],
             "presentation": { "reveal": "always", "panel": "dedicated" }

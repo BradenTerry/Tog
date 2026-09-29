@@ -1,0 +1,20 @@
+@using Tog.App.Extensions
+@inject ExtensionHost Extensions
+@implements IDisposable
+
+@* Links each loaded extension's stylesheet into the page, and follows loads and
+   reloads so a rebuilt extension's styles arrive with its code. *@
+<HeadContent>
+    @foreach (var href in Extensions.Stylesheets)
+    {
+        <link rel="stylesheet" href="@href" />
+    }
+</HeadContent>
+
+@code {
+    protected override void OnInitialized() => Extensions.Changed += OnChanged;
+
+    private void OnChanged() => _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Extensions.Changed -= OnChanged;
+}

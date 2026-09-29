@@ -11,7 +11,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-export const app = join(root, 'src', 'Togue.App');
+export const app = join(root, 'src', 'Tog.App');
 
 // Each vendored set is pinned by a committed package.json and package-lock.json
 // in tools/vendor/<name>, and installed with npm ci, so every build gets the
