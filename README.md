@@ -37,7 +37,7 @@ picked. See [docs/workbench.md](docs/workbench.md).
   or Ctrl+T) finds a file in the worktree in view by a few letters of its name,
   as VS Code's quick open does. Every shortcut can be rebound in Settings.
 - **Status bar** along the bottom labels where the selected agent works: its
-  directory, worktree and branch.
+  directory. The worktree and branch are in the header.
 - **Left panel: Files**, the agent's worktree as a tree. A click opens a file in
   the editor as a preview tab; a double click keeps it.
 - **Editor** in the middle: a tab per open file, pinnable, each a Monaco editor
