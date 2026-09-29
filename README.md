@@ -166,7 +166,7 @@ arm64. If the window cannot be created the app does not die with it: the host is
 already serving, so it prints the URL and carries on. It reopens where it was
 and the size it was, from `window.json` in the data folder.
 
-Requirements: the .NET 10 SDK, `git` and Node 22 or newer on `PATH`, and Claude
+Requirements: the .NET SDK named in `global.json` (exactly that one, for reproducible builds), `git` and Node 22 or newer on `PATH`, and Claude
 Code if you want any agents to look at. The first build fetches Monaco, Mermaid,
 the TextMate grammars and the Claude ACP bridge with the Node scripts in
 `tools/`, so it needs no shell and builds the same on Windows.
