@@ -318,6 +318,14 @@
             _worktreeName = place.WorktreeName ?? "";
             _prompt = place.Prompt ?? "";
         }
+        else if (Bench.WorktreeInView(State.Snapshot) is { } inView
+            && Workbench.Find(State.Snapshot, inView) is { } seen)
+        {
+            // Opened with nothing picked: start in the repository on screen, which
+            // is usually where the next piece of work is. The worktree is left on
+            // New worktree, since the one in view is likely the busy agent's own.
+            _repo = seen.Repo.Root;
+        }
     }
 
     /// <summary>The repositories configured in Settings, minus any since hidden, by name.</summary>
