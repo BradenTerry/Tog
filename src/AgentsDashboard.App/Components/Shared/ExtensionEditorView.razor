@@ -1,0 +1,89 @@
+@using AgentsDashboard.App.Extensions
+@using AgentsDashboard.Extensions
+@inherits StateComponent
+@inject ExtensionHost Host
+@inject Workbench Bench
+
+@* An extension's component as an editor tab. The type is looked up by name in
+   the loaded copy on every render rather than kept, so a rebuilt extension's
+   tab is drawn from the new copy (keyed by generation, so it is built fresh
+   rather than handed new parameters), and an extension turned off leaves a
+   tab that says so rather than code that is no longer running. It re-renders
+   with the snapshot, like a panel view, to hand the view its worktree and
+   agent as they are now. *@
+
+@if (Host.LiveComponent(Tab.ExtensionId, Tab.TypeName) is var (component, context, generation))
+{
+    <CascadingValue Value="context" IsFixed="true" @key="generation">
+        <ErrorBoundary @ref="_boundary">
+            <ChildContent>
+                <DynamicComponent Type="component" Parameters="Parameters(component)" />
+            </ChildContent>
+            <ErrorContent Context="error">
+                <div class="banner danger ext-editor-error">
+                    <strong>@Tab.Title failed.</strong>
+                    <p class="mono muted" style="margin: 5px 0 8px;">@error.Message</p>
+                    <button class="small" @onclick="() => _boundary?.Recover()">Retry</button>
+                </div>
+            </ErrorContent>
+        </ErrorBoundary>
+    </CascadingValue>
+}
+else
+{
+    <div class="empty editor-empty">
+        <h2>@Tab.Title</h2>
+        <p>The extension that opened this tab (@Tab.ExtensionId) is not loaded. Turn it on in Settings, Extensions, or close the tab.</p>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public ExtensionTab Tab { get; set; } = default!;
+
+    [Parameter, EditorRequired]
+    public string WorktreePath { get; set; } = "";
+
+    [Parameter]
+    public bool IsVisible { get; set; }
+
+    private ErrorBoundary? _boundary;
+
+    /// <summary>
+    /// The parameters the extension opened the tab with, and the ones the app
+    /// supplies, each only when the component declares it: DynamicComponent
+    /// throws for one it does not have, and a view need not derive from
+    /// EditorViewBase.
+    /// </summary>
+    private Dictionary<string, object?> Parameters(Type component)
+    {
+        var parameters = Tab.Parameters
+            .Where(p => Declares(component, p.Key))
+            .ToDictionary(p => p.Key, p => p.Value);
+
+        var snapshot = State.Snapshot;
+        var worktree = WorktreePath.Length > 0 ? ApiModel.Worktree(WorktreePath, State) : null;
+        if (Declares(component, nameof(EditorViewBase.Worktree)))
+        {
+            parameters[nameof(EditorViewBase.Worktree)] = worktree;
+        }
+
+        if (Declares(component, nameof(EditorViewBase.Agent)))
+        {
+            parameters[nameof(EditorViewBase.Agent)] = Bench.Agent(snapshot) is { } agent && agent.WorktreePath == WorktreePath && WorktreePath.Length > 0
+                ? ApiModel.Agent(agent, State)
+                : null;
+        }
+
+        if (Declares(component, nameof(EditorViewBase.IsVisible)))
+        {
+            parameters[nameof(EditorViewBase.IsVisible)] = IsVisible;
+        }
+
+        return parameters;
+    }
+
+    private static bool Declares(Type component, string name) =>
+        component.GetProperty(name) is { } property
+        && property.IsDefined(typeof(ParameterAttribute), inherit: true);
+}

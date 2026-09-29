@@ -721,6 +721,28 @@ public sealed class Workbench : IDisposable
     }
 
     /// <summary>
+    /// Opens an extension's component as a tab among the worktree's documents,
+    /// or brings the one already open for it to the front with the new title
+    /// and parameters. Kept rather than previewed, as an outside request is.
+    /// </summary>
+    public void OpenView(string worktreePath, ExtensionTab tab)
+    {
+        var group = Editors(worktreePath);
+        var key = EditorDoc.ViewKey(tab);
+        if (group.Find(key) is { } doc)
+        {
+            doc.View = tab;
+        }
+        else
+        {
+            group.Add(new EditorDoc(key, DocKind.ExtensionView, null) { View = tab });
+        }
+
+        group.ActiveKey = key;
+        Raise();
+    }
+
+    /// <summary>
     /// Opens Settings as a dialog over the window, like New agent: it belongs to
     /// no file and no worktree, so it has no place among an agent's tabs, and
     /// closing it leaves you where you were.
@@ -1020,7 +1042,22 @@ public enum DocKind
 
     /// <summary>A file outside the worktree, by absolute path, asked for from outside the app. Read-only.</summary>
     External,
+
+    /// <summary>An extension's own component, opened through <see cref="IEditorTabs.OpenView{TComponent}"/>.</summary>
+    ExtensionView,
 }
+
+/// <summary>
+/// What an extension's editor tab draws. The component is named by its
+/// extension and type name rather than held as a <see cref="Type"/>, so a
+/// reloaded extension's tab is drawn from the new copy's type.
+/// </summary>
+public sealed record ExtensionTab(
+    string ExtensionId,
+    string TypeName,
+    string? Id,
+    string Title,
+    IReadOnlyDictionary<string, object?> Parameters);
 
 /// <summary>
 /// A worktree's open documents, in the order they were opened, on one side of
@@ -1180,6 +1217,8 @@ public sealed class EditorDoc(string key, DocKind kind, string? path)
 
     public static string ExternalKey(string absolutePath) => "ext:" + absolutePath;
 
+    public static string ViewKey(ExtensionTab tab) => $"view:{tab.ExtensionId}:{tab.TypeName}:{tab.Id}";
+
     public static string KeyFor(DocKind kind, string path) => kind switch
     {
         DocKind.Diff => "diff:" + path,
@@ -1210,9 +1249,13 @@ public sealed class EditorDoc(string key, DocKind kind, string? path)
     /// <summary>Bumped to reveal <see cref="Line"/> again when it has not changed but the caret has moved off it.</summary>
     public int Reveal { get; set; }
 
+    /// <summary>What an <see cref="DocKind.ExtensionView"/> tab draws; replaced when the extension opens it again.</summary>
+    public ExtensionTab? View { get; set; }
+
     public string Title => Kind switch
     {
         DocKind.Worktrees => "Worktrees",
+        DocKind.ExtensionView => View!.Title,
         DocKind.External => System.IO.Path.GetFileName(Path!),
         _ => Path![(Path!.LastIndexOf('/') + 1)..],
     };

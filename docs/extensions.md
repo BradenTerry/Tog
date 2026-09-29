@@ -274,6 +274,74 @@ running. The host is placed before the app's own prompts in the layout and
 shares their layer, so an agent's request to add an extension, or a secret
 request, lands on top of an extension's dialog rather than under it.
 
+## Editor tabs, diffs and messages to an agent
+
+API 1.11 adds three things for a view the width of the editor rather than a
+panel, such as a review of every change in a worktree (the PR Review
+extension, in the extension folder, is built on them).
+
+**`IEditorTabs.OpenView<T>(title, parameters, id)`** opens a component of the
+extension's as a tab among the worktree's documents (`DocKind.ExtensionView`).
+The component inherits `EditorViewBase` and gets `Worktree`, `Agent` (only
+when the agent on screen works there), `IsVisible` and `Context`, plus the
+parameters it was opened with. Opening the same component with the same `id`
+again brings the tab to the front with the new title and parameters, which is
+how a panel's "open at this file" works.
+
+- **The tab names a type, not a `Type`.** `ExtensionTab` keeps the extension's
+  id and the type's full name, and `ExtensionEditorView` looks the type up in
+  the loaded copy on every render (`ExtensionHost.LiveComponent`), keyed by
+  generation. A rebuild draws the tab from the new copy with the same
+  parameters; an extension turned off leaves a tab that says so. That is why
+  parameters should be plain values: an extension's own record belongs to the
+  copy that made it.
+- **Which extension it is** comes from the component's load context, as a
+  dialog's does, so one extension cannot open a tab as another.
+- It re-renders with the snapshot, like a panel view, and stays built while
+  another tab is in front, so a heavy view overrides `ShouldRender`.
+
+**`DiffView`** is a component in the API assembly that draws two texts with
+the editor's own diff and colouring. It holds no logic: it hands itself, as
+`Source`, to whatever `IDiffViewHost.Component` the app registers
+(`DiffViewEditor`), so the app's diff can change without breaking an extension
+built against it.
+
+```mermaid
+flowchart LR
+    X[extension view] --> DV["DiffView (API)"]
+    DV -->|DynamicComponent, Source = itself| DE["DiffViewEditor (app)"]
+    DE -->|createDiffView / updateDiffView| M["monaco.js diffViews"]
+    M -->|Comment(side, start, end)| DE -->|OnComment| X
+```
+
+- **As tall as its content.** Monaco's diff is sized from its editors'
+  content height, with its own vertical scrollbar off and the wheel passed on,
+  so a page of them scrolls as one. `CollapseUnchanged` (on by default) is
+  Monaco's `hideUnchangedRegions`, whose hidden areas already leave the
+  content height.
+- **Read-only, anonymous models.** They are not named after the file, unlike a
+  file tab's (see `AGENTS.md`), so they never clash with an open tab's model
+  and the code intelligence providers, which only answer models they own,
+  leave them alone. TextMate colouring is by the path's language.
+- **Commenting.** With `OnComment` set, hovering a line shows a + in the glyph
+  margin, and clicking it reports that line, or the selection when the click
+  is inside it. The selection is taken on `mousedown` in the capture phase,
+  before Monaco moves it to the line clicked. Inline, removed lines are view
+  zones with no line of their own, so only the right side can be picked there.
+- `Marks` tint lines and put a dot in the gutter; `Reveal` scrolls the nearest
+  scrolling ancestor to a line each time a new instance is passed.
+- They live in their own map in `monaco.js`, apart from the file editors,
+  and follow the text size, word wrap at creation, the theme, and the app's
+  side by side setting unless `SideBySide` says otherwise.
+
+**`IAgentMessages.Offer(agentId, text)`** puts text in an agent's message box,
+after anything already typed, switches the window to that agent if another is
+in view, and focuses the box (`ChatDrafts.Offer`, which the chat panel
+listens to). Nothing is sent: the user presses Enter. A message can have an
+agent change the whole repository, and the API cannot tell a click from a
+worker on a timer, so sending stays the user's press, as starting an agent
+does with `IAgentOffers`.
+
 ## Agent tools
 
 `AddAgentTool<T>()` (API 1.2) gives the agents a tool: an `IAgentTool` with a

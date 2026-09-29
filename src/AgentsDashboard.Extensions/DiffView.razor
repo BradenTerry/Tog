@@ -1,0 +1,62 @@
+@* Two texts compared the way the editor compares a file's changes, with the
+   app's own colouring. The app draws it: this only carries the parameters
+   across, so an extension built against this version keeps working as the
+   app's diff changes. *@
+@inject IDiffViewHost Host
+
+<DynamicComponent Type="Host.Component" Parameters="_parameters" />
+
+@code {
+    /// <summary>The file's path, relative or absolute. Only its extension is used, to pick the language.</summary>
+    [Parameter, EditorRequired]
+    public string Path { get; set; } = "";
+
+    /// <summary>The text before, on the left.</summary>
+    [Parameter]
+    public string Original { get; set; } = "";
+
+    /// <summary>The text after, on the right.</summary>
+    [Parameter]
+    public string Modified { get; set; } = "";
+
+    /// <summary>
+    /// True for the two sides next to each other, false for one interleaved
+    /// column, null (the default) for whichever the user picked for the app's
+    /// own diffs.
+    /// </summary>
+    [Parameter]
+    public bool? SideBySide { get; set; }
+
+    /// <summary>
+    /// Folds runs of unchanged lines away, as a pull request does, leaving a few
+    /// lines around each change and a bar that unfolds the rest. On by default.
+    /// </summary>
+    [Parameter]
+    public bool CollapseUnchanged { get; set; } = true;
+
+    /// <summary>Lines to mark, such as ones with a comment.</summary>
+    [Parameter]
+    public IReadOnlyList<DiffMark> Marks { get; set; } = [];
+
+    /// <summary>
+    /// Set, hovering a line shows a + in the gutter, and clicking it calls this
+    /// with that line, or with the lines selected when the click is inside the
+    /// selection. On the interleaved view only the right side's lines can be
+    /// picked, since removed lines have no line of their own there.
+    /// </summary>
+    [Parameter]
+    public EventCallback<DiffLines> OnComment { get; set; }
+
+    /// <summary>
+    /// Scrolls the page to these lines each time a new instance is passed, so
+    /// asking for the same lines twice scrolls twice. The view is as tall as
+    /// what it shows, so the page scrolls rather than the diff.
+    /// </summary>
+    [Parameter]
+    public DiffLines? Reveal { get; set; }
+
+    private readonly Dictionary<string, object?> _parameters = [];
+
+    /// <inheritdoc />
+    protected override void OnParametersSet() => _parameters["Source"] = this;
+}

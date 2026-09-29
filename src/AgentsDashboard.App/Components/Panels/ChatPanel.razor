@@ -562,6 +562,7 @@ else
         Directory.Changed += OnDirectoryChanged;
         Bench.Changed += OnBenchChanged;
         Bench.ChatFocusRequested += OnFocusRequested;
+        Drafts.Offered += OnDraftOffered;
 
         // Each agent keeps what you had typed to it.
         _draft = Drafts.Get(SessionId);
@@ -570,6 +571,20 @@ else
     }
 
     private void OnBenchChanged() => _ = InvokeAsync(StateHasChanged);
+
+    /// <summary>An extension put a message in this agent's box: it replaces what the box shows, and the caret goes there.</summary>
+    private void OnDraftOffered(string sessionId) => _ = InvokeAsync(() =>
+    {
+        if (sessionId != SessionId)
+        {
+            return;
+        }
+
+        _draft = Drafts.Get(SessionId);
+        _putInBox = _draft;
+        _focusBox = true;
+        StateHasChanged();
+    });
 
     /// <summary>Focus Chat's key. Taken on the next render the panel is showing, which may not be this one.</summary>
     private void OnFocusRequested() => _ = InvokeAsync(() =>
@@ -864,6 +879,7 @@ else
             Directory.Changed -= OnDirectoryChanged;
             Bench.Changed -= OnBenchChanged;
             Bench.ChatFocusRequested -= OnFocusRequested;
+            Drafts.Offered -= OnDraftOffered;
         }
 
         base.Dispose(disposing);

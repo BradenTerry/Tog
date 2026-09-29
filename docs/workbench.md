@@ -132,6 +132,10 @@ text. A `display: none` box would lose Monaco's size.
   text. Both sides are drawn from one keyed list of documents, placed by a
   class, so a tab moved across keeps its editor, undo stack and unsaved work. A side whose last tab closes goes, and the other
   takes the width. Opening a file already open on the other side goes to it.
+- **An extension can open a tab of its own** (`IEditorTabs.OpenView`, API
+  1.11): its component, drawn in `ExtensionEditorView` and looked up by name
+  in the loaded copy, so a rebuild redraws it. See
+  [extensions.md](extensions.md#editor-tabs-diffs-and-messages-to-an-agent).
 - **Tabs belong to a worktree.** Switching agents swaps the whole strip, and
   switching back finds it as it was. This lives in memory for the life of the
   window, like `WorktreeViews`. A new window starts empty.

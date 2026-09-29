@@ -16,6 +16,11 @@ let nextHandle = 1;
 
 const editors = new Map();
 
+// Extensions' DiffViews, by handle. Kept apart from the editors above: they are
+// read-only, own no file, and answer none of the calls a file's editor does
+// (saving, word wrap, dirty state).
+const diffViews = new Map();
+
 // Model URI to editor state. The C# providers below are registered once for the
 // whole page, and a provider is handed a model rather than an editor, so this is
 // how a hover in one editor reaches the .NET object that owns it.
@@ -270,6 +275,10 @@ function setFontSize(size) {
     for (const state of editors.values()) {
         state.editor.updateOptions({ fontSize: value });
     }
+
+    for (const view of diffViews.values()) {
+        view.diff.updateOptions({ fontSize: value });
+    }
 }
 
 // Alt+Z wraps long lines at the editor's edge, as in VS Code. Like the text size
@@ -319,6 +328,13 @@ function toggleSideBySide() {
         if (state.diff) {
             state.diff.updateOptions({ renderSideBySide: sideBySide });
             state.dotnet.invokeMethodAsync('SideBySideChanged', sideBySide);
+        }
+    }
+
+    // An extension's diff that did not choose a layout follows the app's.
+    for (const view of diffViews.values()) {
+        if (view.settings.sideBySide === null || view.settings.sideBySide === undefined) {
+            view.diff.updateOptions({ renderSideBySide: sideBySide });
         }
     }
 }
@@ -628,7 +644,261 @@ async function flushSync(state) {
     await state.dotnet.invokeMethodAsync('TextChanged', state.editor.getValue());
 }
 
+// The nearest ancestor that scrolls, which is what a DiffView reveals a line
+// in: the view is as tall as its content, so it never scrolls itself.
+function scrollParent(element) {
+    for (let node = element.parentElement; node; node = node.parentElement) {
+        const overflow = getComputedStyle(node).overflowY;
+        if ((overflow === 'auto' || overflow === 'scroll') && node.scrollHeight > node.clientHeight) {
+            return node;
+        }
+    }
+
+    return document.scrollingElement;
+}
+
+function diffViewSideBySide(view) {
+    return view.settings.sideBySide ?? savedSideBySide();
+}
+
+// Sized to what the diff shows rather than to its box, so a page of them reads
+// as one document. Folded unchanged regions are hidden areas in the two
+// editors, so their content height already leaves them out. Inline, the
+// original editor is hidden and the modified one carries the removed lines.
+function fitDiffView(view) {
+    const original = view.diff.getOriginalEditor();
+    const modified = view.diff.getModifiedEditor();
+    const height = diffViewSideBySide(view)
+        ? Math.max(original.getContentHeight(), modified.getContentHeight())
+        : modified.getContentHeight();
+
+    const px = Math.max(24, Math.ceil(height)) + 'px';
+    if (view.element.style.height !== px) {
+        view.element.style.height = px;
+        view.diff.layout();
+    }
+}
+
+function diffViewMarks(view) {
+    const monaco = view.monaco;
+    for (const side of ['original', 'modified']) {
+        const editor = side === 'original' ? view.diff.getOriginalEditor() : view.diff.getModifiedEditor();
+        const last = editor.getModel()?.getLineCount() ?? 0;
+        const decorations = [];
+        for (const mark of view.settings.marks || []) {
+            if (mark.side !== side || mark.start < 1 || mark.start > last) {
+                continue;
+            }
+
+            const end = Math.min(Math.max(mark.start, mark.end), last);
+            decorations.push({
+                range: new monaco.Range(mark.start, 1, end, 1),
+                options: { isWholeLine: true, className: 'diff-view-marked' },
+            });
+            decorations.push({
+                range: new monaco.Range(mark.start, 1, mark.start, 1),
+                options: {
+                    glyphMarginClassName: 'diff-view-mark',
+                    glyphMarginHoverMessage: mark.tooltip ? { value: mark.tooltip } : undefined,
+                },
+            });
+        }
+
+        view.marks[side].set(decorations);
+    }
+}
+
+function diffViewOptions(settings) {
+    return {
+        renderSideBySide: settings.sideBySide ?? savedSideBySide(),
+        hideUnchangedRegions: {
+            enabled: settings.collapse !== false,
+            contextLineCount: 3,
+            minimumLineCount: 3,
+            revealLineCount: 20,
+        },
+        glyphMargin: !!settings.commentable || (settings.marks || []).length > 0,
+    };
+}
+
+// Lines a click in the gutter asks to comment on: the line clicked, or the
+// selection when the click is inside it. The selection is the one from before
+// the press, since Monaco moves it on a gutter click.
+function commentLines(selection, line) {
+    if (selection && !selection.isEmpty() && line >= selection.startLineNumber && line <= selection.endLineNumber) {
+        const end = selection.endColumn === 1 && selection.endLineNumber > selection.startLineNumber
+            ? selection.endLineNumber - 1
+            : selection.endLineNumber;
+        return [selection.startLineNumber, end];
+    }
+
+    return [line, line];
+}
+
 window.agentsEditor = {
+    createDiffView: async (element, dotnetRef, options) => {
+        const monaco = await ensureLoaded();
+        const settings = options || {};
+        const language = languageFor(monaco, settings.path || '');
+        const original = monaco.editor.createModel(settings.original || '', language);
+        const modified = monaco.editor.createModel(settings.modified || '', language);
+
+        const diff = monaco.editor.createDiffEditor(element, {
+            theme: themeName(),
+            readOnly: true,
+            originalEditable: false,
+            automaticLayout: true,
+            useInlineViewWhenSpaceIsLimited: false,
+            ignoreTrimWhitespace: false,
+            renderOverviewRuler: false,
+            renderMarginRevertIcon: false,
+            minimap: { enabled: false },
+            folding: false,
+            stickyScroll: { enabled: false },
+            scrollBeyondLastLine: false,
+            // The page scrolls, not the diff: a wheel over it goes on to the page.
+            scrollbar: { vertical: 'hidden', verticalScrollbarSize: 0, alwaysConsumeMouseWheel: false },
+            fontSize: savedFontSize(),
+            fontFamily: mono(),
+            wordWrap: savedWordWrap(),
+            ...diffViewOptions(settings),
+        });
+        diff.setModel({ original, modified });
+
+        const view = {
+            monaco,
+            diff,
+            original,
+            modified,
+            element,
+            dotnet: dotnetRef,
+            settings,
+            marks: {
+                original: diff.getOriginalEditor().createDecorationsCollection([]),
+                modified: diff.getModifiedEditor().createDecorationsCollection([]),
+            },
+            hover: {
+                original: diff.getOriginalEditor().createDecorationsCollection([]),
+                modified: diff.getModifiedEditor().createDecorationsCollection([]),
+            },
+            before: { original: null, modified: null },
+            disposables: [],
+        };
+
+        // Captured on the way down, before Monaco's own handler moves the
+        // selection to the line clicked.
+        view.onPress = () => {
+            view.before.original = diff.getOriginalEditor().getSelection();
+            view.before.modified = diff.getModifiedEditor().getSelection();
+        };
+        element.addEventListener('mousedown', view.onPress, true);
+
+        for (const side of ['original', 'modified']) {
+            const editor = side === 'original' ? diff.getOriginalEditor() : diff.getModifiedEditor();
+            const glyph = monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN;
+            const lineNumbers = monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS;
+            const content = monaco.editor.MouseTargetType.CONTENT_TEXT;
+            const empty = monaco.editor.MouseTargetType.CONTENT_EMPTY;
+
+            view.disposables.push(editor.onMouseMove((e) => {
+                const line = e.target.position?.lineNumber;
+                if (!view.settings.commentable || !line || ![glyph, lineNumbers, content, empty].includes(e.target.type)) {
+                    view.hover[side].clear();
+                    return;
+                }
+
+                view.hover[side].set([{
+                    range: new monaco.Range(line, 1, line, 1),
+                    options: { glyphMarginClassName: 'diff-view-add' },
+                }]);
+            }));
+            view.disposables.push(editor.onMouseLeave(() => view.hover[side].clear()));
+            view.disposables.push(editor.onMouseDown((e) => {
+                if (!view.settings.commentable || e.target.type !== glyph || !e.target.position) {
+                    return;
+                }
+
+                const [start, end] = commentLines(view.before[side], e.target.position.lineNumber);
+                view.dotnet.invokeMethodAsync('Comment', side, start, end);
+            }));
+            view.disposables.push(editor.onDidContentSizeChange(() => fitDiffView(view)));
+        }
+
+        view.disposables.push(diff.onDidUpdateDiff(() => fitDiffView(view)));
+
+        diffViewMarks(view);
+        fitDiffView(view);
+
+        const handle = nextHandle++;
+        diffViews.set(handle, view);
+        return handle;
+    },
+
+    updateDiffView: (handle, options, texts) => {
+        const view = diffViews.get(handle);
+        if (!view) {
+            return;
+        }
+
+        view.settings = options || {};
+        if (texts) {
+            if (!sameText(view.original.getValue(), view.settings.original || '')) {
+                view.original.setValue(view.settings.original || '');
+            }
+
+            if (!sameText(view.modified.getValue(), view.settings.modified || '')) {
+                view.modified.setValue(view.settings.modified || '');
+            }
+
+            const language = languageFor(view.monaco, view.settings.path || '');
+            view.monaco.editor.setModelLanguage(view.original, language);
+            view.monaco.editor.setModelLanguage(view.modified, language);
+        }
+
+        view.diff.updateOptions(diffViewOptions(view.settings));
+        diffViewMarks(view);
+        fitDiffView(view);
+    },
+
+    revealDiffView: (handle, side, start, end) => {
+        const view = diffViews.get(handle);
+        if (!view) {
+            return;
+        }
+
+        // Inline, the original editor is hidden; its lines are shown, if at
+        // all, among the modified ones, so the reveal lands on the view itself.
+        const inline = !diffViewSideBySide(view);
+        const editor = side === 'original' && !inline ? view.diff.getOriginalEditor() : view.diff.getModifiedEditor();
+        const top = side === 'original' && inline ? 0 : editor.getTopForLineNumber(start);
+        const scroller = scrollParent(view.element);
+        const from = scroller === document.scrollingElement ? 0 : scroller.getBoundingClientRect().top;
+        scroller.scrollTop += view.element.getBoundingClientRect().top - from + top - 80;
+
+        if (!(side === 'original' && inline)) {
+            const model = editor.getModel();
+            const last = Math.min(Math.max(start, end), model.getLineCount());
+            editor.setSelection(new view.monaco.Range(start, 1, last, model.getLineMaxColumn(last)));
+        }
+    },
+
+    disposeDiffView: (handle) => {
+        const view = diffViews.get(handle);
+        if (!view) {
+            return;
+        }
+
+        diffViews.delete(handle);
+        view.element.removeEventListener('mousedown', view.onPress, true);
+        for (const disposable of view.disposables) {
+            disposable.dispose();
+        }
+
+        view.diff.dispose();
+        view.original.dispose();
+        view.modified.dispose();
+    },
+
     create: async (element, dotnetRef, options) => {
         const monaco = await ensureLoaded();
         const settings = options || {};

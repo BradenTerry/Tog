@@ -116,7 +116,7 @@ group together. Add or hide one under **Repositories**.
 | --- | --- |
 | `src/AgentsDashboard.Core` | Everything that is not UI: the ACP agent host, the Claude transcript readers, the git layer and its parsers, the monitor loop, extension discovery. No ASP.NET dependency, so all of it is testable without a host. |
 | `src/AgentsDashboard.App` | The Blazor Server UI and the Photino window. `Program.cs` starts the host on a free loopback port, then opens the window at it. |
-| `src/AgentsDashboard.Extensions` | The extension API (1.0), the one assembly an extension compiles against. No reference to Core. |
+| `src/AgentsDashboard.Extensions` | The extension API (1.x, now 1.11), the one assembly an extension compiles against. No reference to Core. |
 | `templates/extension` | `dotnet new agents-dashboard-extension`, with an `AGENTS.md` for writing one. |
 | `templates/skill` | The skill that teaches an agent to write one, shipped in the app and added from Settings. |
 | `tests/*` | xUnit v3 on Microsoft.Testing.Platform, for Core. |

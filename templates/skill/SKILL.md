@@ -58,7 +58,8 @@ The template targets API 1.0, which every dashboard since 1.0 loads. If the
 extension uses anything added later (naming a panel is 1.1, `AddAgentTool`
 1.2, `IEditorTabs` 1.3, `AddWorktreeView` 1.4, `IAgentOffers` 1.5, `OfferAsync` 1.7,
 `ISecrets` 1.8, `AddSetting` 1.9, `AddOverlay`, `IDialogs` and
-`IDashboardView.Current.Agents` 1.10; the template's `AGENTS.md`
+`IDashboardView.Current.Agents` 1.10, `IEditorTabs.OpenView`, `DiffView` and
+`IAgentMessages` 1.11; the template's `AGENTS.md`
 marks each), set `"apiVersion"` in `extension.json` to `{{api}}` and point the
 csproj's `AgentsDashboardSdk` default at `{{sdk}}`. Compiling against the 1.0
 SDK fails on those members. Never set `apiVersion` newer than {{api}}: this

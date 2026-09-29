@@ -1,0 +1,142 @@
+@using AgentsDashboard.Extensions
+@using DiffSide = AgentsDashboard.Extensions.DiffSide
+@implements IAsyncDisposable
+@inject IJSRuntime Js
+
+@* An extension's DiffView: Monaco's diff editor, read-only and as tall as what
+   it shows, so a page of them scrolls as one document the way a pull request
+   does. Monaco owns everything under the host, so this renders once and only
+   pushes changes after that, as CodeEditor does. *@
+
+<div class="diff-view" @ref="_host"></div>
+
+@code {
+    [Parameter, EditorRequired]
+    public DiffView Source { get; set; } = default!;
+
+    private ElementReference _host;
+    private DotNetObjectReference<DiffViewEditor>? _self;
+    private int? _handle;
+    private bool _rendered;
+
+    private string? _shownOriginal;
+    private string? _shownModified;
+    private bool? _shownSideBySide;
+    private bool? _shownCollapse;
+    private IReadOnlyList<DiffMark>? _shownMarks;
+    private bool? _shownCommentable;
+    private DiffLines? _shownReveal;
+
+    protected override bool ShouldRender() => !_rendered;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_handle is not null)
+        {
+            await Sync();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        _rendered = true;
+        _self = DotNetObjectReference.Create(this);
+
+        try
+        {
+            _handle = await Js.InvokeAsync<int>("agentsEditor.createDiffView", _host, _self, Settings());
+            Shown();
+
+            // The parameters can have moved on while Monaco was loading.
+            await Sync();
+        }
+        catch (Exception e) when (e is JSException or InvalidOperationException or TaskCanceledException or JSDisconnectedException)
+        {
+            // Monaco could not load, or the circuit went; the host stays empty.
+        }
+    }
+
+    private object Settings() => new
+    {
+        path = Source.Path,
+        original = Source.Original,
+        modified = Source.Modified,
+        sideBySide = Source.SideBySide,
+        collapse = Source.CollapseUnchanged,
+        commentable = Source.OnComment.HasDelegate,
+        marks = Source.Marks.Select(m => new { side = Side(m.Lines.Side), start = m.Lines.Start, end = m.Lines.End, tooltip = m.Tooltip }),
+    };
+
+    private void Shown()
+    {
+        _shownOriginal = Source.Original;
+        _shownModified = Source.Modified;
+        _shownSideBySide = Source.SideBySide;
+        _shownCollapse = Source.CollapseUnchanged;
+        _shownMarks = Source.Marks;
+        _shownCommentable = Source.OnComment.HasDelegate;
+    }
+
+    /// <summary>
+    /// Only what moved is sent. The extension's view re-renders every second,
+    /// and the texts can be large, so an unchanged diff costs nothing to pass
+    /// through again.
+    /// </summary>
+    private async Task Sync()
+    {
+        if (_handle is not { } handle)
+        {
+            return;
+        }
+
+        try
+        {
+            if (Source.Original != _shownOriginal || Source.Modified != _shownModified
+                || Source.SideBySide != _shownSideBySide || Source.CollapseUnchanged != _shownCollapse
+                || Source.OnComment.HasDelegate != _shownCommentable
+                || !Source.Marks.SequenceEqual(_shownMarks ?? []))
+            {
+                var texts = Source.Original != _shownOriginal || Source.Modified != _shownModified;
+                var settings = Settings();
+                Shown();
+                await Js.InvokeVoidAsync("agentsEditor.updateDiffView", handle, settings, texts);
+            }
+
+            if (Source.Reveal is { } reveal && !ReferenceEquals(reveal, _shownReveal))
+            {
+                _shownReveal = reveal;
+                await Js.InvokeVoidAsync("agentsEditor.revealDiffView", handle, Side(reveal.Side), reveal.Start, reveal.End);
+            }
+        }
+        catch (Exception e) when (e is JSException or TaskCanceledException or JSDisconnectedException)
+        {
+        }
+    }
+
+    private static string Side(DiffSide side) => side == DiffSide.Original ? "original" : "modified";
+
+    [JSInvokable]
+    public Task Comment(string side, int start, int end) =>
+        Source.OnComment.InvokeAsync(new DiffLines(side == "original" ? DiffSide.Original : DiffSide.Modified, Math.Min(start, end), Math.Max(start, end)));
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_handle is { } handle)
+        {
+            try
+            {
+                await Js.InvokeVoidAsync("agentsEditor.disposeDiffView", handle);
+            }
+            catch (Exception e) when (e is JSException or JSDisconnectedException or TaskCanceledException or InvalidOperationException)
+            {
+            }
+        }
+
+        _self?.Dispose();
+    }
+}
