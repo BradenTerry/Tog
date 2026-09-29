@@ -15,7 +15,7 @@ This file is what exists and what is easy to get wrong.
 
 ```mermaid
 flowchart TD
-    A["dotnet new agents-dashboard-extension -n BuildStatus<br/>(install once: dotnet new install templates/extension)"] --> B["Settings, Extensions, Extension folders, Add<br/>or --extension path"]
+    A["dotnet new agents-dashboard-extension -n BuildStatus<br/>(install once: dotnet new install templates/extension)"] --> B["Settings, Extensions, General, Add or remove<br/>or --extension path"]
     B --> C["dotnet build, or dotnet watch build"]
     C --> D["the app sees a new entry assembly<br/>and reloads it"]
     D --> E["the tab rebuilds in the open window"]
@@ -54,7 +54,7 @@ flowchart TD
     P -->|"Not now"| X["nothing changes"]
 ```
 
-- **The skill.** Settings, Extensions, *Write one with an agent* writes it for
+- **The skill.** Settings, Extensions, General, *Write one with an agent* writes it for
   each agent that has a skills folder (`ExtensionSkill.Targets`: Claude Code
   today, when its config folder exists; another agent is another target). It
   is the one file the app writes into `~/.claude`, and only from that button.
@@ -102,7 +102,7 @@ does not load.
 | `AddWorker<T>(id)` | Background work while loaded, restarted with backoff if it throws |
 | `AddCodeIntelligence<T>()` | Navigation for a language in the editor: hover, definition, references, callers, colouring. See [code-intelligence.md](code-intelligence.md) |
 | `AddAgentTool<T>()` | A tool the agents the dashboard runs can call. Since 1.2; see below |
-| `AddSetting(setting)` | A setting shown under the extension in Settings, Extensions. Since 1.9; see below |
+| `AddSetting(setting)` | A setting shown on the extension's own page in Settings, Extensions. Since 1.9; see below |
 | `AddOverlay<T>(id)` | A component drawn once per window over everything. Since 1.10; see below |
 | `Services` | The extension's own DI container |
 
@@ -153,8 +153,10 @@ the view needs meanwhile.
 
 An extension declares its settings in `Configure` with `AddSetting` (API 1.9),
 each an on/off switch (`ExtensionSetting.Toggle`) or one value out of a few
-(`ExtensionSetting.Choice`), and Settings, Extensions draws them under the
-extension's row. The app draws them so every extension's settings look and
+(`ExtensionSetting.Choice`), and Settings draws them on the extension's own
+page. Extensions in the Settings list unfolds into General, where extensions
+are listed, added and removed, and a page per extension with its switch, its
+settings and where it came from. The app draws them so every extension's settings look and
 behave the same, and so the user finds them in one place rather than in
 whichever view the extension happened to put a gear in.
 

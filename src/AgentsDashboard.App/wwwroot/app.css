@@ -2383,9 +2383,9 @@ button.icon-btn:hover:where(:not(:disabled)) { background: var(--surface-2); }
 .settings-tab-count { margin-left: auto; font-size: 11px; color: var(--text-faint); }
 
 .settings-panel { min-width: 0; }
-.settings-section-head { margin-bottom: 14px; }
+.settings-section-head { margin-bottom: 20px; }
 .settings-section-head h2 { font-size: 16px; }
-.settings-section-head p { margin: 4px 0 0; }
+.settings-section-head p { margin: 6px 0 0; line-height: 1.45; }
 .settings-subhead {
     margin: 22px 0 8px;
     font-size: 11px;
@@ -2399,14 +2399,85 @@ button.icon-btn:hover:where(:not(:disabled)) { background: var(--surface-2); }
 label.setting-row { cursor: pointer; }
 .setting-picker { width: 220px; flex: none; }
 
-/* An extension's own settings, indented under it so they read as its. */
-.ext-settings {
-    margin-top: 8px;
-    border-left: 2px solid var(--border);
-    padding-left: 12px;
+/* A section's parts, each a titled card with room between them, so a page
+   with several reads as separate things rather than one long list. */
+.settings-group + .settings-group { margin-top: 28px; }
+.settings-group-head {
+    display: flex;
+    align-items: flex-end;
+    gap: 16px;
+    margin-bottom: 10px;
 }
-.ext-setting { padding: 8px 0; gap: 20px; border: none; }
-label.ext-setting { cursor: pointer; }
+.settings-group-head h3 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+}
+.settings-group-head .faint { max-width: 62ch; line-height: 1.45; }
+.settings-empty { padding: 16px 14px; }
+.settings-help { margin: 10px 0 0; line-height: 1.45; }
+
+/* Extensions unfold into their own pages, indented under the group. */
+.settings-tab-chevron { margin-left: auto; opacity: 0.6; transition: transform 0.12s ease-out; }
+.settings-tab-count + .settings-tab-chevron { margin-left: 6px; }
+.settings-tab-chevron.open { transform: rotate(90deg); }
+.settings-subnav {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    margin: 2px 0 6px 17px;
+    padding-left: 8px;
+    border-left: 1px solid var(--border);
+}
+.settings-subtab { padding: 5px 10px; gap: 8px; font-size: 12.5px; font-weight: 400; }
+.settings-subtab.on { font-weight: 500; }
+.settings-subtab.on::before { left: -9px; }
+
+.ext-status-dot {
+    flex: none;
+    width: 7px;
+    height: 7px;
+    border-radius: 99px;
+    background: var(--text-faint);
+    opacity: 0.6;
+}
+.ext-status-dot.active { background: var(--active); opacity: 1; }
+.ext-status-dot.danger { background: var(--danger); opacity: 1; }
+.ext-status-dot.accent { background: var(--accent); opacity: 1; }
+
+.ext-list-row {
+    width: 100%;
+    padding: 12px 14px;
+    gap: 12px;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+    border-top-color: var(--border-soft);
+    background: transparent;
+    color: inherit;
+    font-weight: 400;
+    text-align: left;
+    justify-content: flex-start;
+}
+.ext-list-row:first-child { border-top: none; }
+.ext-list-row:hover:where(:not(:disabled)) { background: var(--surface-2); }
+.ext-list-chevron { flex: none; color: var(--text-faint); }
+
+.ext-page-head { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 20px; }
+.ext-page-actions { flex: none; padding-top: 2px; }
+.ext-consent { margin-bottom: 20px; }
+
+.ext-facts {
+    display: grid;
+    grid-template-columns: 90px minmax(0, 1fr);
+    gap: 10px 16px;
+    margin: 0;
+    padding: 14px;
+}
+.ext-facts dt { color: var(--text-faint); }
+.ext-facts dd { margin: 0; min-width: 0; }
 
 @media (max-width: 760px) {
     .settings-layout { grid-template-columns: minmax(0, 1fr); gap: 14px; }

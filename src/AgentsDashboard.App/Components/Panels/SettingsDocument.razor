@@ -6,6 +6,7 @@
 @inject IJSRuntime Js
 @inject Workbench Bench
 @inject Shortcuts Keys
+@inject ExtensionHost Extensions
 
 @* The body of Settings; SettingsDialog puts it over the window with its title
    and close button. *@
@@ -26,14 +27,16 @@
             @foreach (var section in Sections)
             {
                 var id = section.Id;
-                var on = id == _section;
+                var group = id == ExtensionsId;
+                var on = id == _section || (group && !_extensionsOpen && InExtensions);
                 <button type="button" role="tab" id="@("settings-tab-" + id)"
                         class="settings-tab @(on ? "on" : "")"
                         aria-selected="@(on ? "true" : "false")"
                         aria-controls="settings-panel"
-                        tabindex="@(on ? 0 : -1)"
+                        aria-expanded="@(group ? (_extensionsOpen ? "true" : "false") : null)"
+                        tabindex="@(Focusable(id) ? 0 : -1)"
                         @ref="_tabs[id]"
-                        @onclick="() => _section = id"
+                        @onclick="() => { if (group) ToggleExtensions(); else Select(id); }"
                         @onkeydown="e => OnTabKey(e, id)">
                     <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
                         <path d="@section.Icon" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
@@ -43,7 +46,41 @@
                     {
                         <span class="settings-tab-count nums">@count</span>
                     }
+                    @if (group)
+                    {
+                        <svg class="settings-tab-chevron @(_extensionsOpen ? "open" : "")" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+                            <path d="M6 3.5l4.5 4.5L6 12.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                    }
                 </button>
+
+                @* Extensions opens into General, where they are added and removed,
+                   and a page per extension for its switch and its own settings. *@
+                @if (group && _extensionsOpen)
+                {
+                    <div class="settings-subnav">
+                        @foreach (var child in ExtensionChildren)
+                        {
+                            var childId = child.Id;
+                            var childOn = childId == _section;
+                            <button type="button" role="tab" id="@("settings-tab-" + childId)"
+                                    class="settings-tab settings-subtab @(childOn ? "on" : "")"
+                                    aria-selected="@(childOn ? "true" : "false")"
+                                    aria-controls="settings-panel"
+                                    tabindex="@(Focusable(childId) ? 0 : -1)"
+                                    title="@child.Title"
+                                    @ref="_tabs[childId]"
+                                    @onclick="() => Select(childId)"
+                                    @onkeydown="e => OnTabKey(e, childId)">
+                                @if (child.Status is { } status)
+                                {
+                                    <span class="ext-status-dot @ExtensionLabels.StatusClass(status)" aria-hidden="true"></span>
+                                }
+                                <span class="truncate">@child.Title</span>
+                            </button>
+                        }
+                    </div>
+                }
             }
         </nav>
 
@@ -311,13 +348,20 @@
                     </div>
                     break;
 
-                case "extensions":
+                case GeneralId:
                     <header class="settings-section-head">
                         <h2>Extensions</h2>
-                        <p class="muted">Tabs, panels and tools added to the dashboard, each turned on here.</p>
+                        <p class="muted">
+                            Tabs, panels and tools added to the dashboard. Add or remove them here; each one's
+                            switch and settings are on its own page.
+                        </p>
                     </header>
 
-                    <ExtensionsCard />
+                    <ExtensionsGeneral OnOpen="id => Select(ExtensionPrefix + id)" />
+                    break;
+
+                case var ext when ext.StartsWith(ExtensionPrefix, StringComparison.Ordinal):
+                    <ExtensionPage Id="@ext[ExtensionPrefix.Length..]" />
                     break;
 
                 case "secrets":
@@ -483,11 +527,95 @@
         new("mcp", "MCP server", "M5.5 2.5v3M10.5 2.5v3M3.5 5.5h9v2.5a4.5 4.5 0 0 1-9 0zM8 12.5v1.5"),
     ];
 
-    /// <summary>Up and down move between sections, the way a vertical tab list is walked.</summary>
+    private const string ExtensionsId = "extensions";
+    private const string GeneralId = "extensions-general";
+    private const string ExtensionPrefix = "ext:";
+
+    /// <summary>Whether the Extensions group shows its pages in the list.</summary>
+    private bool _extensionsOpen;
+
+    private sealed record Child(string Id, string Title, ExtensionStatus? Status);
+
+    private bool InExtensions => _section == GeneralId || _section.StartsWith(ExtensionPrefix, StringComparison.Ordinal);
+
+    private IReadOnlyList<Child> ExtensionChildren =>
+    [
+        new(GeneralId, "General", null),
+        .. Extensions.Entries
+            .Select(e => new Child(ExtensionPrefix + e.Found.Id, ExtensionLabels.Name(e.Found), e.Status))
+            .OrderBy(c => c.Title, StringComparer.OrdinalIgnoreCase),
+    ];
+
+    /// <summary>The tabs in the order they are drawn, the group's pages only while it is open.</summary>
+    private List<string> VisibleIds =>
+    [
+        .. Sections.SelectMany(s => s.Id == ExtensionsId && _extensionsOpen
+            ? [s.Id, .. ExtensionChildren.Select(c => c.Id)]
+            : new[] { s.Id }),
+    ];
+
+    /// <summary>
+    /// The one tab the Tab key lands on: the selected page's, or the group's
+    /// while it is folded over the selected page.
+    /// </summary>
+    private string FocusId => InExtensions && !_extensionsOpen ? ExtensionsId : _section;
+
+    private bool Focusable(string id) => id == FocusId;
+
+    private void Select(string id)
+    {
+        if (id == ExtensionsId)
+        {
+            // Walking onto the group with the arrows lands on its General page.
+            _section = InExtensions ? _section : GeneralId;
+            return;
+        }
+
+        _section = id;
+        if (InExtensions)
+        {
+            _extensionsOpen = true;
+        }
+    }
+
+    /// <summary>
+    /// From another section, the group opens on General. Within it, a click
+    /// folds or unfolds it and leaves the page in view alone.
+    /// </summary>
+    private void ToggleExtensions()
+    {
+        if (!InExtensions)
+        {
+            _section = GeneralId;
+            _extensionsOpen = true;
+        }
+        else
+        {
+            _extensionsOpen = !_extensionsOpen;
+        }
+    }
+
+    /// <summary>
+    /// Up and down move between sections, the way a vertical tab list is
+    /// walked; right and left unfold and fold Extensions, as in a tree.
+    /// </summary>
     private void OnTabKey(KeyboardEventArgs e, string id)
     {
-        var ids = Sections.Select(s => s.Id).ToList();
+        var ids = VisibleIds;
         var at = ids.IndexOf(id);
+        var inGroup = id == ExtensionsId || ExtensionChildren.Any(c => c.Id == id);
+
+        switch (e.Key)
+        {
+            case "ArrowRight" when id == ExtensionsId && !_extensionsOpen:
+                _extensionsOpen = true;
+                return;
+            case "ArrowLeft" when inGroup && _extensionsOpen:
+                _extensionsOpen = false;
+                _focusTab = true;
+                return;
+        }
+
         var next = e.Key switch
         {
             "ArrowDown" => ids[(at + 1) % ids.Count],
@@ -499,7 +627,7 @@
 
         if (next is not null)
         {
-            _section = next;
+            Select(next);
             _focusTab = true;
         }
     }
@@ -520,7 +648,7 @@
                 await Js.InvokeVoidAsync("agentsKeys.record", _recorder, _recorderSelf);
             }
 
-            if (_focusTab && _tabs.TryGetValue(_section, out var tab))
+            if (_focusTab && _tabs.TryGetValue(FocusId, out var tab))
             {
                 _focusTab = false;
                 await tab.FocusAsync();
@@ -575,7 +703,10 @@
         _expanded = RepoDiscovery.Expand(_settings.RepoRoots);
         TakeSection();
         Bench.Changed += OnBenchChanged;
+        Extensions.Changed += OnExtensionsChanged;
     }
+
+    private void OnExtensionsChanged() => _ = InvokeAsync(StateHasChanged);
 
     /// <summary>A section asked for from outside, Open Keyboard Shortcuts' "keys", taken once.</summary>
     private bool TakeSection()
@@ -586,6 +717,13 @@
         }
 
         Bench.SettingsSection = null;
+        if (wanted == ExtensionsId || ExtensionChildren.Any(c => c.Id == wanted))
+        {
+            _section = wanted == ExtensionsId ? GeneralId : wanted;
+            _extensionsOpen = true;
+            return true;
+        }
+
         if (Sections.Any(s => s.Id == wanted))
         {
             _section = wanted;
@@ -609,6 +747,7 @@
         if (disposing)
         {
             Bench.Changed -= OnBenchChanged;
+            Extensions.Changed -= OnExtensionsChanged;
             _recorderSelf?.Dispose();
         }
 
