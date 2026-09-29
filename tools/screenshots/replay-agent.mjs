@@ -1,4 +1,4 @@
-// A stand-in for the Claude ACP bridge, for recording the extension GIF only.
+// A stand-in for the Claude ACP bridge, for recording the README's GIFs only.
 //
 // take.mjs starts the app from a content root of its own whose acp/ folder
 // holds this script where the bridge would be, so the app is the real build,
@@ -9,8 +9,13 @@
 // "Add and turn on" prompt on screen. It writes Claude's transcript as it goes,
 // since that is where the app reads a finished conversation from.
 //
+// The other scenario, question, is for the Waiting sign GIF: it asks permission
+// to edit a file, which is what puts an agent in Waiting, and finishes once it
+// is answered.
+//
 // Nothing here talks to a model. It is started by the app, never by hand.
 //
+//   TOG_DEMO_SCENARIO extension (the default) or question
 //   TOG_DEMO_EXAMPLE  the example to write out (examples/NodeTests)
 //   TOG_DEMO_TARGET   where to write it
 //   TOG_DEMO_SDK      the app's sdk folder, holding the API it published
@@ -39,7 +44,32 @@ const opening = "I'll make it a Tog extension with a worktree view, so the Tests
 const closing = 'Built with no warnings. Tog is asking you to add it: accept and a Tests tab appears beside Source control. '
   + 'Nothing runs until you press Run all, and each file runs on its own, so its results show as soon as it finishes.';
 
+const scenario = process.env.TOG_DEMO_SCENARIO ?? 'extension';
+
+const plan = 'Moving the conversion into the API: the storefront will send prices as the strings it shows, '
+  + 'and src/lib/money.ts turns them into cents once, exactly, before anything is multiplied.';
+
+const done = 'Done. toCents parses "12.34" into 1234 with no floating point in between, and orders price each line '
+  + 'from the catalogue in cents as before, so a multi-line order can no longer drift by a cent.';
+
+const toCents = `
+/** "12.34" to 1234, exactly: the digits are read as text, never through a float. */
+export function toCents(dollars: string) {
+  const [whole, fraction = ''] = dollars.trim().split('.');
+  return Number(whole) * 100 + Number(fraction.padEnd(2, '0').slice(0, 2));
+}
+`;
+
 const sessions = new Map();
+const pending = new Map();
+let nextId = 1;
+
+// Asks the app something and waits for its answer, as the bridge does for a permission.
+function request(method, params) {
+  const id = nextId++;
+  send({ id, method, params });
+  return new Promise(resolve => pending.set(id, resolve));
+}
 const sleep = ms => new Promise(done => setTimeout(done, ms));
 
 function send(message) {
@@ -57,6 +87,8 @@ createInterface({ input: process.stdin }).on('line', async line => {
 
   const message = JSON.parse(line);
   if (message.method === undefined) {
+    pending.get(message.id)?.(message.result);
+    pending.delete(message.id);
     return;
   }
 
@@ -93,7 +125,7 @@ async function handle(method, params) {
       return method === 'session/new' ? { sessionId } : {};
     }
     case 'session/prompt':
-      await turn(params.sessionId, params.prompt.map(p => p.text ?? '').join(''));
+      await (scenario === 'question' ? question : turn)(params.sessionId, params.prompt.map(p => p.text ?? '').join(''));
       return { stopReason: 'end_turn' };
     default:
       return {};
@@ -134,6 +166,43 @@ async function turn(sessionId, prompt) {
 
   await say(sessionId, closing);
   log.said(closing);
+}
+
+async function question(sessionId, prompt) {
+  const session = sessions.get(sessionId);
+  const log = transcript(sessionId, session);
+  log.user(prompt);
+
+  await say(sessionId, plan);
+  log.said(plan);
+
+  // Long enough for the recording to look at another agent first.
+  await sleep(3500);
+
+  const file = join(session.cwd, 'src', 'lib', 'money.ts');
+  const id = log.toolId();
+  const toolCall = { toolCallId: id, title: 'Edit src/lib/money.ts', kind: 'edit', status: 'pending' };
+  update(sessionId, { sessionUpdate: 'tool_call', ...toolCall });
+  const answer = await request('session/request_permission', {
+    sessionId,
+    toolCall,
+    options: [
+      { optionId: 'allow', name: 'Allow', kind: 'allow_once' },
+      { optionId: 'reject', name: 'Reject', kind: 'reject_once' },
+    ],
+  });
+
+  if (answer?.outcome?.optionId !== 'allow') {
+    update(sessionId, { sessionUpdate: 'tool_call_update', toolCallId: id, status: 'failed' });
+    return;
+  }
+
+  appendFileSync(file, toCents);
+  log.edit(id, file, '', toCents);
+  update(sessionId, { sessionUpdate: 'tool_call_update', toolCallId: id, status: 'completed' });
+
+  await say(sessionId, done);
+  log.said(done);
 }
 
 // Streams text the way the bridge does, a few characters at a time.
@@ -211,6 +280,10 @@ function transcript(sessionId, session) {
     write(id, path) {
       assistant([{ type: 'tool_use', id, name: 'Write', input: { file_path: path, content: readFileSync(path, 'utf8') } }]);
       result(id, `File created successfully at: ${path}`, { toolUseResult: { type: 'create', filePath: path } });
+    },
+    edit(id, path, before, after) {
+      assistant([{ type: 'tool_use', id, name: 'Edit', input: { file_path: path, old_string: before, new_string: after } }]);
+      result(id, `The file ${path} has been updated.`, { toolUseResult: { type: 'update', filePath: path } });
     },
     bash(id, command, output) {
       assistant([{ type: 'tool_use', id, name: 'Bash', input: { command, description: 'Build the extension' } }]);

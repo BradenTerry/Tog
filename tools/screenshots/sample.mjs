@@ -506,5 +506,5 @@ export function createSample(root, { demo = false } = {}) {
     'seen-turns.json': JSON.stringify(Object.fromEntries(records.filter(r => r.TurnEndedAt).map(r => [r.SessionId, r.TurnEndedAt]))),
   });
 
-  return { repo, claudeDir, dataDir, extensionsDir: join(root, 'extensions') };
+  return { repo, claudeDir, dataDir, extensionsDir: join(root, 'extensions'), agents: records };
 }

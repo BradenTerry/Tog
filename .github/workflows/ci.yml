@@ -48,10 +48,12 @@ jobs:
       - name: Build
         run: dotnet build Tog.slnx --no-restore
 
-      # The example extension, against the API just built, so a change to the
-      # API that breaks it fails here.
-      - name: Build example extension
-        run: dotnet build examples/NodeTests -p:TogSdk=${{ github.workspace }}/src/Tog.Extensions/bin/Debug/net10.0
+      # The example extensions, against the API just built, so a change to the
+      # API that breaks one fails here.
+      - name: Build example extensions
+        run: |
+          dotnet build examples/NodeTests -p:TogSdk=${{ github.workspace }}/src/Tog.Extensions/bin/Debug/net10.0
+          dotnet build examples/WaitingSign -p:TogSdk=${{ github.workspace }}/src/Tog.Extensions/bin/Debug/net10.0
 
       # Never --nologo: in Microsoft.Testing.Platform mode it is forwarded to the
       # test application, which rejects it and reports zero tests. --long-running

@@ -1,0 +1,9 @@
+{
+  "id": "waiting-sign",
+  "name": "Waiting sign",
+  "version": "1.0.0",
+  "apiVersion": "1.10",
+  "entry": "WaitingSign.dll",
+  "output": "bin/tog",
+  "description": "When an agent is waiting on you, a small Tog walks out at the bottom right holding a sign that says so. Click the sign to go to the agent."
+}

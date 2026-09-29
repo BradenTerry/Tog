@@ -1,0 +1,122 @@
+/* The Waiting sign example. Every class is prefixed so none can collide with
+   the app's. The overlay layer lets clicks through; only the walkers take them.
+
+   The timeline: a 1.8s walk in with a step and a bob, a hop on arrival, then
+   an idle loop of a swaying sign, a wave, a blink and a nodding sprout. */
+
+.ws-stage {
+    position: absolute;
+    right: 18px;
+    bottom: 30px;
+    display: flex;
+    flex-direction: row-reverse;
+    align-items: flex-end;
+    gap: 2px;
+}
+
+.ws-walker {
+    position: relative;
+    display: block;
+    width: 170px;
+    height: 210px;
+    pointer-events: auto;
+    text-decoration: none;
+    color: inherit;
+    animation:
+        ws-walk-in 1.8s cubic-bezier(0.2, 0.7, 0.3, 1) both,
+        ws-hop 0.45s ease-out 1.8s;
+}
+.ws-walker.leaving { pointer-events: none; animation: ws-walk-out 1.3s ease-in both; }
+.ws-walker:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
+
+/* The sign: a sunny wooden board on the stick the bot holds. */
+.ws-board {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    width: 150px;
+    margin-left: -75px;
+    padding: 8px 10px 7px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1px;
+    border: 2px solid #c98a2c;
+    border-radius: 7px;
+    background: linear-gradient(180deg, #ffe3a1 0%, #f7bd55 100%);
+    box-shadow: 0 6px 14px rgb(0 0 0 / 0.22), inset 0 1px 0 rgb(255 255 255 / 0.6);
+    color: #5a3408;
+    text-align: center;
+    transform-origin: 50% 190%;
+    animation: ws-sway 2.6s ease-in-out 2.2s infinite;
+}
+.ws-board strong { font-size: 13.5px; font-weight: 800; letter-spacing: 0.01em; }
+.ws-agent {
+    max-width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-size: 11px;
+    font-weight: 600;
+    color: #8a5714;
+}
+.ws-walker:hover .ws-board { border-color: #a86f1c; transform: scale(1.04); }
+
+.ws-bang {
+    position: absolute;
+    top: -10px;
+    left: -10px;
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    background: #f0506e;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 800;
+    line-height: 1;
+    box-shadow: 0 2px 6px rgb(0 0 0 / 0.25);
+    animation: ws-pop 0.5s cubic-bezier(0.3, 1.8, 0.5, 1) 1.9s both, ws-pulse 1.6s ease-in-out 2.6s infinite;
+}
+
+/* The stick's top sits under the board's middle. */
+.ws-bot { position: absolute; left: 63px; bottom: 0; overflow: visible; }
+.ws-stick { fill: #c98a2c; }
+.ws-limb { stroke: #3fae6d; stroke-width: 6; stroke-linecap: round; fill: none; }
+.ws-shadow { fill: rgb(0 0 0 / 0.22); }
+
+.ws-leg { transform-box: fill-box; transform-origin: 50% 0; animation: ws-step 0.3s ease-in-out 6 alternate; }
+.ws-leg.back { animation-delay: -0.3s; }
+.ws-walker.leaving .ws-leg { animation: ws-step 0.3s ease-in-out 4 alternate; }
+.ws-walker.leaving .ws-leg.back { animation-delay: -0.3s; }
+
+.ws-wave { transform-box: view-box; transform-origin: 76px 110px; animation: ws-wave 3.2s ease-in-out 2.3s infinite; }
+.ws-sprout { transform-box: view-box; transform-origin: 62px 50px; animation: ws-nod 1.3s ease-in-out infinite alternate; }
+.ws-eyes { transform-box: view-box; transform-origin: 62px 76px; animation: ws-blink 4.2s ease-in-out 2.5s infinite; }
+
+.ws-more {
+    align-self: center;
+    padding: 3px 8px;
+    border-radius: 99px;
+    background: var(--surface-2);
+    color: var(--text-dim);
+    font-size: 11px;
+}
+
+@keyframes ws-walk-in { from { transform: translateX(240px); } to { transform: translateX(0); } }
+@keyframes ws-walk-out { from { transform: translateX(0); opacity: 1; } 80% { opacity: 1; } to { transform: translateX(240px); opacity: 0; } }
+@keyframes ws-hop { 0%, 100% { translate: 0 0; } 40% { translate: 0 -12px; } 70% { translate: 0 2px; } }
+@keyframes ws-step { from { transform: rotate(20deg); } to { transform: rotate(-20deg); } }
+@keyframes ws-sway { 0%, 100% { rotate: -3deg; } 50% { rotate: 3deg; } }
+@keyframes ws-pop { from { transform: scale(0); } to { transform: scale(1); } }
+@keyframes ws-pulse { 0%, 100% { scale: 1; } 50% { scale: 1.15; } }
+@keyframes ws-wave { 0%, 40%, 100% { transform: rotate(0); } 8%, 24% { transform: rotate(-22deg); } 16%, 32% { transform: rotate(10deg); } }
+@keyframes ws-nod { from { transform: rotate(-6deg); } to { transform: rotate(6deg); } }
+@keyframes ws-blink { 0%, 94%, 100% { transform: scaleY(1); } 97% { transform: scaleY(0.1); } }
+
+@media (prefers-reduced-motion: reduce) {
+    .ws-walker, .ws-walker.leaving, .ws-board, .ws-bang, .ws-leg, .ws-wave, .ws-sprout, .ws-eyes { animation: none; }
+    .ws-walker.leaving { opacity: 0; }
+}

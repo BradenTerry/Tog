@@ -8,10 +8,11 @@ this repository in the user's extension folder
 (`tog-extensions/DotnetTestExplorer` and `CSharpCode`). None is
 shipped with the app.
 
-One example lives in this repository, [examples/NodeTests](../examples/NodeTests):
-a Tests tab for `node:test`, written to be read as a model, with notes on what
-it runs and when. The README's GIF shows an agent writing it; its README says
-how that is recorded.
+Two examples live in this repository, written to be read as models:
+[examples/NodeTests](../examples/NodeTests), a Tests tab for `node:test` with
+notes on what it runs and when, and [examples/WaitingSign](../examples/WaitingSign),
+an overlay that walks a small Tog out with a sign when an agent is waiting on
+you. The README's GIFs show both; NodeTests' README says how they are recorded.
 
 The design and its rationale are in [design/extensions.md](design/extensions.md).
 This file is what exists and what is easy to get wrong.

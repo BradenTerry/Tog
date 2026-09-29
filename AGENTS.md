@@ -19,9 +19,9 @@ reviewing their diffs. Anything else is an extension.
 ## Documentation
 
 `README.md` is the landing page for someone arriving on GitHub: what it is, why,
-how to run it, two screenshots and the extension GIF (`assets/screenshots`,
+how to run it, two screenshots and two GIFs of the examples (`assets/screenshots`,
 taken of a sample project by `tools/screenshots/take.mjs`, never by hand; the
-GIF's agent is `replay-agent.mjs`, a scripted stand-in for Claude). `CONTRIBUTING.md` holds
+GIFs' agent is `replay-agent.mjs`, a scripted stand-in for Claude). `CONTRIBUTING.md` holds
 building, testing and the architecture. The long rationale lives in `docs/`, one
 file per subsystem that is easy to get wrong twice:
 

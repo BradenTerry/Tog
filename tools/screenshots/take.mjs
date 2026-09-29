@@ -1,4 +1,4 @@
-// Retakes the README screenshots and the extension GIF in assets/screenshots.
+// Retakes the README screenshots and GIFs in assets/screenshots.
 //
 //   npm ci --prefix tools/screenshots
 //   npx --prefix tools/screenshots playwright install chromium
@@ -9,11 +9,12 @@
 // Chromium through it. Your own settings, agents and Claude config are never
 // read: CLAUDE_CONFIG_DIR points the app at the sample's.
 //
-// The GIF needs ffmpeg on the PATH, and is recorded against a second run of
-// the app whose agent is replay-agent.mjs rather than Claude; see gif.mjs.
+// The GIFs need ffmpeg on the PATH, and are recorded against runs of the app
+// whose agent is replay-agent.mjs rather than Claude; see gif.mjs.
 //
 // CHROME=/path/to/chrome uses that browser instead of Playwright's download.
-// --no-build skips the build, --no-gif and --gif-only do what they say. The
+// --no-build skips the build, --no-gif and --gif-only do what they say, and
+// --gif=waiting (or extension) records just that one. The
 // sample is left on disk to look at, and replaced on the next run.
 
 import { execFileSync, spawn } from 'node:child_process';
@@ -22,7 +23,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { chromium } from 'playwright';
-import { recordGif } from './gif.mjs';
+import { extensionScript, questionScript, recordGif } from './gif.mjs';
 import { createSample } from './sample.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -30,6 +31,8 @@ const repoRoot = resolve(here, '../..');
 const out = join(repoRoot, 'assets', 'screenshots');
 const appDir = join(repoRoot, 'src', 'Tog.App');
 const args = new Set(process.argv.slice(2));
+const onlyGif = [...args].find(a => a.startsWith('--gif='))?.slice('--gif='.length);
+const wants = name => !args.has('--no-gif') && (onlyGif ?? name) === name;
 
 // A short, neutral path, since the status bar prints it.
 const sampleRoot = process.platform === 'win32' ? join(tmpdir(), 'tog-sample') : '/tmp/tog-sample';
@@ -51,34 +54,54 @@ if (!args.has('--gif-only')) {
   console.log(`Screenshots written to ${out}`);
 }
 
-// Once per theme, each against a fresh sample, since the agent's turn and the
-// extension it adds are part of the picture.
+// The GIFs' agent is replay-agent.mjs. The app finds its agent bridge under
+// its content root, which is the folder it starts in, so starting it from a
+// folder whose acp/ holds the replay agent swaps Claude out without touching
+// the app or its build.
+const contentRoot = join(tmpdir(), 'tog-gif-app');
+const bridge = join(contentRoot, 'acp', 'node_modules', '@agentclientprotocol', 'claude-agent-acp', 'dist', 'index.js');
+mkdirSync(dirname(bridge), { recursive: true });
+writeFileSync(bridge, `import(${JSON.stringify(pathToFileURL(join(here, 'replay-agent.mjs')).href)});\n`);
+
+const waitingSign = join(repoRoot, 'examples', 'WaitingSign');
+if (!args.has('--no-gif')) {
+  execFileSync('dotnet', ['build', waitingSign, '-v', 'q', '-nologo', `-p:TogSdk=${dirname(dll)}`], { stdio: 'inherit' });
+}
+
+// Once per theme, each against a fresh sample, since what the agents do is
+// part of the picture.
 for (const scheme of args.has('--no-gif') ? [] : ['light', 'dark']) {
-  const sample = createSample(sampleRoot, { demo: true });
-  const target = join(sample.extensionsDir, 'NodeTests');
+  if (wants('extension')) {
+    const demo = createSample(sampleRoot, { demo: true });
+    const target = join(demo.extensionsDir, 'NodeTests');
+    await withApp(['--data-dir', demo.dataDir], contentRoot, {
+      CLAUDE_CONFIG_DIR: demo.claudeDir,
+      TOG_DEMO_EXAMPLE: join(repoRoot, 'examples', 'NodeTests'),
+      TOG_DEMO_TARGET: target,
+      TOG_DEMO_SDK: join(demo.dataDir, 'sdk'),
+    }, url => record(url, `extension-${scheme}.gif`, scheme, extensionScript(target)));
+  }
 
-  // The app finds its agent bridge under its content root, which is the
-  // folder it starts in. Starting it from a folder whose acp/ holds the
-  // replay agent swaps Claude out without touching the app or its build.
-  const contentRoot = join(sampleRoot, 'app');
-  const bridge = join(contentRoot, 'acp', 'node_modules', '@agentclientprotocol', 'claude-agent-acp', 'dist', 'index.js');
-  mkdirSync(dirname(bridge), { recursive: true });
-  writeFileSync(bridge, `import(${JSON.stringify(pathToFileURL(join(here, 'replay-agent.mjs')).href)});\n`);
+  if (!wants('waiting')) {
+    continue;
+  }
 
-  await withApp(['--data-dir', sample.dataDir], contentRoot, {
+  const sample = createSample(sampleRoot);
+  const asking = sample.agents.find(a => a.Title === 'Fix rounding in order totals');
+  await withApp(['--data-dir', sample.dataDir, '--extension', waitingSign], contentRoot, {
     CLAUDE_CONFIG_DIR: sample.claudeDir,
-    TOG_DEMO_EXAMPLE: join(repoRoot, 'examples', 'NodeTests'),
-    TOG_DEMO_TARGET: target,
-    TOG_DEMO_SDK: join(sample.dataDir, 'sdk'),
-  }, async url => {
-    const browser = await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : {});
-    try {
-      await recordGif(browser, url, join(out, `extension-${scheme}.gif`), { colorScheme: scheme, settle, target });
-    } finally {
-      await browser.close();
-    }
-  });
-  console.log(`extension-${scheme}.gif written to ${out}`);
+    TOG_DEMO_SCENARIO: 'question',
+  }, url => record(url, `waiting-${scheme}.gif`, scheme, questionScript(url, asking.SessionId, 'rate limiting')));
+}
+
+async function record(url, name, colorScheme, script) {
+  const browser = await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : {});
+  try {
+    await recordGif(browser, url, join(out, name), { colorScheme, settle, script });
+    console.log(`${name} written to ${out}`);
+  } finally {
+    await browser.close();
+  }
 }
 
 async function withApp(appArgs, cwd, env, use) {

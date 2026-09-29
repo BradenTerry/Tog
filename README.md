@@ -44,6 +44,10 @@ actually need from them are the things a terminal is worst at:
 It is a native desktop app on macOS, Windows and Linux. Nothing to configure:
 it reads what Claude Code and git already write.
 
+Today it runs Claude Code agents only. Tog already starts and steers them
+over the [Agent Client Protocol](https://agentclientprotocol.com), an open
+standard other coding agents speak too, so support for more agents is planned.
+
 ## Get started
 
 You need the .NET SDK named in [`global.json`](global.json), `git`, Node 22 or
@@ -115,6 +119,17 @@ Nothing loads until you accept. Or start from the template with
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/extension-dark.gif">
     <img src="assets/screenshots/extension-light.gif" alt="An agent writes and builds a Tests extension, Tog asks to add it, and the new Tests tab runs the project's tests" width="900">
+  </picture>
+</p>
+
+Extensions can be for fun, too. [examples/WaitingSign](examples/WaitingSign)
+sends a small Tog out with a sign whenever an agent is waiting on you, even
+while you are looking at another one. Its sign takes you to the agent.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/waiting-dark.gif">
+    <img src="assets/screenshots/waiting-light.gif" alt="While you look at another agent, a small Tog walks in holding a sign saying I need an answer; clicking it opens the agent's permission prompt" width="900">
   </picture>
 </p>
 

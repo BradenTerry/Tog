@@ -1,11 +1,16 @@
-// Records the README's extension GIF: a request typed into an agent's chat,
-// the agent writing and building an extension, Tog asking to add it, and
-// the new Tests tab running the sample's tests.
+// Records the README's GIFs. Two scripts:
+//
+// - extension: a request typed into an agent's chat, the agent writing and
+//   building an extension, Tog asking to add it, and the new Tests tab
+//   running the sample's tests.
+// - question: an agent asked to go ahead, then left for another one; it stops
+//   to ask permission, the Waiting sign example walks out, and its sign leads
+//   back to the agent to answer.
 //
 // The app is the real build. The agent is replay-agent.mjs, which plays one
 // fixed turn over ACP, so the picture is the same on every run and no model is
-// called. Everything after the agent's turn is the app and the extension doing
-// what they do: the prompt to add it is Tog's own, and the tests really run.
+// called. Everything else is the app and the extensions doing what they do:
+// the prompt to add one is Tog's own, and the tests really run.
 //
 // Frames come from Chromium's screencast, which sends one whenever the page
 // changes, with its time. The GIF keeps those times, except while the
@@ -17,11 +22,10 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const prompt = 'Build me an extension that lists the tests in this project and lets me run them.';
 const width = 1440;
 const height = 900;
 
-export async function recordGif(browser, url, file, { colorScheme, settle, target }) {
+export async function recordGif(browser, url, file, { colorScheme, settle, script }) {
   const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 2, colorScheme });
   await page.goto(url);
   // As in take.mjs: the sample has no node_modules, so every import would be
@@ -29,14 +33,7 @@ export async function recordGif(browser, url, file, { colorScheme, settle, targe
   await page.addStyleTag({ content: '.squiggly-error, .squiggly-warning { display: none; }' });
   await page.locator('.tree-row').first().waitFor();
   await settle(page);
-
-  // The tests the extension will find, open in the editor from the start.
-  await page.locator('button[title^="Go to File"]').click();
-  await settle(page, 500);
-  await page.keyboard.type('money.test.ts', { delay: 20 });
-  await settle(page);
-  await page.keyboard.press('Enter');
-  await settle(page, 3000);
+  await script.prepare(page, settle);
 
   const frames = [];
   let speed = 1;
@@ -49,7 +46,7 @@ export async function recordGif(browser, url, file, { colorScheme, settle, targe
 
   const hold = ms => page.waitForTimeout(ms);
   try {
-    await play(page, hold, target, value => (speed = value));
+    await script.play(page, hold, value => (speed = value));
   } catch (e) {
     await page.screenshot({ path: `${file}.failed.png` });
     throw e;
@@ -60,14 +57,63 @@ export async function recordGif(browser, url, file, { colorScheme, settle, targe
   encode(frames, file);
 }
 
-async function play(page, hold, target, setSpeed) {
-  await hold(1200);
+async function openFile(page, settle, name) {
+  await page.locator('button[title^="Go to File"]').click();
+  await settle(page, 500);
+  await page.keyboard.type(name, { delay: 20 });
+  await settle(page);
+  await page.keyboard.press('Enter');
+  await settle(page, 3000);
+}
 
-  const box = page.locator('.chat-panel textarea, textarea').last();
+async function send(page, hold, text) {
+  const box = page.locator('textarea').last();
   await box.click();
-  await box.pressSequentially(prompt, { delay: 28 });
+  await box.pressSequentially(text, { delay: 28 });
   await hold(500);
   await page.keyboard.press('Enter');
+}
+
+/** The extension GIF. target is the folder the agent writes the extension to. */
+export const extensionScript = target => ({
+  // The tests the extension will find, open in the editor from the start.
+  prepare: (page, settle) => openFile(page, settle, 'money.test.ts'),
+  play: (page, hold, setSpeed) => playExtension(page, hold, setSpeed, target),
+});
+
+/** The Waiting sign GIF, on the agent with sessionId, which ended its last turn with a question. */
+export const questionScript = (url, sessionId, elsewhere) => ({
+  async prepare(page, settle) {
+    await page.goto(new URL(`/chat/${sessionId}`, url).href);
+    await page.locator('.tree-row').first().waitFor();
+    await openFile(page, settle, 'money.ts');
+  },
+  async play(page, hold) {
+    await hold(1200);
+    await send(page, hold, 'Yes, move it into the API.');
+    await hold(2600);
+
+    // Off to another agent while this one works.
+    await page.locator('.agent-count', { hasText: 'stopped' }).click();
+    await hold(700);
+    await page.locator('.agent-count-item', { hasText: elsewhere }).click();
+
+    const walker = page.locator('.ws-walker');
+    await walker.waitFor({ timeout: 60_000 });
+    await hold(4200);
+    await walker.click();
+    await hold(1800);
+
+    await page.getByRole('button', { name: 'Allow', exact: true }).click();
+    await walker.waitFor({ state: 'detached', timeout: 30_000 });
+    await hold(2500);
+  },
+});
+
+async function playExtension(page, hold, setSpeed, target) {
+  await hold(1200);
+
+  await send(page, hold, 'Build me an extension that lists the tests in this project and lets me run them.');
 
   // The build is the one wait worth shortening. It starts once the agent
   // has written the last file, the stylesheet.

@@ -1,0 +1,137 @@
+@inherits OverlayBase
+@implements IDisposable
+@inject ITogView Tog
+
+@* One small Tog per agent waiting on you, at the bottom right, holding a sign
+   with the agent's name. It walks in when the agent starts waiting and walks
+   back out once you have answered. The sign is a link to the agent. *@
+
+<div class="ws-stage">
+    @foreach (var walker in _walkers.Take(MaxShown))
+    {
+        <a class="ws-walker @(walker.Leaving ? "leaving" : "")" href="@($"/chat/{Uri.EscapeDataString(walker.AgentId)}")"
+           @key="walker.AgentId" aria-label="@($"{walker.Label} is waiting on you. Go to it.")">
+            <span class="ws-board">
+                <span class="ws-bang" aria-hidden="true">!</span>
+                <strong>I need an answer</strong>
+                <span class="ws-agent">@walker.Label</span>
+            </span>
+            <svg class="ws-bot" width="110" height="150" viewBox="0 0 110 150" aria-hidden="true">
+                <defs>
+                    <linearGradient id="@($"ws-head-{walker.AgentId}")" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0" stop-color="#c8f5d3" />
+                        <stop offset="1" stop-color="#5fcb8a" />
+                    </linearGradient>
+                </defs>
+                <ellipse class="ws-shadow" cx="62" cy="145" rx="22" ry="3.5" />
+                <rect class="ws-stick" x="20" y="0" width="5" height="126" rx="2" />
+                <g class="ws-leg"><rect x="51" y="122" width="8" height="16" rx="4" fill="#2f8a57" /><rect x="47" y="135" width="14" height="7" rx="3.5" fill="#ff8a4c" /></g>
+                <g class="ws-leg back"><rect x="65" y="122" width="8" height="16" rx="4" fill="#2f8a57" /><rect x="63" y="135" width="14" height="7" rx="3.5" fill="#ff8a4c" /></g>
+                <rect x="45" y="104" width="34" height="24" rx="11" fill="#3fae6d" />
+                <ellipse cx="62" cy="117" rx="9" ry="6" fill="#c8f5d3" />
+                <path class="ws-limb" d="M49 110 Q36 104 24 96" />
+                <circle cx="23" cy="96" r="4.5" fill="#5fcb8a" />
+                <g class="ws-wave">
+                    <path class="ws-limb" d="M76 110 Q88 104 91 92" />
+                    <circle cx="91" cy="90" r="4.5" fill="#5fcb8a" />
+                </g>
+                <g class="ws-sprout">
+                    <path d="M62 52 V33" stroke="#2f8a57" stroke-width="3.5" stroke-linecap="round" />
+                    <path d="M62 42 C50 42 43 35 42 23 C54 23 61 30 62 42 Z" fill="#3fae6d" />
+                    <path d="M62 35 C74 35 82 28 83 15 C70 15 63 22 62 35 Z" fill="#7ad99b" />
+                </g>
+                <circle cx="29" cy="78" r="5" fill="#5fcb8a" stroke="#2f8a57" stroke-width="1.5" />
+                <circle cx="95" cy="78" r="5" fill="#5fcb8a" stroke="#2f8a57" stroke-width="1.5" />
+                <rect x="29" y="47" width="66" height="60" rx="25" fill="@($"url(#ws-head-{walker.AgentId})")" stroke="#2f8a57" stroke-width="1.5" />
+                <g class="ws-eyes">
+                    <ellipse cx="50" cy="76" rx="6" ry="7.5" fill="#1f2a44" />
+                    <ellipse cx="74" cy="76" rx="6" ry="7.5" fill="#1f2a44" />
+                    <circle cx="52.2" cy="73" r="2.3" fill="#fff" />
+                    <circle cx="76.2" cy="73" r="2.3" fill="#fff" />
+                </g>
+                <ellipse cx="41" cy="88" rx="5" ry="3" fill="#ff8fa3" opacity="0.8" />
+                <ellipse cx="83" cy="88" rx="5" ry="3" fill="#ff8fa3" opacity="0.8" />
+                <path d="M56 87 Q62 96 68 87 Z" fill="#1f2a44" stroke="#1f2a44" stroke-width="1.5" stroke-linejoin="round" />
+            </svg>
+        </a>
+    }
+    @if (_walkers.Count(w => !w.Leaving) > MaxShown)
+    {
+        <span class="ws-more">+@(_walkers.Count(w => !w.Leaving) - MaxShown) more</span>
+    }
+</div>
+
+@code {
+    private const int MaxShown = 3;
+
+    // Long enough for the walk out in extension.css to finish.
+    private static readonly TimeSpan WalkOut = TimeSpan.FromMilliseconds(1400);
+
+    private sealed record Walker(string AgentId, string Label, bool Leaving = false);
+
+    private List<Walker> _walkers = [];
+
+    protected override void OnInitialized()
+    {
+        Tog.Changed += OnChanged;
+        Update();
+    }
+
+    // Changed comes about once a second from the monitor's thread; the overlay
+    // is not re-rendered for it, so it renders itself, and only when the set of
+    // waiting agents moved.
+    private void OnChanged() => _ = InvokeAsync(() =>
+    {
+        if (Update())
+        {
+            StateHasChanged();
+        }
+    });
+
+    private bool Update()
+    {
+        var waiting = Tog.Current.Agents.Where(a => a.State == AgentState.Waiting).ToList();
+        var ids = waiting.Select(a => a.AgentId).ToHashSet(StringComparer.Ordinal);
+
+        var next = new List<Walker>();
+        var changed = false;
+        foreach (var walker in _walkers)
+        {
+            if (!walker.Leaving && !ids.Contains(walker.AgentId))
+            {
+                next.Add(walker with { Leaving = true });
+                _ = RemoveLater(walker.AgentId);
+                changed = true;
+            }
+            else
+            {
+                next.Add(walker);
+            }
+        }
+
+        foreach (var agent in waiting.Where(a => !next.Any(w => w.AgentId == a.AgentId && !w.Leaving)))
+        {
+            // An agent that starts waiting again while it walks off comes back.
+            next.RemoveAll(w => w.AgentId == agent.AgentId);
+            next.Add(new Walker(agent.AgentId, agent.Label));
+            changed = true;
+        }
+
+        _walkers = next;
+        return changed;
+    }
+
+    private async Task RemoveLater(string agentId)
+    {
+        await Task.Delay(WalkOut);
+        await InvokeAsync(() =>
+        {
+            if (_walkers.RemoveAll(w => w.AgentId == agentId && w.Leaving) > 0)
+            {
+                StateHasChanged();
+            }
+        });
+    }
+
+    public void Dispose() => Tog.Changed -= OnChanged;
+}
