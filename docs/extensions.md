@@ -156,8 +156,10 @@ An extension declares its settings in `Configure` with `AddSetting` (API 1.9),
 each an on/off switch (`ExtensionSetting.Toggle`) or one value out of a few
 (`ExtensionSetting.Choice`), and Settings draws them on the extension's own
 page. Extensions in the Settings list unfolds into General, where extensions
-are listed, added and removed, and a page per extension with its switch, its
-settings and where it came from. The app draws them so every extension's settings look and
+are listed, switched on and off, added and removed, and a page per extension
+with the same switch, its settings and where it came from. Switching on an
+installed one from the list asks the same consent question under its row as
+its page does (`ExtensionConsent`). The app draws them so every extension's settings look and
 behave the same, and so the user finds them in one place rather than in
 whichever view the extension happened to put a gear in.
 

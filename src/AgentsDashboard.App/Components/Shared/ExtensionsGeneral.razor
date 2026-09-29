@@ -5,14 +5,14 @@
 @implements IDisposable
 
 @* The General page of Extensions: which ones there are, where they come from,
-   and adding or removing them. Each extension's own switch and settings are on
-   its page, opened from this list or from the side. *@
+   turning them on and off, and adding or removing them. Each extension's own
+   settings are on its page, opened from this list or from the side. *@
 
 <section class="settings-group">
     <div class="settings-group-head">
         <div class="stack">
             <h3>Installed</h3>
-            <span class="faint">Open one to turn it on or off and change its settings.</span>
+            <span class="faint">Switch one on or off here, or open it to change its settings.</span>
         </div>
         <button class="ghost small spacer" @onclick="Rescan">Look again</button>
     </div>
@@ -32,28 +32,46 @@
         {
             var found = entry.Found;
             var manifest = found.Manifest;
-            <button type="button" class="row ext-list-row" @onclick="() => OnOpen.InvokeAsync(found.Id)"
-                    title="@($"Open {ExtensionLabels.Name(found)}")">
-                <span class="ext-status-dot @ExtensionLabels.StatusClass(entry.Status)" aria-hidden="true"></span>
-                <span class="stack" style="flex: 1; min-width: 0;">
-                    <span class="inline">
-                        <strong>@ExtensionLabels.Name(found)</strong>
-                        @if (manifest is not null)
+            var asking = _confirming == found.Id;
+            var on = entry.Status is ExtensionStatus.Loaded or ExtensionStatus.Failed;
+            <div class="row ext-list-row">
+                <button type="button" class="ext-list-open" @onclick="() => OnOpen.InvokeAsync(found.Id)"
+                        title="@($"Open {ExtensionLabels.Name(found)}")">
+                    <span class="ext-status-dot @ExtensionLabels.StatusClass(entry.Status)" aria-hidden="true"></span>
+                    <span class="stack" style="flex: 1; min-width: 0;">
+                        <span class="inline">
+                            <strong>@ExtensionLabels.Name(found)</strong>
+                            @if (manifest is not null)
+                            {
+                                <span class="faint nums">@manifest.Version</span>
+                            }
+                        </span>
+                        @if (manifest?.Description is { Length: > 0 } description)
                         {
-                            <span class="faint nums">@manifest.Version</span>
+                            <span class="muted truncate">@description</span>
                         }
                     </span>
-                    @if (manifest?.Description is { Length: > 0 } description)
-                    {
-                        <span class="muted truncate">@description</span>
-                    }
-                </span>
-                <span class="chip" title="@ExtensionLabels.SourceTip(found.Source)">@ExtensionLabels.SourceName(found.Source)</span>
-                <span class="chip @ExtensionLabels.StatusClass(entry.Status)">@ExtensionLabels.StatusName(entry.Status)</span>
-                <svg class="ext-list-chevron" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-                    <path d="M6 3.5l4.5 4.5L6 12.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-                </svg>
-            </button>
+                    <span class="chip" title="@ExtensionLabels.SourceTip(found.Source)">@ExtensionLabels.SourceName(found.Source)</span>
+                    <span class="chip @ExtensionLabels.StatusClass(entry.Status)">@ExtensionLabels.StatusName(entry.Status)</span>
+                    <svg class="ext-list-chevron" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                        <path d="M6 3.5l4.5 4.5L6 12.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                </button>
+                @* Checked while its question is open, so Cancel puts the switch back:
+                   the browser has already flipped it, and Blazor only writes the
+                   attribute when the rendered value changes. *@
+                <input type="checkbox" class="switch" role="switch"
+                       checked="@(on || asking)"
+                       disabled="@(!CanSwitch(entry, on))"
+                       title="@SwitchTip(entry, on)"
+                       aria-label="@($"{ExtensionLabels.Name(found)} on")"
+                       @onchange="e => Switch(found, (bool)e.Value!)" />
+            </div>
+            @if (asking)
+            {
+                <ExtensionConsent Found="found" Class="ext-list-consent"
+                                  OnEnable="() => Enable(found.Id)" OnCancel="() => _confirming = null" />
+            }
         }
     </div>
 </section>
@@ -194,6 +212,7 @@
     private string _path = "";
     private string? _error;
     private bool _picking;
+    private string? _confirming;
     private IReadOnlyList<(SkillTarget Target, SkillState State)> _skills = [];
     private string? _skillError;
 
@@ -226,6 +245,44 @@
     };
 
     private void OnChanged() => _ = InvokeAsync(StateHasChanged);
+
+    /// <summary>
+    /// One with no manifest cannot be turned on, and one named on the command
+    /// line cannot be turned off, the same limits as the buttons on its page.
+    /// </summary>
+    private static bool CanSwitch(ExtensionEntry entry, bool on) =>
+        on ? entry.Found.Source != ExtensionSource.CommandLine : entry.Found.Manifest is not null;
+
+    private static string SwitchTip(ExtensionEntry entry, bool on) => CanSwitch(entry, on)
+        ? on ? "Turn off" : "Turn on"
+        : on ? "Named on the command line, so it stays on" : "Its extension.json cannot be read";
+
+    /// <summary>
+    /// A folder you linked is turned on as it is; an installed copy is asked
+    /// about first, below its row, as its page would.
+    /// </summary>
+    private Task Switch(FoundExtension found, bool on)
+    {
+        if (!on)
+        {
+            _confirming = null;
+            return OffWindow(() => Extensions.Disable(found.Id));
+        }
+
+        if (found.IsDev)
+        {
+            return Enable(found.Id);
+        }
+
+        _confirming = found.Id;
+        return Task.CompletedTask;
+    }
+
+    private Task Enable(string id)
+    {
+        _confirming = null;
+        return OffWindow(() => Extensions.Enable(id));
+    }
 
     private Task Rescan() => OffWindow(Extensions.Rescan);
 
