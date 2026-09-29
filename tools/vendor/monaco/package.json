@@ -2,6 +2,6 @@
   "name": "tog-vendor-monaco",
   "private": true,
   "dependencies": {
-    "monaco-editor": "0.56.0"
+    "monaco-editor": "0.57.0"
   }
 }
