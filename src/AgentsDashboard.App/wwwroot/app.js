@@ -706,6 +706,27 @@ function bindMenuKeys(menu) {
     });
 }
 
+// Backspace outside a text field is WebKit's Back, and the Mac's delete key
+// sends Backspace. Delete on an agent in the agent list opened the remove
+// dialog and also went back to the agent viewed before, which Cancel then
+// left on screen. Nothing in the app wants Back from that key, so its default
+// is dropped wherever it would not edit text. Only the default: the key still
+// reaches the Blazor handlers that act on it.
+document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Backspace') {
+        return;
+    }
+
+    const target = event.target;
+    const editable = target?.isContentEditable
+        || (target instanceof HTMLTextAreaElement && !target.readOnly)
+        || (target instanceof HTMLInputElement && !target.readOnly
+            && !['button', 'checkbox', 'radio', 'range', 'color', 'file', 'submit', 'reset', 'image'].includes(target.type));
+    if (!editable) {
+        event.preventDefault();
+    }
+}, true);
+
 // Tab inside a modal dialog. The window is WebKit, which like Safari tabs only
 // between text fields unless the Mac's keyboard navigation setting is on, and
 // a dialog such as New agent is mostly buttons (every Picker is one), so Tab

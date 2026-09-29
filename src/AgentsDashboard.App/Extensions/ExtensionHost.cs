@@ -494,12 +494,10 @@ public sealed class ExtensionHost : IDisposable
             return;
         }
 
-        // One in an extension folder runs with nothing stored, and the first
-        // entry written for it must not read as turned off. One passed on the
-        // command line runs whatever is stored, so it is left as it was.
+        // One passed on the command line runs whatever is stored, so its
+        // Enabled is left as it was; anything else loaded was turned on.
         SaveState(id, s => s with
         {
-            Enabled = s.Enabled || loaded.Found.Source != ExtensionSource.CommandLine,
             Settings = new Dictionary<string, string>(s.Settings, StringComparer.Ordinal) { [settingId] = value },
         });
 
@@ -566,8 +564,9 @@ public sealed class ExtensionHost : IDisposable
     }
 
     /// <summary>
-    /// Adds a folder of extensions. What is in it now is found and turned on,
-    /// and so is anything put in it later.
+    /// Adds a folder of extensions. What is in it now is found and turned on:
+    /// the user is looking at the folder they chose. Anything put in it later
+    /// is asked about, since an agent can write there too.
     /// </summary>
     public string? AddFolder(string folder)
     {
@@ -588,6 +587,15 @@ public sealed class ExtensionHost : IDisposable
             _settings.Save(settings with { ExtensionFolders = [.. settings.ExtensionFolders, full] });
         }
 
+        // One the user already decided about keeps that decision.
+        foreach (var found in ExtensionCatalog.InFolder(full).Select(dir => ExtensionCatalog.Read(dir, ExtensionSource.InFolder)))
+        {
+            if (found.Manifest is { } manifest && !_settings.Load().Extensions.ContainsKey(manifest.Id))
+            {
+                SaveState(manifest.Id, s => s with { Enabled = true });
+            }
+        }
+
         Rescan();
         return null;
     }
@@ -604,20 +612,15 @@ public sealed class ExtensionHost : IDisposable
     }
 
     /// <summary>
-    /// Whether the user wants an extension running. One in an extension folder
-    /// is on until it is turned off: adding the folder was the choice to run
-    /// what is in it, and an extension that appears there later should not need
-    /// a second click.
+    /// Whether the user wants an extension running. Only one passed on the
+    /// command line runs without a stored yes. One that appears in an extension
+    /// folder after it was added is not on: an agent can write an extension
+    /// there, and adding the folder was not consent to what it writes later.
     /// </summary>
     private bool IsOn(FoundExtension found)
     {
-        if (found.Source == ExtensionSource.CommandLine)
-        {
-            return true;
-        }
-
-        var state = _settings.Load().Extensions.GetValueOrDefault(found.Id);
-        return state is { Enabled: true } || (state is null && found.Source == ExtensionSource.InFolder);
+        return found.Source == ExtensionSource.CommandLine
+            || _settings.Load().Extensions.GetValueOrDefault(found.Id) is { Enabled: true };
     }
 
     /// <summary>Decides whether a found extension should run, and loads it if so.</summary>
@@ -639,7 +642,16 @@ public sealed class ExtensionHost : IDisposable
         var state = _settings.Load().Extensions.GetValueOrDefault(found.Id);
         if (!IsOn(found))
         {
-            SetState(found.Id, ExtensionStatus.Disabled, null);
+            if (found.Source == ExtensionSource.InFolder && state is null)
+            {
+                SetState(found.Id, ExtensionStatus.NeedsConsent,
+                    "New in one of your extension folders. Enable it to run it.");
+            }
+            else
+            {
+                SetState(found.Id, ExtensionStatus.Disabled, null);
+            }
+
             return;
         }
 
