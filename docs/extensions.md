@@ -497,8 +497,9 @@ missing manifest.
 An extension folder is for keeping several projects side by side. The app
 watches it, not recursively deep: a folder appearing or going directly inside,
 or an `extension.json` written into one, rescans. A new project is found as
-soon as `dotnet new` writes its manifest, fails as "not built yet", and loads
-on its first build through the same watcher a linked folder has.
+soon as `dotnet new` writes its manifest and is asked about (see Trust); once
+turned on it fails as "not built yet" and loads on its first build through the
+same watcher a linked folder has.
 
 ## Loading
 
@@ -615,9 +616,12 @@ sandbox it, and a load context is not a security boundary. So:
   It is not asked about again on every build.
 - An agent can only ask to link one (`dashboard_extension_add`). You answer a
   prompt; nothing is linked until you accept.
-- Adding an extension folder is the choice to run what is in it, now and later,
-  so an extension found there is on until you disable it. Disabling is saved,
-  and it stays off when it next appears.
+- Adding an extension folder turns on what is in it then. One that appears
+  there later is off, and a prompt asks in every window, as the add tool's
+  does: an agent can write into the folder without asking, so adding it is not
+  consent to what lands there next. *Turn on* saves a yes, after which rebuilds
+  reload it as for a linked folder; *Leave off* saves a disable, and Settings
+  can still turn it on. Until one is answered it is asked again on every start.
 - Extensions come only from local folders. No download, no marketplace.
 - A secret is asked about per extension and per build, and never reaches an
   agent. See Secrets above for what that does and does not protect.

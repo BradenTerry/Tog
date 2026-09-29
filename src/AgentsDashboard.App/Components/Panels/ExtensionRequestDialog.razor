@@ -2,10 +2,11 @@
 @inject ExtensionRequests Requests
 @implements IDisposable
 
-@* An agent asking to add an extension it built. It is code that will run in
-   the app as you, so it is asked in front of you, in whichever window you are
-   looking at, the moment it arrives. Only Add turns it on; Escape and Not now
-   leave it off. *@
+@* An agent asking to add an extension it built, or an extension that appeared
+   in one of your extension folders. It is code that will run in the app as
+   you, so it is asked in front of you, in whichever window you are looking
+   at, the moment it arrives. Only the primary button turns it on; Escape and
+   the other leave it off. *@
 
 @if (Requests.Pending.FirstOrDefault() is { } request)
 {
@@ -13,7 +14,9 @@
         <div class="modal" role="alertdialog" aria-modal="true" aria-labelledby="ext-request-title"
              aria-describedby="ext-request-body" tabindex="-1" @onkeydown="e => OnKey(e, request)">
             <header class="modal-head">
-                <h2 id="ext-request-title">An agent wants to add @request.Manifest.Name</h2>
+                <h2 id="ext-request-title">
+                    @(request.InFolder ? $"New extension: {request.Manifest.Name}" : $"An agent wants to add {request.Manifest.Name}")
+                </h2>
                 <span class="faint">@request.Manifest.Version</span>
             </header>
 
@@ -32,8 +35,12 @@
                     </p>
                 }
                 <p>
+                    @if (request.InFolder)
+                    {
+                        <text>It appeared in one of your extension folders and is not running.</text>
+                    }
                     Extensions run with your permissions and can read and write your files and start programs.
-                    After you add it, every rebuild of this folder reloads it without asking again.
+                    After you turn it on, every rebuild of this folder reloads it without asking again.
                 </p>
                 @if (_error is { Length: > 0 })
                 {
@@ -46,8 +53,8 @@
                 {
                     <span class="faint spacer">@(Requests.Pending.Count - 1) more waiting</span>
                 }
-                <button class="ghost" @onclick="() => Dismiss(request)">Not now</button>
-                <button class="primary" @onclick="() => Accept(request)" disabled="@_busy">Add and turn on</button>
+                <button class="ghost" @onclick="() => Dismiss(request)">@(request.InFolder ? "Leave off" : "Not now")</button>
+                <button class="primary" @onclick="() => Accept(request)" disabled="@_busy">@(request.InFolder ? "Turn on" : "Add and turn on")</button>
             </div>
         </div>
     </div>

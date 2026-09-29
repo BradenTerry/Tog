@@ -6,7 +6,14 @@ namespace AgentsDashboard.App.Extensions;
 /// <param name="Folder">The extension's folder, absolute.</param>
 /// <param name="Manifest">Its manifest as read when it asked.</param>
 /// <param name="AgentFolder">Where the asking agent works, when known.</param>
-public sealed record ExtensionRequest(string Folder, ExtensionManifest Manifest, string? AgentFolder);
+/// <param name="Id">
+/// Set when nobody asked: the extension appeared in one of the user's
+/// extension folders, which is found already, and only needs turning on.
+/// </param>
+public sealed record ExtensionRequest(string Folder, ExtensionManifest Manifest, string? AgentFolder, string? Id = null)
+{
+    public bool InFolder => Id is not null;
+}
 
 /// <summary>
 /// Extensions agents have asked to add, waiting for the user.
@@ -17,11 +24,24 @@ public sealed record ExtensionRequest(string Folder, ExtensionManifest Manifest,
 /// answers in one of them; only their Add links the folder. What is checked on
 /// the way in is what would make Add fail anyway, so the agent hears about it
 /// at once rather than the user finding out from a prompt that cannot work.
+///
+/// An extension that appears in one of the user's extension folders is asked
+/// about here too, with no agent behind the request: agents can write into
+/// those folders without calling the add tool. It is read from the host's
+/// state rather than queued, so it is asked again after a restart until it
+/// is answered, and a no is kept as a disable.
 /// </remarks>
-public sealed class ExtensionRequests(ExtensionHost extensions)
+public sealed class ExtensionRequests
 {
+    private readonly ExtensionHost _extensions;
     private readonly Lock _gate = new();
     private List<ExtensionRequest> _pending = [];
+
+    public ExtensionRequests(ExtensionHost extensions)
+    {
+        _extensions = extensions;
+        extensions.Changed += () => Changed?.Invoke();
+    }
 
     /// <summary>Raised when a request arrives or is answered, on whatever thread did it.</summary>
     public event Action? Changed;
@@ -30,10 +50,18 @@ public sealed class ExtensionRequests(ExtensionHost extensions)
     {
         get
         {
+            List<ExtensionRequest> asked;
             lock (_gate)
             {
-                return _pending;
+                asked = _pending;
             }
+
+            // An agent that wrote into a folder and also asked is shown once, as its request.
+            var appeared = _extensions.Entries
+                .Where(e => e is { Status: ExtensionStatus.NeedsConsent, Found.Source: ExtensionSource.InFolder, Found.Manifest: not null })
+                .Where(e => asked.All(r => r.Folder != e.Found.Directory))
+                .Select(e => new ExtensionRequest(e.Found.Directory, e.Found.Manifest!, null, e.Found.Id));
+            return [.. asked, .. appeared];
         }
     }
 
@@ -52,7 +80,7 @@ public sealed class ExtensionRequests(ExtensionHost extensions)
             return $"{manifest.Entry} is not built yet: expected at {found.EntryPath}. Build the project first.";
         }
 
-        if (extensions.Entries.FirstOrDefault(e => e.Found.Id == manifest.Id) is { Status: ExtensionStatus.Loaded } loaded)
+        if (_extensions.Entries.FirstOrDefault(e => e.Found.Id == manifest.Id) is { Status: ExtensionStatus.Loaded } loaded)
         {
             return loaded.Found.Directory == full
                 ? $"{manifest.Name} is already on. Every build reloads it."
@@ -75,7 +103,13 @@ public sealed class ExtensionRequests(ExtensionHost extensions)
     /// </summary>
     public string? Accept(ExtensionRequest request)
     {
-        if (extensions.Link(request.Folder) is { } problem)
+        if (request.Id is { } id)
+        {
+            _extensions.Enable(id);
+            return null;
+        }
+
+        if (_extensions.Link(request.Folder) is { } problem)
         {
             return problem;
         }
@@ -84,7 +118,20 @@ public sealed class ExtensionRequests(ExtensionHost extensions)
         return null;
     }
 
-    public void Dismiss(ExtensionRequest request) => Drop(request);
+    /// <summary>
+    /// The user's no. One that appeared in a folder is turned off, so it stays
+    /// off and is not asked about again; Settings can still turn it on.
+    /// </summary>
+    public void Dismiss(ExtensionRequest request)
+    {
+        if (request.Id is { } id)
+        {
+            _extensions.Disable(id);
+            return;
+        }
+
+        Drop(request);
+    }
 
     private void Drop(ExtensionRequest request)
     {
