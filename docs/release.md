@@ -58,6 +58,12 @@ Two people building one commit should get the same app. What makes that true:
   as you. To move to a newer bridge, change the version in
   `tools/acp/package.json`, run `npm install --package-lock-only` there, and
   commit both files.
+- The .NET SDK is pinned exactly in `global.json`, with no roll-forward. The
+  web SDK adds packages of its own to the App project whose versions follow
+  the SDK, and the lock files record them, so two machines on different SDK
+  patches would restore different packages and CI's locked restore fails.
+  Install that SDK to build; to move to a newer one, change `global.json`,
+  run `dotnet restore`, and commit it with the lock files it changes.
 - NuGet packages are pinned in `packages.lock.json` per project
   (`RestorePackagesWithLockFile`), and CI restores with `--locked-mode`, so a
   reference that would resolve to something else fails the build instead of
