@@ -5,6 +5,7 @@ using AgentsDashboard.Core.Presentation;
 using AgentsDashboard.Core.Repos;
 using AgentsDashboard.App.Services;
 using AgentsDashboard.Extensions;
+using Microsoft.AspNetCore.Components;
 
 namespace AgentsDashboard.App.Extensions;
 
@@ -102,10 +103,60 @@ public sealed class DashboardViewAdapter : IDashboardView, IDisposable
 }
 
 /// <summary>One window's editor, for an extension's view.</summary>
-public sealed class EditorTabs(Workbench bench, DashboardState state) : IEditorTabs
+public sealed class EditorTabs(Workbench bench, DashboardState state, ExtensionHost host) : IEditorTabs
 {
     public void OpenFile(string absolutePath, int? line = null) =>
         bench.OpenExternal(bench.WorktreeInView(state.Snapshot) ?? "", absolutePath, line);
+
+    /// <remarks>
+    /// Which extension the tab belongs to comes from the component's load
+    /// context, as a dialog's does, so one extension cannot open a tab under
+    /// another's name or keep a tab alive on a copy that has been unloaded.
+    /// </remarks>
+    public void OpenView<TComponent>(string title, IReadOnlyDictionary<string, object?>? parameters = null, string? id = null)
+        where TComponent : IComponent
+    {
+        var (context, _) = host.ContextFor(typeof(TComponent))
+            ?? throw new InvalidOperationException($"{typeof(TComponent).Name} is not a component of a loaded extension.");
+
+        bench.OpenView(
+            bench.WorktreeInView(state.Snapshot) ?? "",
+            new ExtensionTab(
+                context.Info.Id,
+                typeof(TComponent).FullName!,
+                string.IsNullOrEmpty(id) ? null : id,
+                string.IsNullOrWhiteSpace(title) ? typeof(TComponent).Name : title,
+                new Dictionary<string, object?>(parameters ?? new Dictionary<string, object?>())));
+    }
+}
+
+/// <summary>
+/// One window's chat, for an extension's view. Only fills in the message box:
+/// the user presses Enter, so an extension never sends an agent anything itself.
+/// </summary>
+public sealed class AgentMessages(AgentDirectory directory, DashboardState state, ChatDrafts drafts, Workbench bench, NavigationManager nav) : IAgentMessages
+{
+    public bool Offer(string agentId, string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        if (!directory.Targets(state.Snapshot).Any(t => t.SessionId == agentId))
+        {
+            return false;
+        }
+
+        // After what is already in the box, so half a message the user was
+        // writing is not lost to an extension's button.
+        var draft = drafts.Get(agentId).TrimEnd();
+        drafts.Offer(agentId, draft.Length == 0 ? text.Trim() : draft + "\n\n" + text.Trim());
+
+        if (bench.SessionId != agentId)
+        {
+            nav.NavigateTo(Urls.Chat(agentId));
+        }
+
+        bench.FocusChat();
+        return true;
+    }
 }
 
 /// <summary>
@@ -176,4 +227,10 @@ internal sealed class ExtensionStorage(AppPaths paths, string id) : IExtensionSt
             return dir;
         }
     }
+}
+
+/// <summary>Draws an extension's <see cref="DiffView"/> with the editor's own diff.</summary>
+public sealed class DiffViewHost : IDiffViewHost
+{
+    public Type Component => typeof(Components.Shared.DiffViewEditor);
 }

@@ -31,7 +31,7 @@
                 }
                 <div class="etab @(active ? "active" : "") @(doc.Pinned ? "pinned" : "") @(doc.Preview ? "preview" : "") @(doc.Dirty ? "dirty" : "")"
                      role="tab" aria-selected="@(active ? "true" : "false")" tabindex="0"
-                     title="@(doc.Kind switch { DocKind.Diff => doc.Path + ", the working tree against the index", DocKind.StagedDiff => doc.Path + ", the index against HEAD", DocKind.Worktrees => "Every worktree, and cleaning them up", _ => doc.Path })"
+                     title="@(doc.Kind switch { DocKind.Diff => doc.Path + ", the working tree against the index", DocKind.StagedDiff => doc.Path + ", the index against HEAD", DocKind.Worktrees => "Every worktree, and cleaning them up", DocKind.ExtensionView => doc.Title + ", from " + doc.View!.ExtensionId, _ => doc.Path })"
                      @key="doc.Key"
                      @onclick="() => Bench.Activate(WorktreePath, doc.Key)"
                      @ondblclick="() => Bench.Keep(WorktreePath, doc.Key)"
@@ -42,6 +42,15 @@
                     @if (doc.Kind == DocKind.Worktrees)
                     {
                         <span class="file-icon" aria-hidden="true"><WorktreesGlyph Size="14" /></span>
+                    }
+                    else if (doc.Kind == DocKind.ExtensionView)
+                    {
+                        @* A puzzle piece: the tab is an extension's, not a file. *@
+                        <span class="file-icon" aria-hidden="true">
+                            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round">
+                                <path d="M3 5h2.5a1.5 1.5 0 1 1 3 0H11v2.5a1.5 1.5 0 1 1 0 3V13H8.5a1.5 1.5 0 1 0-3 0H3v-2.5a1.5 1.5 0 1 0 0-3z" />
+                            </svg>
+                        </span>
                     }
                     else
                     {
@@ -138,6 +147,12 @@
                 {
                     <div class="doc-scroll">
                         <WorktreesDocument />
+                    </div>
+                }
+                else if (doc.Kind == DocKind.ExtensionView)
+                {
+                    <div class="doc-scroll ext-editor-view">
+                        <ExtensionEditorView Tab="doc.View!" WorktreePath="@WorktreePath" IsVisible="@(doc.Key == Group.ActiveIn(doc.Pane))" />
                     </div>
                 }
                 else if (doc.Kind == DocKind.External)

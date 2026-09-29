@@ -31,6 +31,20 @@ public sealed class ChatDrafts
             _ => new QuestionDraft(form),
             (_, draft) => draft.Form.Key == form.Key ? draft : new QuestionDraft(form));
 
+    /// <summary>
+    /// Text put in an agent's box from outside it, by an extension. A chat panel
+    /// already showing the agent takes it into the box; one built later reads it
+    /// as the draft. Raised on the caller's thread.
+    /// </summary>
+    public event Action<string>? Offered;
+
+    /// <summary>Replaces an agent's draft from outside the chat, and tells the panel showing it.</summary>
+    public void Offer(string sessionId, string text)
+    {
+        Set(sessionId, text);
+        Offered?.Invoke(sessionId);
+    }
+
     public void Set(string sessionId, string text)
     {
         if (string.IsNullOrEmpty(text))

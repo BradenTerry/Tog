@@ -97,6 +97,19 @@ the buttons in `modal-foot`, and end it with `Dialog.Close(value)` or
 or extension going away. The app draws the title and says which extension is
 asking.
 
+A view too wide for a panel can be an editor tab (API 1.11):
+`Editor.OpenView<ReviewTab>("Review", new Dictionary<string, object?> { ["File"] = path }, id: null)`
+from a view's `@inject IEditorTabs Editor`. Write the component against
+`EditorViewBase` (`Worktree`, `Agent`, `IsVisible`, `Context`); opening it again
+with the same `id` brings the tab back with the new parameters. Pass plain
+values (strings, numbers), since a rebuild builds the tab again from the new
+copy. `<DiffView Path="..." Original="..." Modified="..." />` draws two texts
+with the editor's own diff and colouring, as tall as its content;
+`OnComment` puts a + in its gutter that reports the line or selection clicked,
+`Marks` tints lines, `Reveal` scrolls to lines. `IAgentMessages` (a
+component's `@inject`) `Offer(agentId, text)` puts text in that agent's
+message box and brings the chat up; the user presses Enter, you never send.
+
 Settings the user changes under your extension in Settings, Extensions (API
 1.9): declare each in `Configure` with `builder.AddSetting(ExtensionSetting.Toggle(...))`
 or `ExtensionSetting.Choice(...)`, and read them with `IExtensionSettings`,

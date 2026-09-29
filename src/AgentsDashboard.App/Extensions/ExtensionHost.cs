@@ -258,6 +258,29 @@ public sealed class ExtensionHost : IDisposable
         }
     }
 
+    /// <summary>
+    /// A component type of the loaded copy of an extension, by its full name,
+    /// for an editor tab opened by an earlier copy: a reload builds the tab
+    /// from the new copy's type rather than the old one's. Null when the
+    /// extension is not loaded or no longer has the type.
+    /// </summary>
+    public (Type Component, ExtensionContext Context, int Generation)? LiveComponent(string id, string typeName)
+    {
+        lock (_gate)
+        {
+            if (_loaded.GetValueOrDefault(id) is not { } loaded)
+            {
+                return null;
+            }
+
+            var type = loaded.LoadContext.Assemblies
+                .Select(a => a.GetType(typeName, throwOnError: false))
+                .FirstOrDefault(t => t is not null && typeof(Microsoft.AspNetCore.Components.IComponent).IsAssignableFrom(t));
+
+            return type is null ? null : (type, loaded.Context, loaded.Generation);
+        }
+    }
+
     /// <summary>Whether this generation of the extension is still the loaded one.</summary>
     public bool IsLoaded(string id, int generation)
     {

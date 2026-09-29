@@ -32,6 +32,51 @@ public interface IEditorTabs
     /// the extension itself never saves through this.
     /// </summary>
     void OpenFile(string absolutePath, int? line = null);
+
+    /// <summary>
+    /// Opens one of the extension's own components as a tab in the editor, among
+    /// the files of the worktree in view, such as a review of every change or a
+    /// report too wide for a panel. Since API 1.11.
+    /// </summary>
+    /// <remarks>
+    /// Write the component against <see cref="EditorViewBase"/>. Opening the same
+    /// component with the same <paramref name="id"/> again brings its tab to the
+    /// front with the new title and parameters rather than opening a second. The
+    /// tab belongs to the worktree it opened in, like a file's. While the
+    /// extension is off the tab says so, and a reload builds the component
+    /// again from the new copy with the same parameters, so pass plain values
+    /// (strings, numbers, paths), not the extension's own objects, whose types
+    /// belong to the copy that made them.
+    /// </remarks>
+    /// <param name="title">What the tab says.</param>
+    /// <param name="parameters">The component's parameters, by name. Only ones it declares.</param>
+    /// <param name="id">Tells apart two tabs of one component, such as one per ticket. Null for one tab per component.</param>
+    void OpenView<TComponent>(string title, IReadOnlyDictionary<string, object?>? parameters = null, string? id = null)
+        where TComponent : IComponent;
+}
+
+/// <summary>
+/// Hands an agent a message to send, in the window's chat. Since API 1.11.
+/// Scoped to the window, like <see cref="IEditorTabs"/>, so only a component's
+/// <c>@inject</c> has it.
+/// </summary>
+/// <remarks>
+/// Nothing is sent here: the text goes into the agent's message box, after
+/// anything already typed there, and the conversation comes up with the caret
+/// in the box. The user reads it and presses Enter, or edits it first. A
+/// message can have an agent change the whole repository, and the API cannot
+/// tell a click from a worker on a timer, so sending is always the user's
+/// press, as starting an agent is with <see cref="IAgentOffers"/>.
+/// </remarks>
+public interface IAgentMessages
+{
+    /// <summary>
+    /// Puts <paramref name="text"/> in the agent's message box and brings the
+    /// conversation up, switching the window to that agent when another is in
+    /// view.
+    /// </summary>
+    /// <returns>False when no agent has that id.</returns>
+    bool Offer(string agentId, string text);
 }
 
 /// <summary>Links into the app's own views.</summary>
