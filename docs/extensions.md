@@ -86,7 +86,8 @@ A folder with an `extension.json`:
 ```
 
 `output` is where the entry assembly is, relative to the manifest, so a project
-folder can be linked as it is. The manifest is read before any code runs, so
+folder can be linked as it is. `secrets` (API 1.12) lists the secrets it needs;
+see Secrets below. The manifest is read before any code runs, so
 Settings can list an extension that does not load and say why. An extension
 built for API 1.x loads when x is not newer than the app's; a different major
 does not load.
@@ -451,23 +452,63 @@ sequenceDiagram
 
 ## Secrets
 
-A token for a service with no CLI (Jira, Linear, a build server) is entered
-once, in Settings, Secrets, or in the prompt the first time an extension asks
-for it, and any extension can ask for it by name. `ISecrets` (API 1.8):
+A token for a service with no CLI (Jira, Linear, a build server) is kept once,
+in Settings, Secrets, and handed to an extension only after the extension has
+declared that it needs one and you have chosen which of yours it gets.
+
+**Declared first.** Since API 1.12 an extension lists its needs in
+`extension.json`, by its own name for each:
+
+```json
+"secrets": [
+  { "name": "github", "purpose": "Lists your pull requests.", "hosts": ["api.github.com"] },
+  { "name": "linear", "purpose": "Linear's client library signs its own requests.", "read": true }
+]
+```
+
+`hosts` are where the app may send it on the extension's behalf, written
+`api.github.com`, or `intranet.corp:8443` when the port is not 443: no scheme,
+path or wildcard. `read` asks for the value itself. A need with neither could
+never be used, and stops the manifest loading. The manifest is read before any
+code runs, so the extension's row in Settings and the consent card list the
+needs before you enable it, and enabling gives it none of them.
+
+**Bound by you.** A need gets nothing until you bind it to one of your stored
+secrets: in Settings, Secrets, under What extensions need, or in the prompt the
+extension's first call puts up. Your name and the extension's need not match,
+and the extension never learns yours. The binding is the approval, and it
+covers what the need declared when you made it: every declared host, or reading
+the value. It is kept with the SHA-256 of the build it was made for, so a
+rebuilt or updated extension is asked again (the prompt offers the secret it
+had). The manifest is not part of that hash, so a manifest edited afterwards to
+add a host does not widen the binding: a call to the new host asks again. A no
+is kept per build too, so an extension asking on a timer is not a prompt every
+minute; Forget in Settings clears it. Not now, and Escape, keep nothing.
+
+**Nothing undeclared.** `ISecrets` (API 1.8, declared since 1.12):
 
 - `SendAsync(name, request, auth)` sends an https request with the secret
   added (`SecretAuth.Bearer`, `Basic` for Jira's `email:token`, `Plain` for
   Linear's key) and returns the response. The extension never holds the
-  secret, and the user approves it for that one host (and port, when it is
-  not 443). The broker sends a copy of the request it takes before the
-  prompt: the extension keeps its own object, and could otherwise change the
-  address after the user read it, or read the header back off it. `Host` is
-  not copied, and the response's `RequestMessage` is the copy with the header
-  removed. Redirects are not followed, since the header would go with them.
-  A host that echoes request headers back shows the extension the secret in
-  the response; the user's approval of the host is the control. Prefer this.
-- `GetAsync(name)` hands over the value, for a client library that wants it.
-  The prompt says the extension can send it anywhere once it has it.
+  secret. The host must be one the need declares. The broker sends a copy of
+  the request it takes before the prompt: the extension keeps its own object,
+  and could otherwise change the address after the user read it, or read the
+  header back off it. `Host` is not copied, and the response's
+  `RequestMessage` is the copy with the header removed. Redirects are not
+  followed, since the header would go with them. A host that echoes request
+  headers back shows the extension the secret in the response; declaring and
+  approving the host is the control. Prefer this.
+- `GetAsync(name)` hands over the value, only for a need declared with
+  `"read": true`. The prompt says the extension can send it anywhere once it
+  has it. A read binding also covers brokered requests to any host.
+
+A name the manifest does not declare, a host it does not declare for that
+name, or `GetAsync` on a need without `read` throws
+`InvalidOperationException` with no prompt: a question about something nobody
+declared is one you should never be asked. Before 1.12 any extension could
+ask for any secret by the secret's own name; an extension written that way
+throws until it declares its needs, and the grants `secrets.json` held for it
+are dropped when the file is read.
 
 For GitHub an extension usually needs neither: if `gh` is signed in, run
 `gh api` and let `gh` keep the token. The store matters for everything else.
@@ -480,14 +521,15 @@ sequenceDiagram
     participant C as secrets.json
     participant P as SecretRequestDialog
     participant V as OS store
-    E->>S: SendAsync("jira", request)
-    S->>B: caller = id, name, hash of the running build
-    B->>C: a grant for this id and hash, this host?
+    E->>S: SendAsync("github", request)
+    S->>B: caller = id, hash of the running build, needs from extension.json
+    B->>B: declared? host declared? else throw
+    B->>C: a binding for this id, need and hash, covering the host?
     alt none yet
-        B->>P: one prompt, shared by every waiting call
-        P-->>B: Allow (kept) or Don't allow (kept too)
+        B->>P: one prompt per need and build, shared by every waiting call
+        P-->>B: your secret chosen (kept) or Don't allow (kept too)
     end
-    B->>V: read the value
+    B->>V: read the bound secret's value
     B->>B: add the header, send, no redirects
     B-->>E: the response, never the value
 ```
@@ -496,30 +538,24 @@ sequenceDiagram
 service `agents-dashboard`: the login keychain on macOS (through
 Security.framework, so it is never on a command line), Credential Manager on
 Windows, the Secret Service through `secret-tool` on Linux (the value on its
-standard input). `~/.agents-dashboard/secrets.json` has names, grants and
-when each was last used, never a value, and is a file of its own rather than
-part of `settings.json`: the Settings page saves its whole copy of the
-settings on every change and would undo a grant made meanwhile. Nothing is
-encrypted by the app; each store encrypts at rest under the user's login,
-which is also what unlocks it: any program running as the user can ask the
-store to decrypt.
+standard input). `~/.agents-dashboard/secrets.json` has the secrets' names and
+the bindings, with when each was last used, never a value, and is a file of
+its own rather than part of `settings.json`: the Settings page saves its whole
+copy of the settings on every change and would undo a binding made meanwhile.
+Nothing is encrypted by the app; each store encrypts at rest under the user's
+login, which is also what unlocks it: any program running as the user can ask
+the store to decrypt.
 
-**Who is asked.** `ISecrets` is only in the extension's own container, built
-per load with the id and the SHA-256 of the entry assembly that load runs, so
-the caller is the host's word, not the extension's. `@inject ISecrets`
-resolves from the app's container, which cannot tell extensions apart; it
-gets `UnboundSecrets`, which throws, so the view shows the error rather than
-failing to build. A grant is per extension, per build: a rebuild or an update
-is asked again, as installed code is for consent. A no is kept too, so an
-extension asking on a timer is not a prompt every minute; Settings forgets it
-with Forget. A brokered grant lists hosts and widens by one per prompt; a read
-grant covers brokered calls to anywhere. Calls wait until answered, and every
-call about the same thing shares one prompt; a cancelled call stops waiting
-and the prompt stays. Not now, and Escape, keep nothing: the callers hear
-null and the extension asks again next time. The hash is of the entry
-assembly, as consent's is, so a change only in a dependency with a
-byte-identical entry keeps the grant; a linked extension being developed is
-asked again on every build that changes it.
+**Who is asking.** `ISecrets` is only in the extension's own container, built
+per load with the id, the SHA-256 of the entry assembly that load runs, and
+the needs of the manifest it was loaded from, so the caller is the host's
+word, not the extension's. `@inject ISecrets` resolves from the app's
+container, which cannot tell extensions apart; it gets `UnboundSecrets`, which
+throws, so the view shows the error rather than failing to build. The hash is
+of the entry assembly, as consent's is, so a change only in a dependency with a
+byte-identical entry keeps the binding; a linked extension being developed is
+asked again on every build that changes it. Settings binds for the build that
+is running, or, when the extension is off, the one on disk.
 
 **Never an agent's.** No agent tool serves a secret, and the `agents-dashboard`
 MCP server has no way to set one. No session's environment carries one: the
