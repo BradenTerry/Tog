@@ -582,6 +582,17 @@ window.agentsDashboard = {
     // After a menu's items change under it (the agent list's filter), focus
     // goes back to the checked item, or the first, or the menu when none are
     // left, so the next arrow key still has somewhere to start.
+    // A dialog opens with the keyboard on its first real field when it has one
+    // (New agent's prompt: the thing you came to type), else on the dialog so
+    // Escape still works.
+    focusDialog: (dialog, selector) => {
+        if (!dialog) {
+            return;
+        }
+
+        const field = selector && dialog.querySelector(selector);
+        (field && !field.disabled ? field : dialog).focus({ preventScroll: true });
+    },
     focusMenuItem: (element) => {
         const menu = element?.closest('.context-menu');
         if (!menu) {

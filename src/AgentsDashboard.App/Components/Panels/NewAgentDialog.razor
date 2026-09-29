@@ -1,5 +1,6 @@
 @inject Workbench Bench
 @inject NavigationManager Nav
+@inject IJSRuntime Js
 @implements IDisposable
 
 @* New agent, as a dialog over the window rather than a page in the editor's
@@ -60,7 +61,8 @@
     private void OnChanged() => _ = InvokeAsync(() =>
     {
         // Opened afresh: the last attempt's failure is not this one's, and the
-        // keyboard goes to the dialog so Escape works straight away.
+        // keyboard goes to the prompt, so you can type straight away and Escape
+        // still reaches the dialog.
         if (Bench.NewAgentOpen && !_wasOpen)
         {
             _result = null;
@@ -92,7 +94,7 @@
             _focus = false;
             try
             {
-                await _dialog.FocusAsync();
+                await Js.InvokeVoidAsync("agentsDashboard.focusDialog", _dialog, "#start-prompt");
             }
             catch (Exception e) when (e is JSException or InvalidOperationException or TaskCanceledException)
             {
