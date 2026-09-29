@@ -1648,12 +1648,19 @@ button.icon-btn:hover:where(:not(:disabled)) { background: var(--surface-2); }
 .plan-detail-head { display: flex; justify-content: space-between; }
 .plan-detail.warn .plan-detail-head span { color: var(--waiting); }
 .plan-detail.high .plan-detail-head span { color: var(--danger); }
-.plan-bars { display: flex; flex-direction: column; gap: 2px; }
-.plan-bar { display: block; height: 4px; border-radius: 2px; min-width: 2px; }
-.plan-bar.used { background: var(--accent); }
-.plan-detail.warn .plan-bar.used { background: var(--waiting); }
-.plan-detail.high .plan-bar.used { background: var(--danger); }
-.plan-bar.time { background: var(--text-faint); }
+/* The marker overhangs the track so it stays visible over the fill. */
+.plan-meter {
+    position: relative; display: inline-block; flex: none; align-self: center;
+    width: 64px; height: 6px; border-radius: 3px; background: var(--border);
+}
+.plan-detail .plan-meter { display: block; width: 100%; margin: 3px 0; }
+.plan-meter-fill { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: var(--accent); }
+.warn .plan-meter-fill { background: var(--waiting); }
+.high .plan-meter-fill { background: var(--danger); }
+.plan-meter-now {
+    position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px;
+    border-radius: 1px; background: var(--text);
+}
 .plan-seen { border-top: 1px solid var(--border-soft); padding-top: 8px; }
 
 .workbench {

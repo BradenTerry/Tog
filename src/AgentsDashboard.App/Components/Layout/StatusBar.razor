@@ -31,19 +31,18 @@
     {
         var now = DateTimeOffset.Now;
         @* Used against elapsed is the figure that matters: 60% used is fine with
-           80% of the window gone and trouble with 20%. The reset times and the
-           rest are a click away rather than taking the bar. *@
+           80% of the window gone and trouble with 20%. A fill past the time
+           marker reads at a glance where two percentages had to be compared.
+           The reset times and the rest are a click away rather than taking the
+           bar. *@
         <button class="status-plan" @onclick="() => _details = !_details" aria-expanded="@_details"
-                title="Plan usage: share used, and share of each window gone by. Click for details.">
+                title="Plan usage: the fill is the share used, the marker how much of the window has gone by. Click for details.">
             @foreach (var limit in Limits)
             {
-                <span class="status-item plan-limit @LimitClass(limit)">
+                <span class="status-item plan-limit @LimitClass(limit)" title="@Summary(limit, now)">
                     <span class="status-label">@limit.Label</span>
+                    @Meter(limit, now)
                     <span>@Figure(limit)</span>
-                    @if (limit.Elapsed(now) is { } elapsed)
-                    {
-                        <span class="faint">@Percent(elapsed) time</span>
-                    }
                 </span>
             }
         </button>
@@ -60,10 +59,7 @@
                         </div>
                         @if (limit.Elapsed(now) is { } elapsed && limit.Length is { } length)
                         {
-                            <div class="plan-bars" aria-hidden="true">
-                                <span class="plan-bar used" style="width: @Width(limit.Percent / 100.0)"></span>
-                                <span class="plan-bar time" style="width: @Width(elapsed)"></span>
-                            </div>
+                            @Meter(limit, now)
                             <div class="faint">@Percent(elapsed) of the @Span(length) window gone by</div>
                             @if (Pace(limit, elapsed) is { } pace)
                             {
@@ -114,6 +110,26 @@
 
     private static string Width(double? share) =>
         FormattableString.Invariant($"{Math.Clamp(share ?? 0, 0, 1) * 100:0.#}%");
+
+    /// <summary>
+    /// The share used as a fill, with a marker at the share of the window gone
+    /// by. A refusal with no figure fills the track, since the limit is spent.
+    /// </summary>
+    private static RenderFragment Meter(PlanLimit limit, DateTimeOffset now) => __builder =>
+    {
+        <span class="plan-meter" aria-hidden="true">
+            <span class="plan-meter-fill" style="width: @Width(limit.Blocked && limit.Percent is null ? 1 : limit.Percent / 100.0)"></span>
+            @if (limit.Elapsed(now) is { } elapsed)
+            {
+                <span class="plan-meter-now" style="left: @Width(elapsed)"></span>
+            }
+        </span>
+    };
+
+    private static string Summary(PlanLimit limit, DateTimeOffset now) =>
+        limit.Elapsed(now) is { } elapsed
+            ? $"{limit.Label}: {Figure(limit)} used, {Percent(elapsed)} of the window gone by"
+            : $"{limit.Label}: {Figure(limit)} used";
 
     /// <summary>
     /// Where the current rate lands by the reset. Left out early in a window,
