@@ -1378,8 +1378,9 @@ button.subagent-link.shown { background: var(--accent-bg); }
 }
 
 /* An extension's DiffView (API 1.11): as tall as its content, so a page of
-   them scrolls as one. The gutter's + asks to comment on a line, and a line
-   with a comment is tinted with a mark beside it. */
+   them scrolls as one. The gutter's + asks to comment on a line, or dragged,
+   on the lines it is dragged over, and a line with a comment is tinted with a
+   mark beside it. */
 .diff-view { width: 100%; min-height: 24px; }
 .diff-view-add, .diff-view-mark { cursor: pointer; display: flex; align-items: center; justify-content: center; }
 .diff-view-add::before {
@@ -1390,6 +1391,7 @@ button.subagent-link.shown { background: var(--accent-bg); }
     content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--waiting);
 }
 .diff-view-marked { background: color-mix(in srgb, var(--waiting) 12%, transparent); }
+.diff-view-picking { background: color-mix(in srgb, var(--accent) 18%, transparent); }
 .ext-editor-view { display: flex; flex-direction: column; }
 .ext-editor-error { margin: 16px; }
 

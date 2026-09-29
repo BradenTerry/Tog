@@ -335,9 +335,13 @@ flowchart LR
   and the code intelligence providers, which only answer models they own,
   leave them alone. TextMate colouring is by the path's language.
 - **Commenting.** With `OnComment` set, hovering a line shows a + in the glyph
-  margin, and clicking it reports that line, or the selection when the click
-  is inside it. The selection is taken on `mousedown` in the capture phase,
-  before Monaco moves it to the line clicked. Inline, removed lines are view
+  margin. Pressing it and dragging picks a range of lines, as on GitHub, and
+  the release reports them; Escape drops the drag. Monaco does not drag from
+  the glyph margin, so the drag is followed on the window, which also lets the
+  pointer leave the editor. A selection of text or line numbers keeps a + on
+  its last line, and a + inside a selection reports the selection. The
+  selection is taken on `mousedown` in the capture phase, before Monaco moves
+  it to the line clicked. Inline, removed lines are view
   zones with no line of their own, so only the right side can be picked there.
 - `Marks` tint lines and put a dot in the gutter; `Reveal` scrolls the nearest
   scrolling ancestor to a line each time a new instance is passed.

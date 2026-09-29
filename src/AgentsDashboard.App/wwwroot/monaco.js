@@ -786,14 +786,77 @@ function diffViewOptions(settings) {
 // selection when the click is inside it. The selection is the one from before
 // the press, since Monaco moves it on a gutter click.
 function commentLines(selection, line) {
-    if (selection && !selection.isEmpty() && line >= selection.startLineNumber && line <= selection.endLineNumber) {
-        const end = selection.endColumn === 1 && selection.endLineNumber > selection.startLineNumber
-            ? selection.endLineNumber - 1
-            : selection.endLineNumber;
-        return [selection.startLineNumber, end];
+    if (selection && !selection.isEmpty() && line >= selection.startLineNumber && line <= selectionEndLine(selection)) {
+        return [selection.startLineNumber, selectionEndLine(selection)];
     }
 
     return [line, line];
+}
+
+// The last line a selection covers, not counting one it only reaches the start
+// of, which is where a selection made by dragging down line numbers ends.
+function selectionEndLine(selection) {
+    return selection.endColumn === 1 && selection.endLineNumber > selection.startLineNumber
+        ? selection.endLineNumber - 1
+        : selection.endLineNumber;
+}
+
+// Pressing the + and dragging picks the lines to comment on, as on GitHub.
+// Monaco does not drag from the glyph margin, so the drag is followed on the
+// window: the pointer can leave the editor, and a release anywhere ends it.
+function startCommentDrag(view, side, editor, anchor) {
+    const monaco = view.monaco;
+    const last = editor.getModel()?.getLineCount() ?? anchor;
+    let current = anchor;
+
+    const show = () => {
+        const [start, end] = [Math.min(anchor, current), Math.max(anchor, current)];
+        view.picking[side].set([{
+            range: new monaco.Range(start, 1, end, 1),
+            options: { isWholeLine: true, className: 'diff-view-picking' },
+        }]);
+    };
+
+    const move = (event) => {
+        const target = editor.getTargetAtClientPoint(event.clientX, event.clientY);
+        let line = target?.position?.lineNumber;
+        if (!line) {
+            // Above or below the editor: the first or last line.
+            const box = editor.getDomNode().getBoundingClientRect();
+            line = event.clientY < box.top ? 1 : event.clientY > box.bottom ? last : current;
+        }
+
+        if (line !== current) {
+            current = Math.min(Math.max(line, 1), last);
+            show();
+        }
+    };
+
+    const end = (commit) => {
+        window.removeEventListener('mousemove', move, true);
+        window.removeEventListener('mouseup', up, true);
+        window.removeEventListener('keydown', key, true);
+        view.picking[side].clear();
+        view.endDrag = null;
+        if (commit) {
+            view.dotnet.invokeMethodAsync('Comment', side, Math.min(anchor, current), Math.max(anchor, current));
+        }
+    };
+
+    const up = () => end(true);
+    const key = (event) => {
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            event.stopPropagation();
+            end(false);
+        }
+    };
+
+    window.addEventListener('mousemove', move, true);
+    window.addEventListener('mouseup', up, true);
+    window.addEventListener('keydown', key, true);
+    view.endDrag = () => end(false);
+    show();
 }
 
 window.agentsEditor = {
@@ -870,7 +933,16 @@ window.agentsEditor = {
                 original: diff.getOriginalEditor().createDecorationsCollection([]),
                 modified: diff.getModifiedEditor().createDecorationsCollection([]),
             },
+            selected: {
+                original: diff.getOriginalEditor().createDecorationsCollection([]),
+                modified: diff.getModifiedEditor().createDecorationsCollection([]),
+            },
+            picking: {
+                original: diff.getOriginalEditor().createDecorationsCollection([]),
+                modified: diff.getModifiedEditor().createDecorationsCollection([]),
+            },
             before: { original: null, modified: null },
+            endDrag: null,
             disposables: [],
         };
 
@@ -902,13 +974,38 @@ window.agentsEditor = {
                 }]);
             }));
             view.disposables.push(editor.onMouseLeave(() => view.hover[side].clear()));
-            view.disposables.push(editor.onMouseDown((e) => {
-                if (!view.settings.commentable || e.target.type !== glyph || !e.target.position) {
+            // A selection keeps a + on its last line, so text or line numbers
+            // dragged over can be commented on without hunting for the gutter.
+            view.disposables.push(editor.onDidChangeCursorSelection((e) => {
+                const selection = e.selection;
+                if (!view.settings.commentable || selection.isEmpty()) {
+                    view.selected[side].clear();
                     return;
                 }
 
-                const [start, end] = commentLines(view.before[side], e.target.position.lineNumber);
-                view.dotnet.invokeMethodAsync('Comment', side, start, end);
+                const line = selectionEndLine(selection);
+                view.selected[side].set([{
+                    range: new monaco.Range(line, 1, line, 1),
+                    options: { glyphMarginClassName: 'diff-view-add' },
+                }]);
+            }));
+            view.disposables.push(editor.onMouseDown((e) => {
+                if (!view.settings.commentable || e.target.type !== glyph || !e.target.position || !e.event.leftButton) {
+                    return;
+                }
+
+                // A + inside a selection comments on the selection; anywhere
+                // else it starts a drag over the lines to comment on.
+                const line = e.target.position.lineNumber;
+                const before = view.before[side];
+                if (before && !before.isEmpty() && line >= before.startLineNumber && line <= selectionEndLine(before)) {
+                    const [start, end] = commentLines(before, line);
+                    view.dotnet.invokeMethodAsync('Comment', side, start, end);
+                    return;
+                }
+
+                e.event.preventDefault();
+                startCommentDrag(view, side, editor, line);
             }));
             view.disposables.push(editor.onDidContentSizeChange(() => fitDiffView(view)));
         }
@@ -978,6 +1075,7 @@ window.agentsEditor = {
         }
 
         diffViews.delete(handle);
+        view.endDrag?.();
         view.element.removeEventListener('mousedown', view.onPress, true);
         for (const disposable of view.disposables) {
             disposable.dispose();
