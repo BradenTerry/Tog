@@ -21,6 +21,9 @@ jobs:
         os: [windows-latest, macos-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    env:
+      # The SDK the lock files were restored with. Bump it with them.
+      DOTNET_SDK: 10.0.301
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -29,9 +32,21 @@ jobs:
           # (Directory.Build.targets), which a shallow clone has not got.
           fetch-depth: 0
 
+      # global.json takes any .NET 10 SDK, but the web SDK's implicit packages
+      # follow the SDK and the lock files record them, so CI builds with the
+      # one they were restored with. The runner images carry newer SDKs, which
+      # global.json would roll forward to, hence pinning it there as well.
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          global-json-file: global.json
+          dotnet-version: ${{ env.DOTNET_SDK }}
+
+      - name: Pin the SDK
+        shell: bash
+        run: >-
+          sed -i.bak
+          -e 's/"version": "[^"]*"/"version": "${{ env.DOTNET_SDK }}"/'
+          -e 's/"rollForward": "[^"]*"/"rollForward": "disable"/'
+          global.json && rm global.json.bak
 
       # The build vendors Monaco, Mermaid, the TextMate grammars and the ACP
       # bridge with Node scripts in tools/.

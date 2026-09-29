@@ -13,8 +13,9 @@ macOS, and more). Agents working in this repository read it too.
 
 You need:
 
-- the .NET SDK named in [`global.json`](global.json), exactly that one
-  (`rollForward` is off, for reproducible builds)
+- a .NET 10 SDK. CI builds with one exact SDK, and on another the build
+  rewrites `src/Tog.App/packages.lock.json`; leave that out of commits (see
+  [docs/release.md](docs/release.md))
 - `git` and Node 22 or newer on `PATH`
 - Claude Code, if you want any agents to look at
 

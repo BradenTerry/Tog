@@ -62,12 +62,19 @@ Two people building one commit should get the same app. What makes that true:
   `npm install --package-lock-only --ignore-scripts` there, and commit both
   files. The vendored folder's `VERSION` marker is the lockfile's hash, so the
   next build re-vendors.
-- The .NET SDK is pinned exactly in `global.json`, with no roll-forward. The
-  web SDK adds packages of its own to the App project whose versions follow
-  the SDK, and the lock files record them, so two machines on different SDK
-  patches would restore different packages and CI's locked restore fails.
-  Install that SDK to build; to move to a newer one, change `global.json`,
-  run `dotnet restore`, and commit it with the lock files it changes.
+- Any .NET 10 SDK builds it: `global.json` asks for 10.0.100 and rolls
+  forward to the newest 10.0 feature band installed. The app is
+  framework-dependent, so what it runs on is the newest .NET 10 runtime on the
+  machine, and runtime security patches reach it without a rebuild. CI pins
+  one SDK, `DOTNET_SDK` in `ci.yml`, and rewrites `global.json` to it with
+  roll-forward off, because the web SDK adds packages of its own to the App
+  project whose versions follow the SDK and the lock files record them: on
+  another SDK, CI's locked restore would fail. The runner images carry newer
+  SDKs, so installing the pinned one is not enough. Building locally on a
+  different SDK works and leaves `src/Tog.App/packages.lock.json` modified;
+  do not commit that. To move CI to a newer SDK, install it, change
+  `DOTNET_SDK`, run `dotnet restore`, and commit it with the lock files it
+  changes.
 - NuGet packages are pinned in `packages.lock.json` per project
   (`RestorePackagesWithLockFile`), and CI restores with `--locked-mode`, so a
   reference that would resolve to something else fails the build instead of
