@@ -82,4 +82,12 @@
     <Exec Command="node tools/vendor-acp.mjs" WorkingDirectory="$(MSBuildThisFileDirectory)../.." />
   </Target>
 
+  <!--
+    The version the build was stamped with, one line, so a publish script can
+    put it in build-info without parsing git a second time.
+  -->
+  <Target Name="WriteVersionFile" AfterTargets="Publish">
+    <WriteLinesToFile File="$(PublishDir)version" Lines="$(InformationalVersion)" Overwrite="true" />
+  </Target>
+
 </Project>

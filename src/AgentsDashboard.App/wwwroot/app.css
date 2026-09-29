@@ -2234,6 +2234,8 @@ button.icon-btn:hover:where(:not(:disabled)) { background: var(--surface-2); }
 .modal:focus { outline: none; }
 .modal-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .modal-head h2 { font-size: 15px; }
+/* The build's version beside the Settings title, where an About page would put it. */
+.settings-version { user-select: text; }
 
 /* New agent: a header, a body that scrolls, and the start button pinned at
    the bottom so it is never scrolled out of reach. */

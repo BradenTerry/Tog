@@ -171,6 +171,10 @@ Code if you want any agents to look at. The first build fetches Monaco, Mermaid,
 the TextMate grammars and the Claude ACP bridge with the Node scripts in
 `tools/`, so it needs no shell and builds the same on Windows.
 
+The version, shown in Settings, is the newest `vMAJOR.MINOR.PATCH` git tag
+plus the commits since it. There is no build to download: clone, tag when you
+like, and publish it yourself. See [docs/release.md](docs/release.md).
+
 ## Tests
 
 ```bash

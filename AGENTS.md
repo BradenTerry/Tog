@@ -37,6 +37,8 @@ twice:
 - `docs/code-intelligence.md` - the `ICodeIntelligence` extension point, the C#
   extension's Roslyn load (opt-in per worktree), MSBuild in a load context, why
   references land in a panel rather than a peek widget
+- `docs/release.md` - build from source, no binaries: the version from git
+  tags, the lock files, the pinned actions, and what a security review asks
 
 A change to one of those subsystems belongs in its doc, with at most a line in
 the README. Keep the README a landing page.

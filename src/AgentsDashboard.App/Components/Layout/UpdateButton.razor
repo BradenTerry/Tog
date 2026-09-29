@@ -37,7 +37,7 @@
     }
 
     private static string Tooltip(StagedUpdate staged) =>
-        $"{staged.Commit} {staged.Subject}".Trim()
+        $"{staged.Version} {staged.Commit} {staged.Subject}".Trim()
         + (staged.StagedAt is { } at ? $". Published {Fmt.DayClock(at.ToLocalTime())}." : ".")
         + " Restarting stops the agents; each resumes when you message it.";
 }
