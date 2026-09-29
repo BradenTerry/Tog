@@ -73,6 +73,6 @@ public sealed class UiAccess
         http.Response.StatusCode = StatusCodes.Status403Forbidden;
         http.Response.ContentType = "text/plain; charset=utf-8";
         await http.Response.WriteAsync(
-            "This is the Tog. Open it from its own window, or with the address it printed when it started.");
+            "This is Tog. Open it from its own window, or with the address it printed when it started.");
     });
 }

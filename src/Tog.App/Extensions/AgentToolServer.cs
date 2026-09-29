@@ -244,7 +244,7 @@ public sealed class AgentToolServer(
             ["protocolVersion"] = Versions.Contains(asked) ? asked : Versions[0],
             ["capabilities"] = new JsonObject { ["tools"] = new JsonObject { ["listChanged"] = false } },
             ["serverInfo"] = new JsonObject { ["name"] = Name, ["version"] = typeof(AgentToolServer).Assembly.GetName().Version?.ToString(3) ?? "1.0.0" },
-            ["instructions"] = "Tools from the Tog, the app you are running in. What they start shows to the user live, so prefer them to the shell equivalent.",
+            ["instructions"] = "Tools from Tog, the app you are running in. What they start shows to the user live, so prefer them to the shell equivalent.",
         };
     }
 

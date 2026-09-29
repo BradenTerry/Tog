@@ -250,7 +250,7 @@ public sealed class McpStdioBridge
                 ["protocolVersion"] = Str(request["params"]?["protocolVersion"]) ?? "2025-06-18",
                 ["capabilities"] = new JsonObject { ["tools"] = new JsonObject { ["listChanged"] = true } },
                 ["serverInfo"] = new JsonObject { ["name"] = Name, ["version"] = "1.0.0" },
-                ["instructions"] = "Tools from the Tog. It is not open right now, so there are none until it is.",
+                ["instructions"] = "Tools from Tog. It is not open right now, so there are none until it is.",
             }),
             "ping" => Result(id, new JsonObject()),
             "tools/list" => Result(id, new JsonObject { ["tools"] = new JsonArray() }),
@@ -259,7 +259,7 @@ public sealed class McpStdioBridge
                 ["content"] = new JsonArray(new JsonObject
                 {
                     ["type"] = "text",
-                    ["text"] = "The Tog is not open. Ask the user to open it, then try again.",
+                    ["text"] = "Tog is not open. Ask the user to open it, then try again.",
                 }),
                 ["isError"] = true,
             }),

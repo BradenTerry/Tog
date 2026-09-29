@@ -12,7 +12,7 @@ public sealed class ExtensionGuideTool(ExtensionSkill skill) : IAgentTool
     public string Name => "tog_extension_guide";
 
     public string Description =>
-        "How to create an Tog extension (a new tab, panel, indicator, background worker, agent tool or "
+        "How to create a Tog extension (a new tab, panel, indicator, background worker, agent tool or "
         + "editor language support for Tog you are running in): where the template and the SDK are on this "
         + "machine, the API version, the steps and the rules. Call it before scaffolding or changing an extension, "
         + "unless the tog-extension skill is already loaded. When it is built, add it with "
@@ -32,7 +32,7 @@ public sealed class ExtensionAddTool(ExtensionRequests requests) : IAgentTool
     public string Name => "tog_extension_add";
 
     public string Description =>
-        "Asks the user to add and turn on an Tog extension you have built: Tog shows them a "
+        "Asks the user to add and turn on a Tog extension you have built: Tog shows them a "
         + "prompt with its name and folder, and it loads only if they accept. Build it first (dotnet build), so its "
         + "entry assembly exists. The call returns once the prompt is shown, not when the user answers; tell them it "
         + "is waiting for them in Tog. Once added, every later build reloads it without asking.";

@@ -1,6 +1,6 @@
-# An Tog extension
+# A Tog extension
 
-This project adds a view to the Tog: a tab in each agent's view,
+This project adds a view to Tog: a tab in each agent's view,
 next to Chat, Changes and Files. Tog loads it at runtime; it is not
 part of Tog's source.
 

@@ -3,7 +3,7 @@ name: tog-extension
 description: Create a new Tog extension (a Razor project the running app loads at runtime and shows as a tab, an indicator, a background worker, an agent tool or editor code intelligence), scaffold it from the template Tog ships, build it, and tell the user how to turn it on. Use when the user asks to create, scaffold, start, add or write an extension, plugin, new tab or new panel for Tog, or asks for a feature that is not about agents (a language, a tool, a test runner, a build status).
 ---
 
-# Create an Tog extension
+# Create a Tog extension
 
 An extension is a folder with an `extension.json` and a Razor class library
 built into `bin/tog/`. Tog loads it into its own load context
