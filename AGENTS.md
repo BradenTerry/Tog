@@ -16,9 +16,11 @@ reviewing their diffs. Anything else is an extension.
 
 ## Documentation
 
-`README.md` is the landing page: what it is, how to run it, the architecture. The
-long rationale lives in `docs/`, one file per subsystem that is easy to get wrong
-twice:
+`README.md` is the landing page for someone arriving on GitHub: what it is, why,
+how to run it, two screenshots (`assets/screenshots`, taken of a sample
+project by `tools/screenshots/take.mjs`, never by hand). `CONTRIBUTING.md` holds
+building, testing and the architecture. The long rationale lives in `docs/`, one
+file per subsystem that is easy to get wrong twice:
 
 - `docs/extensions.md` - loading, the shared assemblies, reload, consent,
   the skill and the MCP tools that let an agent write one

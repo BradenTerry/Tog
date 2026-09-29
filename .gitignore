@@ -28,3 +28,6 @@ src/AgentsDashboard.App/wwwroot/mermaid/
 # VS Code's TextMate tokenizer and grammars, which tools/vendor-textmate.sh
 # fetches on the first build for the editor's colouring. A dependency, not source.
 src/AgentsDashboard.App/wwwroot/textmate/
+
+# Playwright, for tools/screenshots/take.mjs.
+tools/screenshots/node_modules/

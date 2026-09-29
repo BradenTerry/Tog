@@ -1,0 +1,77 @@
+name: Screenshots
+
+# Retakes the README screenshots (tools/screenshots/take.mjs) after the app
+# changes, and offers any that changed as a pull request rather than pushing
+# them: a picture that moved is worth a look before it is on the landing page.
+# The images are drawn from a fixed sample, so an unchanged app draws
+# byte-identical files and no pull request is opened.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/AgentsDashboard.App/**'
+      - 'tools/screenshots/**'
+      - '.github/workflows/screenshots.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: screenshots
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  screenshots:
+    # macOS, so the pictures keep one platform's fonts from run to run.
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The version is the newest v* tag and the commits since it.
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      - name: Restore
+        run: dotnet restore AgentsDashboard.slnx --locked-mode
+
+      - name: Install Playwright
+        run: |
+          npm ci --prefix tools/screenshots --ignore-scripts
+          npx --prefix tools/screenshots playwright install chromium
+
+      - name: Take screenshots
+        run: node tools/screenshots/take.mjs
+
+      - name: Offer changes as a pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git diff --quiet -- assets/screenshots; then
+            echo "Screenshots unchanged."
+            exit 0
+          fi
+
+          branch=screenshots/update
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C "$branch"
+          git add assets/screenshots
+          git commit -m "Retake the README screenshots" -m "From ${GITHUB_SHA::7}, by tools/screenshots/take.mjs."
+          git push --force origin "$branch"
+
+          if [ -z "$(gh pr list --head "$branch" --state open --json number --jq '.[].number')" ]; then
+            gh pr create --head "$branch" --base main \
+              --title "Retake the README screenshots" \
+              --body "The app changed and the README screenshots drawn from the sample project no longer match. Retaken by the Screenshots workflow; look them over before merging."
+          fi

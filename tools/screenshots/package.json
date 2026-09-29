@@ -1,0 +1,9 @@
+{
+  "name": "agents-dashboard-screenshots",
+  "private": true,
+  "description": "Retakes the README screenshots of the app against a sample project. See take.mjs.",
+  "type": "module",
+  "dependencies": {
+    "playwright": "1.63.0"
+  }
+}

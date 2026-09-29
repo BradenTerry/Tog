@@ -1,7 +1,7 @@
 # Keeps the pinned things current: the .NET SDK in global.json, the NuGet lock
 # files, the lockfiles in tools/vendor (the ACP bridge, Monaco, Mermaid and the
-# TextMate grammars), and the commit each GitHub Action is pinned to. An SDK
-# bump fails CI's locked restore until the lock files are restored again with
+# TextMate grammars) and tools/screenshots (Playwright), and the commit each
+# GitHub Action is pinned to. An SDK bump fails CI's locked restore until the lock files are restored again with
 # it, since the web SDK's implicit packages follow the SDK.
 version: 2
 updates:
@@ -19,6 +19,7 @@ updates:
       - /tools/vendor/monaco
       - /tools/vendor/mermaid
       - /tools/vendor/textmate
+      - /tools/screenshots
     schedule:
       interval: weekly
   - package-ecosystem: github-actions
