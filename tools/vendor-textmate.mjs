@@ -14,12 +14,12 @@
 import { readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { app, copy, hasNpm, install, isCurrent, replace } from './lib/vendor.mjs';
+import { app, copy, hasNpm, install, isCurrent, lockVersion, pinned, replace } from './lib/vendor.mjs';
 
-const TEXTMATE = '9.3.2';
-const ONIGURUMA = '2.0.1';
-const GRAMMARS = '1.32.22';
-const VERSION = `${TEXTMATE}+${ONIGURUMA}+${GRAMMARS}`;
+const TEXTMATE = pinned('textmate', 'vscode-textmate');
+const ONIGURUMA = pinned('textmate', 'vscode-oniguruma');
+const GRAMMARS = pinned('textmate', 'tm-grammars');
+const VERSION = lockVersion('textmate');
 const target = join(app, 'wwwroot', 'textmate');
 
 if (isCurrent(target, 'index.json', VERSION)) {
@@ -32,7 +32,7 @@ if (!hasNpm()) {
 }
 
 console.log(`vendor-textmate: fetching vscode-textmate@${TEXTMATE}, vscode-oniguruma@${ONIGURUMA}, tm-grammars@${GRAMMARS}`);
-const modules = install('vendor-textmate', [`vscode-textmate@${TEXTMATE}`, `vscode-oniguruma@${ONIGURUMA}`, `tm-grammars@${GRAMMARS}`]);
+const modules = install('textmate');
 const textmate = join(modules, 'vscode-textmate');
 const oniguruma = join(modules, 'vscode-oniguruma');
 const grammars = join(modules, 'tm-grammars');

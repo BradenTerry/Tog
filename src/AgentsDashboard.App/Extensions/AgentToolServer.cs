@@ -114,8 +114,9 @@ public sealed class AgentToolServer(
         var key = NewKey();
         _callers[Hash(key)] = new Caller(cwd, sessionId);
 
-        // Only with --verbose, which is for debugging: enough to call a tool by hand.
-        log.LogInformation("Agent tools for {Cwd} are served at {Url} with the header Authorization: Bearer {Key}", cwd, Url, key);
+        // Never the key: a log is kept, copied and pasted into bug reports long
+        // after the session it names, and the key is all a caller needs.
+        log.LogInformation("Agent tools for {Cwd} are served at {Url}", cwd, Url);
 
         return new McpGrant(
             key,

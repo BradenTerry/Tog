@@ -1,0 +1,7 @@
+{
+  "name": "agents-dashboard-vendor-monaco",
+  "private": true,
+  "dependencies": {
+    "monaco-editor": "0.56.0"
+  }
+}

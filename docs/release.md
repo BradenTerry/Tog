@@ -51,13 +51,17 @@ flowchart LR
 
 Two people building one commit should get the same app. What makes that true:
 
-- The ACP bridge, the Node package that runs Claude for the app, is installed
-  from `tools/acp/package-lock.json` with `npm ci`. Every transitive package
-  is pinned by version and integrity hash. Before the lockfile, each machine
-  resolved the bridge's dependencies on the day it built, and the bridge runs
-  as you. To move to a newer bridge, change the version in
-  `tools/acp/package.json`, run `npm install --package-lock-only` there, and
-  commit both files.
+- Every Node package the build fetches is installed from a committed lockfile
+  in `tools/vendor/<name>` with `npm ci` and install scripts off: the ACP
+  bridge, the Node package that runs Claude for the app, and Monaco, Mermaid
+  and the TextMate grammars, which are copied into `wwwroot`. Every transitive
+  package is pinned by version and integrity hash, and a registry that serves
+  anything else fails the build. Before the lockfiles, each machine resolved
+  the dependencies on the day it built, and the bridge runs as you. To move a
+  version, change it in that folder's `package.json`, run
+  `npm install --package-lock-only --ignore-scripts` there, and commit both
+  files. The vendored folder's `VERSION` marker is the lockfile's hash, so the
+  next build re-vendors.
 - The .NET SDK is pinned exactly in `global.json`, with no roll-forward. The
   web SDK adds packages of its own to the App project whose versions follow
   the SDK, and the lock files record them, so two machines on different SDK
@@ -69,15 +73,12 @@ Two people building one commit should get the same app. What makes that true:
   reference that would resolve to something else fails the build instead of
   changing it. `templates/extension` is left out: a lock file there would be
   copied into every new extension.
-- Monaco, Mermaid and the TextMate grammars are pinned by a `VERSION` constant
-  in their `tools/vendor-*.mjs` script and copied, not installed, so they
-  carry no transitive dependencies.
 - CI builds set `ContinuousIntegrationBuild`, which makes the paths recorded
   in the PDBs the same on every runner. .NET builds are deterministic by
   default, so a rebuild of a commit can be compared byte for byte.
 - Every GitHub Action in `ci.yml` is pinned to a commit, with the release in
   a comment. Dependabot proposes bumps for the actions, the NuGet lock files
-  and the bridge's lockfile, weekly.
+  and the lockfiles in `tools/vendor`, weekly.
 - Warnings are errors, so NuGet's audit warnings (NU1901 to NU1904) fail the
   build rather than scroll past.
 

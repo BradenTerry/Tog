@@ -58,7 +58,7 @@ echo "Publishing $(git -C "$repo" rev-parse --abbrev-ref HEAD) at $commit"
 
 acp="$repo/src/AgentsDashboard.App/acp"
 if [[ ! -f "$acp/VERSION" ]]; then
-    echo "The ACP bridge is not installed in $acp. Build once (it runs tools/vendor-acp.sh), then publish again." >&2
+    echo "The ACP bridge is not installed in $acp. Build once (it runs tools/vendor-acp.mjs), then publish again." >&2
     exit 1
 fi
 

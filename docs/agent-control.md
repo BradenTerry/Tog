@@ -8,8 +8,9 @@ another agent be added later as a second backend rather than a second app.
 
 Claude does not speak ACP natively. The official bridge,
 `@agentclientprotocol/claude-agent-acp`, wraps the Claude Agent SDK and does.
-`tools/vendor-acp.sh` installs a pinned version into `src/AgentsDashboard.App/acp/`
-on the first build (git ignores it, like Monaco), and the app runs it with
+`tools/vendor-acp.mjs` installs it into `src/AgentsDashboard.App/acp/` on the
+first build with `npm ci` from the lockfile in `tools/vendor/acp`, install
+scripts off (git ignores it, like Monaco), and the app runs it with
 `node`, so Node 22 or newer has to be on `PATH`. Without either, the app opens
 and says why when you start an agent.
 

@@ -16,15 +16,19 @@ find, multi-cursor and a minimap, for no code here.
 
 The cost is size: the AMD build is 24 MB across 150 files. It is a dependency
 rather than source, so it is not in the repository. `tools/vendor-monaco.mjs`
-fetches it with `npm install` into a scratch folder, copies `min/vs` into
-`wwwroot/monaco/vs`, and writes a `VERSION` marker beside it. An MSBuild target
-in the App project runs the script when `wwwroot/monaco/vs/loader.js` is
-missing, so a fresh clone needs nothing but `dotnet build`.
+installs it with `npm ci` from the committed lockfile in `tools/vendor/monaco`
+(every vendored set has one, and install scripts never run), copies `min/vs`
+into `wwwroot/monaco/vs`, and writes a `VERSION` marker beside it holding the
+lockfile's SHA-256. An MSBuild target in the App project runs the script when
+the marker is missing or older than the lockfile, so a fresh clone needs
+nothing but `dotnet build`. To move a version, edit the `package.json` beside
+the lockfile and run `npm install --package-lock-only --ignore-scripts` there.
 
 The `VERSION` marker is the part that is easy to get wrong. `loader.js` exists
 after *any* version has been vendored, so a check for the file alone would pin
-whatever version a machine fetched first, forever. The script compares the
-marker and re-fetches when it disagrees.
+whatever version a machine fetched first, forever. The target compares the
+marker's time with the lockfile's, and the script compares its contents with
+the lockfile's hash and re-fetches when they disagree.
 
 Two consequences worth knowing:
 

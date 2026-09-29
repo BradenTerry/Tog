@@ -4,9 +4,10 @@
 
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { app, copy, fail, install, isCurrent, replace } from './lib/vendor.mjs';
+import { app, copy, fail, install, isCurrent, lockVersion, pinned, replace } from './lib/vendor.mjs';
 
-const VERSION = '0.56.0';
+const VERSION = lockVersion('monaco');
+const MONACO = pinned('monaco', 'monaco-editor');
 const target = join(app, 'wwwroot', 'monaco');
 
 if (isCurrent(target, join('vs', 'loader.js'), VERSION)) {
@@ -23,8 +24,8 @@ if (pkg) {
         fail('vendor-monaco', `${pkg} is not an extracted monaco-editor package`);
     }
 } else {
-    console.log(`vendor-monaco: fetching monaco-editor@${VERSION}`);
-    pkg = join(install('vendor-monaco', [`monaco-editor@${VERSION}`]), 'monaco-editor');
+    console.log(`vendor-monaco: fetching monaco-editor@${MONACO}`);
+    pkg = join(install('monaco'), 'monaco-editor');
 }
 
 replace(target, VERSION, staging => {
@@ -32,4 +33,4 @@ replace(target, VERSION, staging => {
     copy(join(pkg, 'LICENSE'), join(staging, 'LICENSE'));
 });
 
-console.log(`vendor-monaco: monaco-editor@${VERSION} is in wwwroot/monaco`);
+console.log(`vendor-monaco: monaco-editor@${MONACO} is in wwwroot/monaco`);

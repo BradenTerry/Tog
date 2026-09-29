@@ -35,10 +35,16 @@
     are added as Content by hand, and the target runs before the static web
     assets pipeline reads that list; otherwise the first build on a fresh clone
     would vendor the files and not serve them until the second.
+
+    Each target runs when its VERSION marker is missing or older than the
+    lockfile in tools/vendor that pins it, so moving a pin reaches a machine
+    that already vendored the old one. The script then compares the marker with
+    the lockfile's hash and does nothing if they agree.
   -->
   <Target Name="VendorMonaco"
           BeforeTargets="ResolveCurrentProjectStaticWebAssetsInputs;BeforeBuild"
-          Condition="!Exists('$(MSBuildThisFileDirectory)wwwroot\monaco\vs\loader.js')">
+          Inputs="$(MSBuildThisFileDirectory)..\..\tools\vendor\monaco\package-lock.json"
+          Outputs="$(MSBuildThisFileDirectory)wwwroot\monaco\VERSION">
     <Message Importance="high" Text="Vendoring monaco-editor into wwwroot/monaco" />
     <Exec Command="node tools/vendor-monaco.mjs" WorkingDirectory="$(MSBuildThisFileDirectory)../.." />
     <ItemGroup>
@@ -51,7 +57,8 @@
   <!-- Mermaid for the Markdown preview, vendored and served like Monaco above. -->
   <Target Name="VendorMermaid"
           BeforeTargets="ResolveCurrentProjectStaticWebAssetsInputs;BeforeBuild"
-          Condition="!Exists('$(MSBuildThisFileDirectory)wwwroot\mermaid\mermaid.min.js')">
+          Inputs="$(MSBuildThisFileDirectory)..\..\tools\vendor\mermaid\package-lock.json"
+          Outputs="$(MSBuildThisFileDirectory)wwwroot\mermaid\VERSION">
     <Message Importance="high" Text="Vendoring mermaid into wwwroot/mermaid" />
     <Exec Command="node tools/vendor-mermaid.mjs" WorkingDirectory="$(MSBuildThisFileDirectory)../.." />
     <ItemGroup>
@@ -62,7 +69,8 @@
   <!-- VS Code's TextMate tokenizer and grammars for the editor, vendored and served like Monaco above. -->
   <Target Name="VendorTextmate"
           BeforeTargets="ResolveCurrentProjectStaticWebAssetsInputs;BeforeBuild"
-          Condition="!Exists('$(MSBuildThisFileDirectory)wwwroot\textmate\index.json')">
+          Inputs="$(MSBuildThisFileDirectory)..\..\tools\vendor\textmate\package-lock.json"
+          Outputs="$(MSBuildThisFileDirectory)wwwroot\textmate\VERSION">
     <Message Importance="high" Text="Vendoring the TextMate tokenizer and grammars into wwwroot/textmate" />
     <Exec Command="node tools/vendor-textmate.mjs" WorkingDirectory="$(MSBuildThisFileDirectory)../.." />
     <ItemGroup>
@@ -77,7 +85,8 @@
   -->
   <Target Name="VendorAcp"
           BeforeTargets="BeforeBuild"
-          Condition="!Exists('$(MSBuildThisFileDirectory)acp\VERSION')">
+          Inputs="$(MSBuildThisFileDirectory)..\..\tools\vendor\acp\package-lock.json"
+          Outputs="$(MSBuildThisFileDirectory)acp\VERSION">
     <Message Importance="high" Text="Installing the Claude ACP bridge into acp/" />
     <Exec Command="node tools/vendor-acp.mjs" WorkingDirectory="$(MSBuildThisFileDirectory)../.." />
   </Target>

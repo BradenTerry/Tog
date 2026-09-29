@@ -1,8 +1,0 @@
-{
-  "name": "agents-dashboard-acp",
-  "private": true,
-  "description": "The Claude ACP bridge the app launches. tools/vendor-acp.mjs installs exactly this lockfile into src/AgentsDashboard.App/acp with npm ci.",
-  "dependencies": {
-    "@agentclientprotocol/claude-agent-acp": "0.81.2"
-  }
-}
