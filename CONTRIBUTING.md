@@ -19,8 +19,8 @@ You need:
 - Claude Code, if you want any agents to look at
 
 ```bash
-git clone https://github.com/BradenTerry/agents-dashboard.git
-cd agents-dashboard
+git clone https://github.com/BradenTerry/tog.git
+cd tog
 dotnet build
 dotnet test
 dotnet run --project src/Tog.App

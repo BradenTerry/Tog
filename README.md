@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/BradenTerry/agents-dashboard/actions/workflows/ci.yml"><img src="https://github.com/BradenTerry/agents-dashboard/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <a href="https://github.com/BradenTerry/tog/actions/workflows/ci.yml"><img src="https://github.com/BradenTerry/tog/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
   <img src="https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white" alt=".NET 10">
   <img src="https://img.shields.io/badge/Blazor-Server-512BD4?logo=blazor&logoColor=white" alt="Blazor Server">
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey" alt="macOS, Windows, Linux">
@@ -42,8 +42,7 @@ actually need from them are the things a terminal is worst at:
   questions are answered right on the card.
 
 It is a native desktop app on macOS, Windows and Linux. Nothing to configure:
-it reads what Claude Code and git already write, and never writes into
-`~/.claude`.
+it reads what Claude Code and git already write.
 
 ## Get started
 
@@ -51,8 +50,8 @@ You need the .NET SDK named in [`global.json`](global.json), `git`, Node 22 or
 newer, and [Claude Code](https://claude.com/claude-code).
 
 ```bash
-git clone https://github.com/BradenTerry/agents-dashboard.git
-cd agents-dashboard
+git clone https://github.com/BradenTerry/tog.git
+cd tog
 dotnet run --project src/Tog.App
 ```
 
