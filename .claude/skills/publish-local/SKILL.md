@@ -1,13 +1,13 @@
 ---
 name: publish-local
-description: Republish the Agents Dashboard desktop app from the main branch into the macOS app bundle on the Desktop (~/Desktop/Agents Dashboard.app), so the installed app runs the latest merged code. Works with the app open, which then offers Update available. Use when the user asks to republish, reinstall, update or publish the app locally, or to put the current version on their Desktop.
+description: Republish the Togue desktop app from the main branch into the macOS app bundle on the Desktop (~/Desktop/Togue.app), so the installed app runs the latest merged code. Works with the app open, which then offers Update available. Use when the user asks to republish, reinstall, update or publish the app locally, or to put the current version on their Desktop.
 ---
 
 # Publish the app locally
 
-The installed app is `~/Desktop/Agents Dashboard.app`: a zsh launcher and an
+The installed app is `~/Desktop/Togue.app`: a zsh launcher and an
 Info.plist, nothing else. The builds live outside the bundle, in
-`~/Library/Application Support/AgentsDashboard/Agents Dashboard/builds`, with
+`~/Library/Application Support/Togue/Togue/builds`, with
 `current` and `next` naming the one to run and one waiting. macOS will not let
 the app rewrite its own bundle, so nothing is swapped inside it.
 `tools/publish-local.sh` adds a build and names it. This skill makes sure it
@@ -38,7 +38,7 @@ publishes the right code.
    ```
 
    Pass a path to publish somewhere other than the Desktop. The script builds
-   in Release, copies in the ACP bridge (`src/AgentsDashboard.App/acp`), swaps
+   in Release, copies in the ACP bridge (`src/Togue.App/acp`), swaps
    the build into its own folder, makes it current (or stages it, above) and
    signs the bundle ad hoc. It rewrites the bundle's launcher every time, since
    the launcher does the switch. Builds over a day old are cleared at launch.
@@ -48,10 +48,10 @@ publishes the right code.
    bundle path, and whether it was installed or staged. If staged, tell the
    user to click Update available. A copy from before builds moved out of the
    bundle says so: it has to be quit and reopened once. Otherwise offer
-   to open it with `open "$HOME/Desktop/Agents Dashboard.app"`.
+   to open it with `open "$HOME/Desktop/Togue.app"`.
 
 ## When it fails
 
 - "The ACP bridge is not installed": run `dotnet build` in the main checkout
   once, which runs `tools/vendor-acp.mjs`, then publish again.
-- The app opens and closes at once: read `~/Library/Logs/AgentsDashboard/app.log`.
+- The app opens and closes at once: read `~/Library/Logs/Togue/app.log`.

@@ -1,0 +1,571 @@
+@inject Workbench Bench
+@inject TogueState State
+@inject WorktreeFiles Files
+@inject SettingsStore Store
+@inject Shortcuts Keys
+@inject IJSRuntime Js
+@implements IDisposable
+
+@* Go to File, VS Code's quick open: a box at the top of the window that finds
+   a file in the worktree in view by a few letters of its name and opens it.
+   Opened from its key (Cmd+P, Ctrl+P or Ctrl+T by default), the search box
+   in the middle of the title bar, or Go to Line, which is the same box with ":" typed.
+
+   The file list is git's, the same the Files tab shows, kept per worktree while
+   the window is open and listed again when the watcher reports a change, so a
+   file an agent just wrote can be found. Matching happens here on the server,
+   in FileSearch, capped to the best fifty, so only what is drawn crosses the
+   circuit. *@
+
+@if (_open)
+{
+    <div class="qo-scrim" @onclick="Cancel"></div>
+    <div class="qo" role="dialog" aria-label="Go to File">
+        <div class="qo-input-row">
+            <input @ref="_input" type="text" class="qo-input" spellcheck="false" autocomplete="off"
+                   role="combobox" aria-expanded="true" aria-controls="qo-list" aria-autocomplete="list"
+                   aria-activedescendant="@(_active >= 0 && _active < _items.Count ? ItemId(_active) : null)"
+                   aria-label="Search files by name. Add :line to go to a line, or start with : to go to a line in the open file."
+                   placeholder="@Placeholder"
+                   value="@_query"
+                   @oninput="e => SetQuery(e.Value?.ToString() ?? string.Empty)"
+                   @onblur="OnBlur" />
+            @if (_loading)
+            {
+                <span class="qo-busy faint" aria-live="polite">Listing...</span>
+            }
+        </div>
+
+        @* A press anywhere but the input would take focus from it, which closes
+           the box, so the list and the footer never take it. *@
+        <div class="qo-list" id="qo-list" role="listbox" aria-label="Files" @ref="_list" @onmousedown:preventDefault>
+            @if (_message is { Length: > 0 } message)
+            {
+                <div class="qo-note @(_lineReady ? "qo-line" : "faint")" role="option" aria-selected="@(_lineReady ? "true" : "false")"
+                     @onmousedown:preventDefault @onclick="() => Accept(0, side: false)">
+                    @message
+                </div>
+            }
+            @for (var i = 0; i < _items.Count; i++)
+            {
+                var index = i;
+                var item = _items[i];
+                if (item.Header is { } header)
+                {
+                    <div class="qo-group faint" role="presentation">@header</div>
+                }
+                <div id="@ItemId(index)" role="option" aria-selected="@(index == _active ? "true" : "false")"
+                     class="qo-item @(index == _active ? "active" : "")"
+                     title="@item.Path"
+                     @onmousedown:preventDefault
+                     @onmousemove="() => Hover(index)"
+                     @onclick="e => Accept(index, side: Keys.Map.Mac ? e.MetaKey : e.CtrlKey)">
+                    <FileGlyph Path="@item.Path" />
+                    <span class="qo-name">@Highlight(item, name: true)</span>
+                    <span class="qo-dir">@Highlight(item, name: false)</span>
+                    @if (item.Mark is { } mark)
+                    {
+                        <span class="qo-mark @mark.Css" title="@mark.Title">@mark.Letter</span>
+                    }
+                </div>
+            }
+        </div>
+
+        @if (_items.Count > 0)
+        {
+            <div class="qo-foot faint" @onmousedown:preventDefault>
+                <span><kbd>@Arrows</kbd> to move</span>
+                <span><kbd>@Enter</kbd> to open</span>
+                <span><kbd>@SideEnter</kbd> to open to the side</span>
+                <span><kbd>Esc</kbd> to close</span>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private bool _open;
+    private string _query = "";
+    private string? _worktree;
+    private ElementReference _input;
+    private ElementReference _list;
+    private DotNetObjectReference<QuickOpen>? _self;
+
+    /// <summary>Set when the box opens or is asked again, so the next render hands it the keyboard.</summary>
+    private bool _bind;
+    private bool _selectAll;
+    private bool _reveal;
+
+    private bool _preview;
+    private bool _history = true;
+    private bool _closeOnBlur = true;
+
+    /// <summary>Each worktree's files, as last listed. Kept while the window is open.</summary>
+    private readonly Dictionary<string, IReadOnlyList<WorktreeFile>> _files = new(StringComparer.Ordinal);
+
+    /// <summary>Each worktree's untracked files, from the same listing, for the U beside them.</summary>
+    private readonly Dictionary<string, HashSet<string>> _untracked = new(StringComparer.Ordinal);
+
+    /// <summary>Worktrees whose files changed on disk since they were listed.</summary>
+    private readonly HashSet<string> _stale = new(StringComparer.Ordinal);
+
+    private bool _loading;
+    private CancellationTokenSource? _listing;
+
+    /// <summary>Bumped on every query, so a search finishing after a newer one started is thrown away.</summary>
+    private int _version;
+
+    private sealed record Mark(string Letter, string Css, string Title);
+
+    private sealed record Item(string Path, IReadOnlyList<int> Positions, string? Header, Mark? Mark);
+
+    private IReadOnlyList<Item> _items = [];
+    private int _active;
+    private string? _message;
+
+    /// <summary>The message is a line to go to, which Enter goes to.</summary>
+    private bool _lineReady;
+
+    private string Placeholder => _worktree is null
+        ? "Open a worktree to search its files"
+        : $"Search files in {Leaf(_worktree)} by name (append : to go to a line)";
+
+    private static string Arrows => "↑↓";
+    private string Enter => Keys.Map.Mac ? "↩" : "Enter";
+    private string SideEnter => Keys.Map.Mac ? "⌘↩" : "Ctrl+Enter";
+
+    private static string ItemId(int index) => "qo-item-" + index;
+
+    protected override void OnInitialized()
+    {
+        Bench.QuickOpenRequested += OnRequested;
+        Bench.FilesChanged += OnFilesChanged;
+    }
+
+    private void OnRequested(string prefix) => _ = InvokeAsync(async () =>
+    {
+        // Asked again with the box up and nothing new to type: move down, the
+        // way a second Cmd+P walks the list in VS Code.
+        if (_open && prefix == "" && !_query.StartsWith(':'))
+        {
+            Move(1);
+            StateHasChanged();
+            return;
+        }
+
+        var settings = Store.Load();
+        _preview = settings.QuickOpenPreview;
+        _history = settings.QuickOpenHistory;
+        _closeOnBlur = settings.QuickOpenCloseOnBlur;
+
+        _worktree = Bench.WorktreeInView(State.Snapshot) is { Length: > 0 } path ? path : null;
+        _query = prefix;
+        _open = true;
+        _bind = true;
+        _selectAll = prefix.Length == 0;
+        _active = 0;
+        Refresh();
+        StateHasChanged();
+
+        await Load();
+    });
+
+    /// <summary>
+    /// Lists the worktree's files when they are not listed yet or changed since.
+    /// What was listed before is shown straight away and replaced when git
+    /// answers, so the box is never empty while a big repository is listed.
+    /// </summary>
+    private async Task Load()
+    {
+        if (_worktree is not { } worktree || (_files.ContainsKey(worktree) && !_stale.Contains(worktree)))
+        {
+            return;
+        }
+
+        _listing?.Cancel();
+        _listing = new CancellationTokenSource();
+        var token = _listing.Token;
+        _stale.Remove(worktree);
+        _loading = true;
+        StateHasChanged();
+
+        try
+        {
+            var files = await Files.ListAsync(worktree, token);
+            if (token.IsCancellationRequested)
+            {
+                return;
+            }
+
+            _files[worktree] = files;
+            _untracked[worktree] = files.Where(f => !f.Tracked).Select(f => f.Path).ToHashSet(StringComparer.Ordinal);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        finally
+        {
+            if (!token.IsCancellationRequested)
+            {
+                _loading = false;
+            }
+        }
+
+        if (_open && _worktree == worktree)
+        {
+            Refresh();
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// A file added or removed means listing again; the next time the box opens
+    /// is soon enough, unless it is open now. Git's own files changing (a
+    /// checkout, a commit) can change the list as much as any edit.
+    /// </summary>
+    private void OnFilesChanged(string worktreePath, IReadOnlySet<string> paths)
+    {
+        _stale.Add(worktreePath);
+        if (_open && worktreePath == _worktree)
+        {
+            _ = InvokeAsync(Load);
+        }
+    }
+
+    private void SetQuery(string value)
+    {
+        _query = value;
+        _active = 0;
+        Refresh();
+    }
+
+    /// <summary>
+    /// Works out what the box shows for the query. Small lists are matched in
+    /// place; a big repository is matched off the circuit, and whatever comes
+    /// back after a newer keystroke is dropped.
+    /// </summary>
+    private void Refresh()
+    {
+        var version = ++_version;
+        var query = FileQuery.Parse(_query);
+        _message = null;
+        _lineReady = false;
+
+        if (_worktree is not { } worktree)
+        {
+            _items = [];
+            _message = "No worktree is open. Pick one in the title bar, or open an agent.";
+            return;
+        }
+
+        if (query.GoToLine)
+        {
+            _items = [];
+            var active = Bench.Editors(worktree).Active;
+            if (active is not { Kind: DocKind.File, Path: { } open })
+            {
+                _message = "Open a file to go to a line in it.";
+            }
+            else if (query.Line is { } line)
+            {
+                _message = $"Go to line {line} in {Leaf(open)}";
+                _lineReady = true;
+            }
+            else
+            {
+                _message = $"Type a line number to go to in {Leaf(open)}.";
+            }
+
+            return;
+        }
+
+        var listed = _files.GetValueOrDefault(worktree);
+        var recent = _history ? Bench.RecentFiles(worktree) : [];
+        if (listed is not null)
+        {
+            var exists = listed.Select(f => f.Path).ToHashSet(StringComparer.Ordinal);
+            recent = recent.Where(exists.Contains).ToList();
+        }
+
+        if (query.Text.Length == 0)
+        {
+            _items = recent.Select((path, i) => new Item(path, [], i == 0 ? "recently opened" : null, MarkOf(worktree, path))).ToList();
+
+            // The file in front is first in the history; landing on the one
+            // before it makes Cmd+P, Enter a switch back to the previous file.
+            _active = _items.Count > 1 && Bench.Editors(worktree).Active?.Path == _items[0].Path ? 1 : 0;
+            if (_items.Count == 0)
+            {
+                _message = listed is null ? null : "Type to search files by name.";
+            }
+
+            return;
+        }
+
+        if (listed is null)
+        {
+            _items = [];
+            return;
+        }
+
+        var paths = listed.Select(f => f.Path).ToList();
+        if (paths.Count < 5000)
+        {
+            Show(FileSearch.Find(paths, query.Text, recent));
+            return;
+        }
+
+        _ = Task.Run(() => FileSearch.Find(paths, query.Text, recent)).ContinueWith(
+            t => InvokeAsync(() =>
+            {
+                if (t.IsCompletedSuccessfully && version == _version && _open)
+                {
+                    Show(t.Result);
+                    StateHasChanged();
+                }
+            }),
+            TaskScheduler.Default);
+
+        void Show(IReadOnlyList<FileMatch> found)
+        {
+            var anyRecent = found.Any(m => m.Recent);
+            _items = found.Select((m, i) => new Item(
+                    m.Path,
+                    m.Positions,
+                    !anyRecent ? null
+                        : i == 0 ? "recently opened"
+                        : !m.Recent && found[i - 1].Recent ? "file results"
+                        : null,
+                    MarkOf(worktree, m.Path)))
+                .ToList();
+            _active = 0;
+            _reveal = true;
+            _message = _items.Count == 0 ? "No matching files." : null;
+        }
+    }
+
+    /// <summary>
+    /// The letter Source control would show: untracked from git's listing,
+    /// modified from the staging state Source control has read, if it has.
+    /// </summary>
+    private Mark? MarkOf(string worktree, string path)
+    {
+        var stage = Bench.Changes(worktree).StageOf(path);
+        if (stage.Untracked || _untracked.GetValueOrDefault(worktree)?.Contains(path) == true)
+        {
+            return new Mark("U", "added", "Untracked");
+        }
+
+        return stage.Staged || stage.Unstaged ? new Mark("M", "modified", "Modified") : null;
+    }
+
+    private void Move(int by)
+    {
+        if (_items.Count == 0)
+        {
+            return;
+        }
+
+        _active = ((_active + by) % _items.Count + _items.Count) % _items.Count;
+        _reveal = true;
+    }
+
+    private void Hover(int index)
+    {
+        if (_active != index)
+        {
+            _active = index;
+        }
+    }
+
+    /// <summary>A key the input's script held back from moving the caret, with the text as it stood.</summary>
+    [JSInvokable]
+    public void OnKey(string key, bool side, string text)
+    {
+        if (text != _query)
+        {
+            SetQuery(text);
+        }
+
+        switch (key)
+        {
+            case "ArrowDown":
+                Move(1);
+                break;
+            case "ArrowUp":
+                Move(-1);
+                break;
+            case "PageDown":
+                Move(Math.Min(10, Math.Max(0, _items.Count - 1 - _active)));
+                break;
+            case "PageUp":
+                Move(-Math.Min(10, _active));
+                break;
+            case "Enter":
+                Accept(_active, side);
+                return;
+            case "Escape":
+                Cancel();
+                return;
+        }
+
+        StateHasChanged();
+    }
+
+    private void Accept(int index, bool side)
+    {
+        if (_worktree is not { } worktree)
+        {
+            Cancel();
+            return;
+        }
+
+        var query = FileQuery.Parse(_query);
+        if (query.GoToLine)
+        {
+            if (query.Line is { } line && Bench.Editors(worktree).Active is { Kind: DocKind.File, Path: { } current }
+                && Bench.GoToLine(worktree, line))
+            {
+                Close(focusFile: current);
+            }
+
+            return;
+        }
+
+        if (index < 0 || index >= _items.Count)
+        {
+            return;
+        }
+
+        var path = _items[index].Path;
+        if (side)
+        {
+            Bench.OpenFileToSide(worktree, path, query.Line);
+        }
+        else
+        {
+            Bench.OpenFile(worktree, path, query.Line, keep: !_preview);
+        }
+
+        Close(focusFile: path);
+    }
+
+    private void Cancel() => Close(focusFile: null);
+
+    /// <summary>
+    /// Focus went somewhere else, a click in the editor say. It stays there:
+    /// putting it back where it was before the box opened would undo the click.
+    /// </summary>
+    private void OnBlur()
+    {
+        if (_open && _closeOnBlur)
+        {
+            Close(focusFile: null, restore: false);
+        }
+    }
+
+    private void Close(string? focusFile, bool restore = true)
+    {
+        if (!_open)
+        {
+            return;
+        }
+
+        var worktree = _worktree;
+        _open = false;
+        _query = "";
+        _items = [];
+        _message = null;
+        _version++;
+        StateHasChanged();
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                if (focusFile is not null && worktree is not null)
+                {
+                    await Js.InvokeVoidAsync("agentsKeys.forgetFocus");
+                    await Js.InvokeVoidAsync("agentsEditor.focusFile", Path.Combine(worktree, focusFile));
+                }
+                else
+                {
+                    await Js.InvokeVoidAsync(restore ? "agentsKeys.restoreFocus" : "agentsKeys.forgetFocus");
+                }
+            }
+            catch (Exception e) when (e is JSException or JSDisconnectedException or TaskCanceledException or InvalidOperationException)
+            {
+            }
+        });
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_open)
+        {
+            return;
+        }
+
+        try
+        {
+            if (_bind)
+            {
+                _bind = false;
+                _self ??= DotNetObjectReference.Create(this);
+                await Js.InvokeVoidAsync("agentsKeys.bindQuickOpen", _input, _self, _selectAll);
+            }
+
+            if (_reveal)
+            {
+                _reveal = false;
+                await Js.InvokeVoidAsync("agentsKeys.revealActive", _list);
+            }
+        }
+        catch (Exception e) when (e is JSException or JSDisconnectedException or TaskCanceledException or InvalidOperationException)
+        {
+        }
+    }
+
+    /// <summary>
+    /// The name or the directory part of a path, with the matched characters
+    /// marked. Positions are into the whole path, so each part takes its own
+    /// slice of them.
+    /// </summary>
+    private static RenderFragment Highlight(Item item, bool name) => __builder =>
+    {
+        var cut = item.Path.LastIndexOf('/') + 1;
+        var (from, to) = name ? (cut, item.Path.Length) : (0, Math.Max(0, cut - 1));
+        var hits = item.Positions.Where(p => p >= from && p < to).ToHashSet();
+        var i = from;
+        while (i < to)
+        {
+            var hit = hits.Contains(i);
+            var start = i;
+            while (i < to && hits.Contains(i) == hit)
+            {
+                i++;
+            }
+
+            var text = item.Path[start..i];
+            if (hit)
+            {
+                <mark>@text</mark>
+            }
+            else
+            {
+                @text
+            }
+        }
+    };
+
+    private static string Leaf(string path) => Path.GetFileName(path.TrimEnd('/', '\\'));
+
+    public void Dispose()
+    {
+        Bench.QuickOpenRequested -= OnRequested;
+        Bench.FilesChanged -= OnFilesChanged;
+        _listing?.Cancel();
+        _self?.Dispose();
+    }
+}

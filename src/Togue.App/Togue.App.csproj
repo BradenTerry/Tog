@@ -1,0 +1,102 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <RootNamespace>Togue.App</RootNamespace>
+    <AssemblyName>togue</AssemblyName>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Photino.NET" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Togue.Core\Togue.Core.csproj" />
+    <ProjectReference Include="..\Togue.Extensions\Togue.Extensions.csproj" />
+  </ItemGroup>
+
+  <!--
+    The extension template and the skill that uses it, carried so an agent
+    outside this repository can write an extension. See ExtensionSkill. None
+    rather than Content, which the web SDK would try to serve.
+  -->
+  <ItemGroup>
+    <None Include="..\..\templates\extension\**" Exclude="..\..\templates\extension\**\bin\**;..\..\templates\extension\**\obj\**"
+          Link="sdk-template\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\..\templates\skill\SKILL.md" Link="skill\SKILL.md"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!--
+    Monaco is a 24 MB build artefact, so it is fetched into wwwroot rather than
+    committed, and a clone with no monaco/ still builds and runs. The wwwroot
+    Content glob is evaluated before any target runs, so the files vendored here
+    are added as Content by hand, and the target runs before the static web
+    assets pipeline reads that list; otherwise the first build on a fresh clone
+    would vendor the files and not serve them until the second.
+
+    Each target runs when its VERSION marker is missing or older than the
+    lockfile in tools/vendor that pins it, so moving a pin reaches a machine
+    that already vendored the old one. The script then compares the marker with
+    the lockfile's hash and does nothing if they agree.
+  -->
+  <Target Name="VendorMonaco"
+          BeforeTargets="ResolveCurrentProjectStaticWebAssetsInputs;BeforeBuild"
+          Inputs="$(MSBuildThisFileDirectory)..\..\tools\vendor\monaco\package-lock.json"
+          Outputs="$(MSBuildThisFileDirectory)wwwroot\monaco\VERSION">
+    <Message Importance="high" Text="Vendoring monaco-editor into wwwroot/monaco" />
+    <Exec Command="node tools/vendor-monaco.mjs" WorkingDirectory="$(MSBuildThisFileDirectory)../.." />
+    <ItemGroup>
+      <!-- Project-relative on purpose: the static web assets pipeline only
+           keeps Content whose identity starts with wwwroot/. -->
+      <Content Include="wwwroot\monaco\**" Exclude="@(Content)" />
+    </ItemGroup>
+  </Target>
+
+  <!-- Mermaid for the Markdown preview, vendored and served like Monaco above. -->
+  <Target Name="VendorMermaid"
+          BeforeTargets="ResolveCurrentProjectStaticWebAssetsInputs;BeforeBuild"
+          Inputs="$(MSBuildThisFileDirectory)..\..\tools\vendor\mermaid\package-lock.json"
+          Outputs="$(MSBuildThisFileDirectory)wwwroot\mermaid\VERSION">
+    <Message Importance="high" Text="Vendoring mermaid into wwwroot/mermaid" />
+    <Exec Command="node tools/vendor-mermaid.mjs" WorkingDirectory="$(MSBuildThisFileDirectory)../.." />
+    <ItemGroup>
+      <Content Include="wwwroot\mermaid\**" Exclude="@(Content)" />
+    </ItemGroup>
+  </Target>
+
+  <!-- VS Code's TextMate tokenizer and grammars for the editor, vendored and served like Monaco above. -->
+  <Target Name="VendorTextmate"
+          BeforeTargets="ResolveCurrentProjectStaticWebAssetsInputs;BeforeBuild"
+          Inputs="$(MSBuildThisFileDirectory)..\..\tools\vendor\textmate\package-lock.json"
+          Outputs="$(MSBuildThisFileDirectory)wwwroot\textmate\VERSION">
+    <Message Importance="high" Text="Vendoring the TextMate tokenizer and grammars into wwwroot/textmate" />
+    <Exec Command="node tools/vendor-textmate.mjs" WorkingDirectory="$(MSBuildThisFileDirectory)../.." />
+    <ItemGroup>
+      <Content Include="wwwroot\textmate\**" Exclude="@(Content)" />
+    </ItemGroup>
+  </Target>
+
+  <!--
+    The Claude ACP bridge, a Node package the app launches to run Claude. It is
+    not served to the browser, so unlike Monaco it needs no static web assets
+    wiring: the script installs it next to the project and the app finds it there.
+  -->
+  <Target Name="VendorAcp"
+          BeforeTargets="BeforeBuild"
+          Inputs="$(MSBuildThisFileDirectory)..\..\tools\vendor\acp\package-lock.json"
+          Outputs="$(MSBuildThisFileDirectory)acp\VERSION">
+    <Message Importance="high" Text="Installing the Claude ACP bridge into acp/" />
+    <Exec Command="node tools/vendor-acp.mjs" WorkingDirectory="$(MSBuildThisFileDirectory)../.." />
+  </Target>
+
+  <!--
+    The version the build was stamped with, one line, so a publish script can
+    put it in build-info without parsing git a second time.
+  -->
+  <Target Name="WriteVersionFile" AfterTargets="Publish">
+    <WriteLinesToFile File="$(PublishDir)version" Lines="$(InformationalVersion)" Overwrite="true" />
+  </Target>
+
+</Project>

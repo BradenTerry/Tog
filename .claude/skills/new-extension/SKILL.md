@@ -1,12 +1,12 @@
 ---
 name: new-extension
-description: Create a new Agents Dashboard extension (a Razor project the running app loads at runtime and shows as a tab, an indicator, a background worker or editor code intelligence), scaffold it from templates/extension, build it, and link it into the app. Use when the user asks to create, scaffold, start, add or write an extension, plugin, new tab or new panel for the dashboard, or asks for a feature that is not about agents (a language, a tool, a test runner, a build status), since those belong in an extension rather than the app.
+description: Create a new Togue extension (a Razor project the running app loads at runtime and shows as a tab, an indicator, a background worker or editor code intelligence), scaffold it from templates/extension, build it, and link it into the app. Use when the user asks to create, scaffold, start, add or write an extension, plugin, new tab or new panel for Togue, or asks for a feature that is not about agents (a language, a tool, a test runner, a build status), since those belong in an extension rather than the app.
 ---
 
-# Create a dashboard extension
+# Create a Togue extension
 
 An extension is a folder with an `extension.json` and a Razor class library
-built into `bin/dashboard/`. The app loads it into its own load context and
+built into `bin/togue/`. The app loads it into its own load context and
 reloads it on every build. `docs/extensions.md` is the reference; read it before
 doing anything unusual. The template's `AGENTS.md` is the API on one page.
 
@@ -25,8 +25,8 @@ From the request, settle:
   control), `LeftPanel` (beside Files), `BottomPanel` (beside Chat).
 - **Where the project lives**: outside this repository, never in it. A folder
   the user names, or their extension folder
-  (`agents-dashboard-extensions`). It compiles against the SDK the app copies
-  to `~/.agents-dashboard/sdk/<major>.<minor>/`.
+  (`togue-extensions`). It compiles against the SDK the app copies
+  to `~/.togue/sdk/<major>.<minor>/`.
 
 Ask only if the request leaves the contribution or the location genuinely
 unclear. Do not ask about the name; pick one.
@@ -38,7 +38,7 @@ template changes), then create the project:
 
 ```
 dotnet new install templates/extension --force
-dotnet new agents-dashboard-extension -n <Name> -o <path>/<Name>
+dotnet new togue-extension -n <Name> -o <path>/<Name>
 ```
 
 That gives `extension.json`, `<Name>.csproj`, `<Name>Extension.cs`,
@@ -49,14 +49,14 @@ plus a one-line `CLAUDE.md` for whoever works on it later.
 
 The template targets API 1.0. The app's current API is
 `ExtensionManifests.Api` in
-`src/AgentsDashboard.Core/Extensions/ExtensionManifest.cs`; the SDK for
-it is in `~/.agents-dashboard/sdk/` under the newest folder there (run the app
+`src/Togue.Core/Extensions/ExtensionManifest.cs`; the SDK for
+it is in `~/.togue/sdk/` under the newest folder there (run the app
 once if the folder is missing).
 
 - If the extension names a panel (`LeftPanel`, `RightPanel`, `BottomPanel`) or
   uses anything else added after 1.0 (`AddCodeIntelligence`), set
   `"apiVersion"` in `extension.json` to that version, and point the csproj's
-  `AgentsDashboardSdk` default at the matching `sdk/<major>.<minor>` folder.
+  `TogueSdk` default at the matching `sdk/<major>.<minor>` folder.
   Compiling against `sdk/1.0` fails on those members.
 - Never set `apiVersion` newer than the app's: it will not load.
 
@@ -65,10 +65,10 @@ once if the folder is missing).
 Follow the template's `AGENTS.md` and the repository's conventions. The things
 that break an extension, in the order they bite:
 
-- **Exactly one public `IDashboardExtension`** in the entry assembly.
+- **Exactly one public `ITogueExtension`** in the entry assembly.
 - **Own services through `Context.Get<T>()`**, registered on `b.Services`.
   `@inject` resolves from the app's container, which has only the API services
-  (`IDashboardView`, `INavigation`, `ITextLinker`, `IExtensionStorage`,
+  (`ITogueView`, `INavigation`, `ITextLinker`, `IExtensionStorage`,
   `ILogger<T>`).
 - **Never ship a shared assembly.** The API reference stays `Private="false"`,
   and do not add packages for `Microsoft.AspNetCore.*`, `Microsoft.Extensions.*`
@@ -77,7 +77,7 @@ that break an extension, in the order they bite:
 - **`appliesTo` and `IAgentIndicator.For` run on every render.** Answer from
   memory. Do IO in a worker or a service and cache the result.
 - **The view re-renders about once a second.** Anything that draws more than a
-  card overrides `ShouldRender`. `IDashboardView.Changed` fires on the monitor
+  card overrides `ShouldRender`. `ITogueView.Changed` fires on the monitor
   thread; marshal with `InvokeAsync`.
 - **Workers stop when `stopping` is cancelled.** A reload waits for them. Never
   start a bare thread: an exception on it ends the app.
@@ -85,7 +85,7 @@ that break an extension, in the order they bite:
   repository is a button they press. Data goes in
   `IExtensionStorage.DataDirectory`.
 - **No `Microsoft.Build.Locator` registration**: the C# extension owns it.
-- **Look native**: the dashboard's classes and CSS variables listed in the
+- **Look native**: Togue's classes and CSS variables listed in the
   template's `AGENTS.md`. Own styles go in `assets/extension.css`, prefixed
   with the extension id.
 
@@ -98,7 +98,7 @@ than growing it. Set a real `description` in `extension.json`.
 dotnet build <path>/<Name>
 ```
 
-It must build with no errors and put `<Name>.dll` in `bin/dashboard/`, matching
+It must build with no errors and put `<Name>.dll` in `bin/togue/`, matching
 `entry` and `output` in the manifest. Then tell the user how to load it; do not
 change their settings yourself:
 
@@ -107,7 +107,7 @@ change their settings yourself:
 - Otherwise Settings, Extensions, Extension folders, Choose folder... and pick
   it, or type its path and Add. Every later build reloads the tab in the open
   window.
-- Or start the app with `dotnet run --project src/AgentsDashboard.App -- --extension <path>/<Name>`.
+- Or start the app with `dotnet run --project src/Togue.App -- --extension <path>/<Name>`.
 
 If the user wants to see it running, use the `run` skill with `--extension`.
 

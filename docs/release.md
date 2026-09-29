@@ -30,7 +30,7 @@ reads it at run time, and Settings shows it beside its title. The Update
 available tooltip names the staged build's version, so the two are easy to
 tell apart.
 
-`AgentsDashboard.Extensions` keeps a fixed `AssemblyVersion` of `1.0.0.0`,
+`Togue.Extensions` keeps a fixed `AssemblyVersion` of `1.0.0.0`,
 which is its API contract with extensions; only its informational version
 follows git.
 

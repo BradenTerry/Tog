@@ -4,22 +4,22 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <!-- Writes the .deps.json the dashboard loads this extension's own
+    <!-- Writes the .deps.json Togue loads this extension's own
          dependencies from. -->
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <!-- One fixed folder, which extension.json points at. -->
-    <OutputPath>bin/dashboard/</OutputPath>
+    <OutputPath>bin/togue/</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-    <!-- The dashboard copies its API here every time it starts. -->
-    <AgentsDashboardSdk Condition="'$(AgentsDashboardSdk)' == ''">$([System.Environment]::GetFolderPath(SpecialFolder.UserProfile))/.agents-dashboard/sdk/1.0</AgentsDashboardSdk>
+    <!-- Togue copies its API here every time it starts. -->
+    <TogueSdk Condition="'$(TogueSdk)' == ''">$([System.Environment]::GetFolderPath(SpecialFolder.UserProfile))/.togue/sdk/1.0</TogueSdk>
   </PropertyGroup>
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
-    <!-- Compile against the API, never ship it: the dashboard's own copy is the
+    <!-- Compile against the API, never ship it: Togue's own copy is the
          one that runs. -->
-    <Reference Include="AgentsDashboard.Extensions">
-      <HintPath>$(AgentsDashboardSdk)/AgentsDashboard.Extensions.dll</HintPath>
+    <Reference Include="Togue.Extensions">
+      <HintPath>$(TogueSdk)/Togue.Extensions.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>

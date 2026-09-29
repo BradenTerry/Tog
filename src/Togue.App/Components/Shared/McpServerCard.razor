@@ -1,0 +1,123 @@
+@using Togue.Core.Claude
+@using Togue.Core.Agents
+@inject ClaudeMcpConfig Config
+@inject McpCommand Command
+@inject Togue.Core.Platform.IClipboard Clipboard
+
+@* Agents Togue starts are handed its MCP server with every session and
+   need nothing here. This adds it to Claude Code for agents started in a
+   terminal, and only from this button: it is the app's one change to Claude's
+   own config besides the extension skill. *@
+
+<div class="card">
+    <div class="row">
+        <div class="stack" style="flex: 1; min-width: 0;">
+            <div class="inline">
+                <strong>Claude Code</strong>
+                @if (Config.Available)
+                {
+                    <span class="chip @StateClass(_state)">@StateName(_state)</span>
+                }
+            </div>
+            @if (!Config.Available)
+            {
+                <span class="faint">Claude Code is not set up on this machine (no <span class="mono">@Config.ConfigFile</span>).</span>
+            }
+            else if (_state == McpEntryState.Different)
+            {
+                <span class="faint">
+                    Claude has a server called @McpStdioBridge.Name that starts something else, such as another copy
+                    of Togue. Update points it at this one.
+                </span>
+            }
+            <span class="mono faint truncate" title="@CommandLine">@CommandLine</span>
+        </div>
+        @if (Config.Available)
+        {
+            <div class="inline" style="align-self: flex-start;">
+                @switch (_state)
+                {
+                    case McpEntryState.Missing:
+                        <button class="small" disabled="@_busy" @onclick="Add">Add to Claude Code</button>
+                        break;
+                    case McpEntryState.Different:
+                        <button class="small" disabled="@_busy" @onclick="Add">Update</button>
+                        <button class="ghost small" disabled="@_busy" @onclick="Remove">Remove</button>
+                        break;
+                    default:
+                        <button class="ghost small" disabled="@_busy" @onclick="Remove">Remove</button>
+                        break;
+                }
+            </div>
+        }
+    </div>
+    <div class="card-body">
+        <p class="faint" style="margin: 0;">
+            Agents started in Togue already have its tools: opening a file here, the extensions'
+            tools such as running tests, and adding an extension. Adding the server gives agents you start
+            with <span class="mono">claude</span> in a terminal the same tools, in every project, while Togue is open. A tool called that way works in the folder the agent was started in.
+            Start a new Claude session after adding it.
+        </p>
+        @if (_error is { Length: > 0 })
+        {
+            <p class="faint" style="margin: 8px 0 0; color: var(--danger);">@_error</p>
+        }
+        @if (_showManual)
+        {
+            <div class="inline" style="margin-top: 8px; align-items: flex-start;">
+                <span class="mono faint" style="flex: 1; min-width: 0; overflow-wrap: anywhere;">@ClaudeMcpConfig.ShellCommand(Command)</span>
+                <button class="ghost small" @onclick="Copy">@(_copied ? "Copied" : "Copy")</button>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private McpEntryState _state;
+    private string? _error;
+    private bool _busy;
+    private bool _showManual;
+    private bool _copied;
+
+    private string CommandLine => string.Join(' ', Command.Args.Prepend(Command.Command).Select(Quote));
+
+    protected override void OnInitialized() => _state = Config.State(Command);
+
+    private Task Add() => Run(() => Config.AddAsync(Command), adding: true);
+
+    private Task Remove() => Run(() => Config.RemoveAsync(), adding: false);
+
+    /// <summary>
+    /// claude takes a moment to start, so the buttons are off while it runs.
+    /// An add that fails shows the command to run by hand, which is also the
+    /// way when the app cannot find claude at all.
+    /// </summary>
+    private async Task Run(Func<Task<string?>> action, bool adding)
+    {
+        _busy = true;
+        _error = null;
+        StateHasChanged();
+        _error = await Task.Run(action);
+        _showManual = adding && _error is not null;
+        _state = Config.State(Command);
+        _busy = false;
+    }
+
+    private void Copy() => _copied = Clipboard.TryCopy(ClaudeMcpConfig.ShellCommand(Command));
+
+    private static string Quote(string part) => part.Contains(' ') ? $"\"{part}\"" : part;
+
+    private static string StateName(McpEntryState state) => state switch
+    {
+        McpEntryState.Current => "added",
+        McpEntryState.Different => "points elsewhere",
+        _ => "not added",
+    };
+
+    private static string StateClass(McpEntryState state) => state switch
+    {
+        McpEntryState.Current => "active",
+        McpEntryState.Different => "accent",
+        _ => "",
+    };
+}

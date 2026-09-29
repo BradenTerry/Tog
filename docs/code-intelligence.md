@@ -7,9 +7,9 @@ language, through `ICodeIntelligence`; the app itself has no language support
 beyond Monaco's colouring, and carries no Roslyn or MSBuild.
 
 The one that exists is C#, kept outside this repository in the user's
-extension folder (`agents-dashboard-extensions/CSharpCode`, with its tests in
+extension folder (`togue-extensions/CSharpCode`, with its tests in
 `CSharpCode.Tests` beside it), built against the SDK like any other
-extension. The dashboard is already
+extension. Togue is already
 a .NET process, so it runs Roslyn in-process, which means no second process to
 install, start or keep alive. Other languages keep what Monaco does on its own,
 which is colouring and, for TypeScript and JavaScript, symbols within the open
@@ -165,8 +165,7 @@ is the length of the span and the fact that indentation only shifts it left, so
 the mark goes on the identifier of that length nearest the column from below, and
 on nothing at all when no identifier of that length fits.
 
-Definition targets in other files go through Monaco's editor opener, which the
-dashboard handles by opening that file in its own tab at that line, exactly
+Definition targets in other files go through Monaco's editor opener, which Togue handles by opening that file in its own tab at that line, exactly
 as a clicked reference would.
 
 ## MSBuild inside an extension
@@ -191,9 +190,9 @@ so the load context takes it from the extension's own folder; see
 
 - **Completions and diagnostics.** They are the expensive, always-on half of a
   language server, and the editor here is for reading and small fixes. An agent
-  writes the code; the dashboard is where you check it.
+  writes the code; Togue is where you check it.
 - **Rename and other refactorings.** Anything that edits files the user did not
-  open is out of scope for a dashboard that offers changes rather than makes
+  open is out of scope for an app that offers changes rather than makes
   them.
 - **Other languages.** A general language server bridge is a different project.
 

@@ -1,5 +1,5 @@
 {
-  "name": "agents-dashboard-vendor-textmate",
+  "name": "togue-vendor-textmate",
   "private": true,
   "dependencies": {
     "tm-grammars": "1.32.22",

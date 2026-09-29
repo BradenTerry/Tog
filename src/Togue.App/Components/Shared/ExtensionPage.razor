@@ -1,0 +1,237 @@
+@using Togue.Core.Extensions
+@using Togue.Extensions
+@inject ExtensionHost Extensions
+@implements IDisposable
+
+@* One extension's page in Settings: whether it runs, what it is, and its own
+   settings. An extension is code running inside Togue, as you, so
+   turning one on is always a click here, made with its folder and a fingerprint
+   of its code in front of you. *@
+
+@if (Entry is not { } entry)
+{
+    <div class="card">
+        <div class="row faint settings-empty">This extension is no longer found. It may have been removed or unlinked.</div>
+    </div>
+}
+else
+{
+    var found = entry.Found;
+    var manifest = found.Manifest;
+
+    <header class="settings-section-head ext-page-head">
+        <div class="stack" style="flex: 1; min-width: 0;">
+            <div class="inline">
+                <h2>@ExtensionLabels.Name(found)</h2>
+                @if (manifest is not null)
+                {
+                    <span class="faint nums">@manifest.Version</span>
+                }
+                <span class="chip @ExtensionLabels.StatusClass(entry.Status)">@ExtensionLabels.StatusName(entry.Status)</span>
+            </div>
+            @if (manifest?.Description is { Length: > 0 } description)
+            {
+                <p class="muted">@description</p>
+            }
+        </div>
+        <div class="inline ext-page-actions">
+            @switch (entry.Status)
+            {
+                case ExtensionStatus.Loaded:
+                    <button class="ghost small" @onclick="() => OffWindow(() => Extensions.Reload(found.Id))">Reload</button>
+                    @if (found.Source != ExtensionSource.CommandLine)
+                    {
+                        <button class="small" @onclick="() => OffWindow(() => Extensions.Disable(found.Id))">Disable</button>
+                    }
+                    break;
+                case ExtensionStatus.Failed:
+                    <button class="small" @onclick="() => OffWindow(() => Extensions.Reload(found.Id))">Retry</button>
+                    @if (found.Source != ExtensionSource.CommandLine)
+                    {
+                        <button class="ghost small" @onclick="() => OffWindow(() => Extensions.Disable(found.Id))">Disable</button>
+                    }
+                    break;
+                case ExtensionStatus.Disabled or ExtensionStatus.NeedsConsent when manifest is not null:
+                    <button class="primary small" @onclick="() => AskOrEnable(found)">Enable</button>
+                    break;
+            }
+        </div>
+    </header>
+
+    @if (_confirming)
+    {
+        <ExtensionConsent Found="found" OnEnable="() => Enable(found.Id)" OnCancel="() => _confirming = false" />
+    }
+
+    @if (entry.Message is { Length: > 0 } message)
+    {
+        <div class="banner @(entry.Status == ExtensionStatus.Disabled ? "" : "danger") ext-consent">
+            <p class="@(entry.Status == ExtensionStatus.Disabled ? "muted" : "")" style="margin: 0;">@message</p>
+        </div>
+    }
+
+    @* An extension's own settings, declared in its code, so they are only
+       known while it is loaded. The values are kept while it is off. *@
+    <section class="settings-group">
+        <div class="settings-group-head">
+            <h3>Settings</h3>
+        </div>
+        <div class="card">
+            @if (entry.Status != ExtensionStatus.Loaded)
+            {
+                <div class="row faint settings-empty">Turn it on to see its settings. Anything you set before is kept.</div>
+            }
+            else if (entry.Settings.Count == 0)
+            {
+                <div class="row faint settings-empty">It has no settings.</div>
+            }
+            else
+            {
+                @foreach (var (setting, value) in entry.Settings)
+                {
+                    var settingId = setting.Id;
+                    @if (setting.Choices is { } choices)
+                    {
+                        <div class="row setting-row">
+                            <div class="stack" style="flex: 1; min-width: 0;">
+                                <strong>@setting.Title</strong>
+                                @if (setting.Description is { Length: > 0 } hint)
+                                {
+                                    <span class="faint">@hint</span>
+                                }
+                            </div>
+                            <Picker AriaLabel="@setting.Title" Class="setting-picker"
+                                    Value="@value"
+                                    Options="@([.. choices.Select(c => new PickerOption(c.Value, c.Label, c.Description))])"
+                                    ValueChanged="v => SetSetting(found.Id, settingId, v)" />
+                        </div>
+                    }
+                    else
+                    {
+                        <label class="row setting-row">
+                            <div class="stack" style="flex: 1; min-width: 0;">
+                                <strong>@setting.Title</strong>
+                                @if (setting.Description is { Length: > 0 } hint)
+                                {
+                                    <span class="faint">@hint</span>
+                                }
+                            </div>
+                            <input type="checkbox" class="switch" role="switch"
+                                   checked="@(value == ExtensionSetting.On)"
+                                   aria-label="@setting.Title"
+                                   @onchange="e => SetSetting(found.Id, settingId, (bool)e.Value! ? ExtensionSetting.On : ExtensionSetting.Off)" />
+                        </label>
+                    }
+                }
+            }
+        </div>
+    </section>
+
+    <section class="settings-group">
+        <div class="settings-group-head">
+            <h3>About</h3>
+        </div>
+        <div class="card">
+            <dl class="ext-facts">
+                <dt>Source</dt>
+                <dd><span class="chip">@ExtensionLabels.SourceName(found.Source)</span> <span class="faint">@ExtensionLabels.SourceTip(found.Source)</span></dd>
+
+                <dt>Folder</dt>
+                <dd class="mono truncate" title="@found.Directory">@found.Directory</dd>
+
+                @if (manifest?.Author is { Length: > 0 } by)
+                {
+                    <dt>Author</dt>
+                    <dd>@by</dd>
+                }
+
+                <dt>Id</dt>
+                <dd class="mono">@found.Id</dd>
+
+                @if (manifest is not null)
+                {
+                    <dt>API</dt>
+                    <dd class="nums">@manifest.ApiVersion</dd>
+                }
+
+                @if (manifest is { Secrets.Count: > 0 })
+                {
+                    <dt>Secrets</dt>
+                    <dd>@SecretText.Needs(manifest.Secrets). <span class="faint">Bound in Secrets.</span></dd>
+                }
+
+                @if (entry.Status == ExtensionStatus.Loaded && entry.Views.Count > 0)
+                {
+                    <dt>Adds</dt>
+                    <dd>@string.Join(", ", entry.Views.Select(v => v.Title))</dd>
+                }
+            </dl>
+            @if (found.Source == ExtensionSource.Linked)
+            {
+                <div class="row">
+                    <span class="faint" style="flex: 1;">Take this folder out of Togue. Its files stay where they are.</span>
+                    <button class="ghost small" @onclick="() => OffWindow(() => Extensions.Unlink(found.Directory))">Remove</button>
+                </div>
+            }
+        </div>
+    </section>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public string Id { get; set; } = "";
+
+    private bool _confirming;
+    private string? _shown;
+
+    private ExtensionEntry? Entry => Extensions.Entries.FirstOrDefault(e => e.Found.Id == Id);
+
+    protected override void OnInitialized() => Extensions.Changed += OnChanged;
+
+    protected override void OnParametersSet()
+    {
+        // A question asked about one extension is not carried to the next.
+        if (_shown != Id)
+        {
+            _shown = Id;
+            _confirming = false;
+        }
+    }
+
+    private void OnChanged() => _ = InvokeAsync(StateHasChanged);
+
+    /// <summary>
+    /// A folder you linked is code you are writing, so it is turned on as it is.
+    /// An installed copy is asked about first.
+    /// </summary>
+    private async Task AskOrEnable(FoundExtension found)
+    {
+        if (found.IsDev)
+        {
+            await Enable(found.Id);
+        }
+        else
+        {
+            _confirming = true;
+        }
+    }
+
+    private Task Enable(string id)
+    {
+        _confirming = false;
+        return OffWindow(() => Extensions.Enable(id));
+    }
+
+    /// <summary>Off the window's thread too: the extension hears about it, and that is its code.</summary>
+    private Task SetSetting(string id, string settingId, string value) =>
+        OffWindow(() => Extensions.SetSetting(id, settingId, value));
+
+    /// <summary>
+    /// Runs a host action on the pool. Loading an extension copies its files,
+    /// loads its assemblies and runs its Configure, all extension-sized work
+    /// that on this window's thread freezes the window until it is done.
+    /// </summary>
+    private static Task OffWindow(Action action) => Task.Run(action);
+
+    public void Dispose() => Extensions.Changed -= OnChanged;
+}

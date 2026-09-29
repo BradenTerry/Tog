@@ -1,0 +1,582 @@
+@inject Workbench Bench
+@inject TogueState State
+@inject MonitorService Monitor
+@inject IGitCli Git
+@implements IDisposable
+
+@* The right panel's Source control, as VS Code's: the uncommitted files split
+   the way git holds them, and where the branch stands against its upstream. A
+   file opens its changes side by side in the editor. *@
+
+<div class="panel-tools">
+    <span class="spacer"></span>
+    @if (_sync is { Upstream: { } upstream } sync)
+    {
+        @* VS Code's sync count: commits to push up, commits to pull down. Behind
+           is only as fresh as the last fetch, so pressing it fetches. *@
+        <button class="scm-sync" @onclick="Fetch" disabled="@_fetching"
+                title="@SyncTitle(sync.Ahead, sync.Behind, upstream)" aria-label="@SyncTitle(sync.Ahead, sync.Behind, upstream)">
+            <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+                <path d="M8 13V3M4 7l4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <span class="@(sync.Ahead > 0 ? "" : "faint")">@sync.Ahead</span>
+            <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+                <path d="M8 3v10M4 9l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <span class="@(sync.Behind > 0 ? "" : "faint")">@sync.Behind</span>
+        </button>
+    }
+    <button class="icon-btn" @onclick="Model.Load" disabled="@Model.Loading" title="Refresh" aria-label="Refresh the diff">
+        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+            <path d="M13 8a5 5 0 1 1-1.5-3.55M13 2.5v3h-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+    </button>
+</div>
+
+<div class="panel-scroll">
+    @if (_discarding is { } discard)
+    {
+        <div class="banner danger panel-banner">
+            <strong>Discard changes in @Fmt.Count(discard.Files.Count, "file")?</strong>
+            <p class="muted" style="margin: 5px 0 8px;">
+                @if (discard.NewFiles > 0)
+                {
+                    <span>@Fmt.Count(discard.NewFiles, "new file") will be deleted. </span>
+                }
+                <span>What is staged is kept. This cannot be undone.</span>
+            </p>
+            <div class="inline">
+                <button class="danger small" @onclick="Discard" disabled="@Model.IsStaging">Discard</button>
+                <button class="ghost small" @onclick="() => { _discarding = null; Touch(); }">Cancel</button>
+            </div>
+        </div>
+    }
+
+    @if (_fetchError is { Length: > 0 } fetchError)
+    {
+        <div class="banner danger panel-banner">
+            <strong>Fetch failed.</strong>
+            <p class="mono muted" style="margin: 5px 0 8px;">@fetchError</p>
+            <button class="ghost small" @onclick="() => { _fetchError = null; Touch(); }">Dismiss</button>
+        </div>
+    }
+
+    @if (Model.StageError is { Length: > 0 } stageError)
+    {
+        <div class="banner danger panel-banner">
+            <strong>Staging failed.</strong>
+            <p class="mono muted" style="margin: 5px 0 0;">@stageError</p>
+        </div>
+    }
+
+    @if (Model.Loading && Model.Diff is null)
+    {
+        <div class="panel-note faint">Reading the diff...</div>
+    }
+    else if (Model.Diff?.Error is { } error)
+    {
+        <div class="banner danger panel-banner">
+            <strong>Could not produce the diff.</strong>
+            <p class="mono muted" style="margin: 6px 0 0;">@error</p>
+        </div>
+    }
+    else if (Model.Diff is { Files.Count: 0 })
+    {
+        <div class="panel-note faint">Nothing uncommitted.</div>
+    }
+    else if (Model.Diff is { } set)
+    {
+        var (staged, unstaged) = Sections(set);
+
+        @* Staged above pending, the way VS Code's Source Control view lays it
+           out. A partly staged file is in both, because it is in both places.
+           Each section is its own tree with its own folds, since the same
+           folder can be in both. *@
+        @if (staged.FileCount > 0)
+        {
+            @SectionHead(("Staged Changes", true, staged))
+            @if (!_stagedFolded)
+            {
+                @SectionTree((staged, true))
+            }
+        }
+
+        @SectionHead(("Changes", false, unstaged))
+        @if (!_changesFolded)
+        {
+            @if (unstaged.FileCount == 0)
+            {
+                <div class="scm-empty faint">Everything is staged.</div>
+            }
+            @SectionTree((unstaged, false))
+        }
+    }
+
+    @if (_menu is { } menu)
+    {
+        <ContextMenu X="menu.X" Y="menu.Y" OnClose="CloseMenu">
+            @if (menu.InStaged)
+            {
+                <button type="button" class="context-item" @onclick="() => FromMenu(() => Model.Unstage(menu.Files))">
+                    Unstage <span class="faint">@Fmt.Count(menu.Files.Count, "file")</span>
+                </button>
+            }
+            else
+            {
+                <button type="button" class="context-item" @onclick="() => FromMenu(() => Model.Stage(menu.Files))">
+                    Stage <span class="faint">@Fmt.Count(menu.Files.Count, "file")</span>
+                </button>
+                <button type="button" class="context-item destructive" @onclick="() => AskDiscard(menu.Files)">
+                    Discard changes...
+                </button>
+            }
+            @if (menu.Files is [var only] && menu.PickedOne)
+            {
+                <hr class="context-sep" />
+                <button type="button" class="context-item" @onclick="() => FromMenu(() => { Show(only, menu.InStaged, keep: true); return Task.CompletedTask; })">
+                    Open changes
+                </button>
+                <button type="button" class="context-item" @onclick="() => FromMenu(() => { Bench.OpenFile(WorktreePath, only, keep: true); return Task.CompletedTask; })">
+                    Open file
+                </button>
+            }
+        </ContextMenu>
+    }
+
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public string WorktreePath { get; set; } = "";
+
+    private ChangesModel Model => Bench.Changes(WorktreePath);
+    private ChangesModel? _model;
+
+    private string? _selected;
+    private bool _stagedFolded;
+    private bool _changesFolded;
+
+    /// <summary>
+    /// Folders folded shut in each staging section, apart because a folder can
+    /// be in both. Every folder starts open, so a change is one click away.
+    /// </summary>
+    private readonly HashSet<string> _stagedShut = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _changesShut = new(StringComparer.Ordinal);
+
+    private (PathTreeNode<DiffFile> Staged, PathTreeNode<DiffFile> Unstaged)? _sections;
+    private DiffSet? _sectionsForDiff;
+    private IReadOnlyDictionary<string, FileStage>? _sectionsForStages;
+
+    /// <summary>
+    /// Renders only when the model or this panel's own folds move. The layout
+    /// re-renders every second, and a large diff's trees are not free to redraw.
+    /// </summary>
+    private bool _render = true;
+
+    protected override bool ShouldRender()
+    {
+        if (!_render)
+        {
+            return false;
+        }
+
+        _render = false;
+        return true;
+    }
+
+    private void Touch() => _render = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Reading a diff is several git invocations, and prerendering throws the
+        // result away.
+        if (!RendererInfo.IsInteractive)
+        {
+            return;
+        }
+
+        _sync = SyncNow();
+        State.Changed += OnSnapshot;
+
+        _model = Model;
+        _model.Changed += OnModelChanged;
+
+        // Coming back to an agent reads its worktree afresh: the agent has
+        // usually been working in the meantime.
+        await _model.Load();
+    }
+
+    private void OnModelChanged() => _ = InvokeAsync(() =>
+    {
+        Touch();
+        StateHasChanged();
+    });
+
+    /// <summary>Where the branch stands against its upstream, as last rendered.</summary>
+    private sealed record Sync(int Ahead, int Behind, string? Upstream);
+
+    private Sync? _sync;
+    private bool _fetching;
+    private string? _fetchError;
+
+    private Sync? SyncNow() =>
+        State.Worktree(WorktreePath)?.Status is { } s ? new Sync(s.Ahead, s.Behind, s.Upstream) : null;
+
+    /// <summary>
+    /// Renders on a snapshot only when the push and pull counts moved: a
+    /// snapshot lands every second and almost never changes them.
+    /// </summary>
+    private void OnSnapshot()
+    {
+        var now = SyncNow();
+        if (now == _sync)
+        {
+            return;
+        }
+
+        _ = InvokeAsync(() =>
+        {
+            _sync = now;
+            Touch();
+            StateHasChanged();
+        });
+    }
+
+    private static string SyncTitle(int ahead, int behind, string upstream) =>
+        $"{Fmt.Count(ahead, "commit")} to push, {Fmt.Count(behind, "commit")} to pull from {upstream}, as of the last fetch. Click to fetch.";
+
+    /// <summary>
+    /// Fetches the branch's remote so the pull count is current. Fetching only
+    /// moves remote-tracking refs, never the branch or the files, and it only
+    /// runs when asked.
+    /// </summary>
+    private async Task Fetch()
+    {
+        Touch();
+        _fetching = true;
+        _fetchError = null;
+        var result = await Git.RunAsync(WorktreePath, ["fetch", "--prune"]);
+        _fetching = false;
+        _fetchError = result.Ok ? null : result.Message.Trim();
+        Monitor.InvalidateStatus(WorktreePath);
+        Touch();
+    }
+
+    /// <summary>
+    /// A file's changes side by side in a tab, previewed until kept, as VS
+    /// Code's Source Control view opens them. The row's section decides which
+    /// changes: staged ones against HEAD, the rest against the index.
+    /// </summary>
+    private void Show(string path, bool staged, bool keep)
+    {
+        Touch();
+        _selected = path;
+        Bench.OpenDiff(WorktreePath, path, staged, keep);
+    }
+
+    private RenderFragment SectionHead((string Title, bool InStaged, PathTreeNode<DiffFile> Tree) section) => __builder =>
+    {
+        var folded = section.InStaged ? _stagedFolded : _changesFolded;
+        var shut = section.InStaged ? _stagedShut : _changesShut;
+        var anyOpen = AllDirectories(section.Tree).Any(d => !shut.Contains(d));
+
+        <div class="scm-head">
+            <button type="button" class="scm-toggle" aria-expanded="@(!folded ? "true" : "false")"
+                    @onclick="() => Fold(section.InStaged)">
+                <svg class="chevron @(folded ? "" : "open")" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                    <path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.6"
+                          stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+                @section.Title
+            </button>
+            <button type="button" class="scm-action" @onclick="() => ToggleAllIn(shut, section.Tree)"
+                    title="@(anyOpen ? "Collapse all folders" : "Expand all folders")"
+                    aria-label="@(anyOpen ? "Collapse all folders" : "Expand all folders")">
+                <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                    @if (anyOpen)
+                    {
+                        <path d="M4 6.5 8 3l4 3.5M4 13 8 9.5l4 3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                    }
+                    else
+                    {
+                        <path d="M4 3 8 6.5 12 3M4 9.5 8 13l4-3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                    }
+                </svg>
+            </button>
+            @if (section.InStaged)
+            {
+                <button type="button" class="scm-action" @onclick="Model.UnstageAll" disabled="@Model.IsStaging"
+                        title="Unstage all" aria-label="Unstage all">&minus;</button>
+            }
+            else
+            {
+                <button type="button" class="scm-action" @onclick="Model.StageAll"
+                        disabled="@(Model.IsStaging || section.Tree.FileCount == 0)"
+                        title="Stage all" aria-label="Stage all">+</button>
+            }
+            <span class="chip">@section.Tree.FileCount</span>
+        </div>
+    };
+
+    private void Fold(bool staged)
+    {
+        Touch();
+        if (staged)
+        {
+            _stagedFolded = !_stagedFolded;
+        }
+        else
+        {
+            _changesFolded = !_changesFolded;
+        }
+    }
+
+    /// <summary>
+    /// The diff's files split the way git holds them: what the index has, and
+    /// what the working tree has beyond it. A file git has not reported yet (the
+    /// status read lags the diff by a moment) counts as pending, which is where
+    /// anything uncommitted starts. Rebuilt only when the diff or the staging
+    /// state is replaced.
+    /// </summary>
+    private (PathTreeNode<DiffFile> Staged, PathTreeNode<DiffFile> Unstaged) Sections(DiffSet set)
+    {
+        if (_sections is { } cached
+            && ReferenceEquals(_sectionsForDiff, set)
+            && ReferenceEquals(_sectionsForStages, Model.Stages))
+        {
+            return cached;
+        }
+
+        var staged = new List<DiffFile>();
+        var unstaged = new List<DiffFile>();
+        foreach (var file in set.Files)
+        {
+            var stage = Model.StageOf(file.Path);
+            if (stage.Staged)
+            {
+                staged.Add(file);
+            }
+
+            if (stage.Unstaged || stage.Untracked || !stage.HasAnything)
+            {
+                unstaged.Add(file);
+            }
+        }
+
+        _sectionsForDiff = set;
+        _sectionsForStages = Model.Stages;
+        _sections = (DiffTree.Build(staged), DiffTree.Build(unstaged));
+        return _sections.Value;
+    }
+
+    /// <summary>
+    /// One staging section as a tree. Every row, folder or file, carries the
+    /// button that moves it to the other section, shown on hover.
+    /// </summary>
+    /// <remarks>
+    /// No line counts here. The diff is against HEAD, so a partly staged file
+    /// would show the same whole-file numbers in both sections, which reads as
+    /// if each section held all of it.
+    /// </remarks>
+    private RenderFragment SectionTree((PathTreeNode<DiffFile> Tree, bool InStaged) section) => __builder =>
+    {
+        var shut = section.InStaged ? _stagedShut : _changesShut;
+
+        <PathTreeView TValue="DiffFile"
+                      Node="section.Tree"
+                      Collapsed="shut"
+                      Selected="@_selected"
+                      Picked="@(section.InStaged ? _stagedPicked : _changesPicked)"
+                      OnPickedChanged="() => Picked(section.InStaged)"
+                      OnContextMenu="e => OpenMenu(section.Tree, section.InStaged, e)"
+                      OnToggle="path => ToggleIn(shut, path)"
+                      OnSelect="path => Show(path, section.InStaged, keep: false)"
+                      OnKeep="path => Show(path, section.InStaged, keep: true)">
+            <FileRow Context="node">
+                <span class="label">@node.Name</span>
+                <span class="kind end @KindClass(node.Value!.Kind)" title="@node.Value.Kind">
+                    @KindLetter(node.Value.Kind)
+                </span>
+            </FileRow>
+            <Actions Context="node">
+                @if (section.InStaged)
+                {
+                    <button type="button" class="scm-action" disabled="@Model.IsStaging"
+                            @onclick="() => Model.Unstage(FilesUnder(node))"
+                            title="Unstage" aria-label="Unstage @node.Path">&minus;</button>
+                }
+                else
+                {
+                    <button type="button" class="scm-action" disabled="@Model.IsStaging"
+                            @onclick="() => Model.Stage(FilesUnder(node))"
+                            title="Stage" aria-label="Stage @node.Path">+</button>
+                }
+            </Actions>
+        </PathTreeView>
+    };
+
+    /// <summary>
+    /// Rows picked in each section for the context menu. One section at a time:
+    /// picking in one clears the other, since no action applies to both.
+    /// </summary>
+    private readonly HashSet<string> _stagedPicked = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _changesPicked = new(StringComparer.Ordinal);
+
+    /// <summary>An open context menu: the files it acts on, gathered when it opened.</summary>
+    private sealed record Menu(bool InStaged, double X, double Y, List<string> Files, bool PickedOne);
+
+    private Menu? _menu;
+
+    /// <summary>Files waiting on the discard confirmation, and how many of them are new.</summary>
+    private sealed record PendingDiscard(List<string> Files, int NewFiles);
+
+    private PendingDiscard? _discarding;
+
+    private void Picked(bool inStaged)
+    {
+        Touch();
+        (inStaged ? _changesPicked : _stagedPicked).Clear();
+    }
+
+    /// <summary>
+    /// Everything picked, folders as the files of this section under them, the
+    /// same rule the row buttons follow. A picked row that has since left the
+    /// section (staged from elsewhere) is skipped.
+    /// </summary>
+    private void OpenMenu(PathTreeNode<DiffFile> tree, bool inStaged, TreeContextMenu at)
+    {
+        Touch();
+        var picked = inStaged ? _stagedPicked : _changesPicked;
+        var files = picked
+            .Select(path => Find(tree, path))
+            .OfType<PathTreeNode<DiffFile>>()
+            .SelectMany(FilesUnder)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        _menu = files.Count == 0
+            ? null
+            : new Menu(inStaged, at.X, at.Y, files, picked.Count == 1 && Find(tree, picked.First()) is { IsFile: true });
+    }
+
+    private void CloseMenu()
+    {
+        Touch();
+        _menu = null;
+    }
+
+    /// <summary>Closes the menu, clears what was picked, and runs the chosen action.</summary>
+    private async Task FromMenu(Func<Task> action)
+    {
+        CloseMenu();
+        _stagedPicked.Clear();
+        _changesPicked.Clear();
+        await action();
+    }
+
+    /// <summary>
+    /// Asks before discarding, as VS Code does: unlike staging it throws work
+    /// away, and a new file is deleted outright.
+    /// </summary>
+    private void AskDiscard(List<string> files)
+    {
+        CloseMenu();
+        _discarding = new PendingDiscard(files, files.Count(f => Model.StageOf(f).Untracked));
+    }
+
+    private async Task Discard()
+    {
+        if (_discarding is not { } discard)
+        {
+            return;
+        }
+
+        Touch();
+        _discarding = null;
+        _changesPicked.Clear();
+        await Model.DiscardChanges(discard.Files);
+    }
+
+    private static PathTreeNode<DiffFile>? Find(PathTreeNode<DiffFile> node, string path)
+    {
+        foreach (var child in node.Children)
+        {
+            if (child.Path == path)
+            {
+                return child;
+            }
+
+            if (!child.IsFile && path.StartsWith(child.Path + "/", StringComparison.Ordinal) && Find(child, path) is { } found)
+            {
+                return found;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The files a row stands for. A folder is the files of this section under
+    /// it, not the folder path, so staging a folder in Changes cannot sweep in
+    /// something that is only in the other section or not in the diff at all.
+    /// </summary>
+    private static List<string> FilesUnder(PathTreeNode<DiffFile> node) =>
+        node.IsFile ? [node.Path] : node.Children.SelectMany(FilesUnder).ToList();
+
+    private void ToggleIn(HashSet<string> set, string path)
+    {
+        Touch();
+        if (!set.Add(path))
+        {
+            set.Remove(path);
+        }
+    }
+
+    /// <summary>
+    /// Folds every folder of a tree shut if any is open, otherwise opens them
+    /// all. The set holds the folded folders, since these trees start open.
+    /// </summary>
+    private void ToggleAllIn<T>(HashSet<string> shut, PathTreeNode<T> tree)
+    {
+        Touch();
+        var dirs = AllDirectories(tree).ToList();
+        if (dirs.Any(d => !shut.Contains(d)))
+        {
+            shut.UnionWith(dirs);
+        }
+        else
+        {
+            shut.ExceptWith(dirs);
+        }
+    }
+
+    private static IEnumerable<string> AllDirectories<T>(PathTreeNode<T> node) =>
+        node.Children
+            .Where(c => !c.IsFile)
+            .SelectMany(c => new[] { c.Path }.Concat(AllDirectories(c)));
+
+    private static string KindLetter(FileChangeKind kind) => kind switch
+    {
+        FileChangeKind.Added => "A",
+        FileChangeKind.Deleted => "D",
+        FileChangeKind.Renamed => "R",
+        FileChangeKind.Untracked => "U",
+        _ => "M",
+    };
+
+    private static string KindClass(FileChangeKind kind) => kind switch
+    {
+        FileChangeKind.Added or FileChangeKind.Untracked => "added",
+        FileChangeKind.Deleted => "deleted",
+        _ => "",
+    };
+
+    public void Dispose()
+    {
+        State.Changed -= OnSnapshot;
+        if (_model is not null)
+        {
+            _model.Changed -= OnModelChanged;
+        }
+    }
+}

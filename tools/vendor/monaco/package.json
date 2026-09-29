@@ -1,5 +1,5 @@
 {
-  "name": "agents-dashboard-vendor-monaco",
+  "name": "togue-vendor-monaco",
   "private": true,
   "dependencies": {
     "monaco-editor": "0.56.0"

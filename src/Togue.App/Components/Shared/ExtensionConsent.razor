@@ -1,0 +1,48 @@
+@using Togue.Core.Extensions
+
+@* The question before an installed extension first runs, shared by its page
+   and the switch in the list, so turning one on from either puts the same
+   folder and code fingerprint in front of you. *@
+
+@if (Found.Manifest is { } manifest)
+{
+    <div class="banner ext-consent @Class">
+        <strong>Run @manifest.Name?</strong>
+        <p class="muted" style="margin: 4px 0 6px;">
+            It runs inside Togue with your permissions: it can read and write
+            your files and start programs. Enable only code you wrote or trust.
+        </p>
+        <p class="faint" style="margin: 0 0 8px;">
+            @if (manifest.Author is { Length: > 0 } author)
+            {
+                <span>By @author. </span>
+            }
+            <span>Code fingerprint </span><span class="mono">@(ExtensionCatalog.Hash(Found)?[..16] ?? "missing")</span>
+        </p>
+        @if (manifest.Secrets.Count > 0)
+        {
+            <p class="faint" style="margin: 0 0 8px;">
+                It declares these secrets: @SecretText.Needs(manifest.Secrets). Enabling gives it none;
+                each waits until you choose one of yours for it in Secrets.
+            </p>
+        }
+        <div class="inline">
+            <button class="primary small" @onclick="OnEnable">Enable</button>
+            <button class="ghost small" @onclick="OnCancel">Cancel</button>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public FoundExtension Found { get; set; } = default!;
+
+    [Parameter]
+    public EventCallback OnEnable { get; set; }
+
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+
+    [Parameter]
+    public string? Class { get; set; }
+}

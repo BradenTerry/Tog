@@ -1,5 +1,5 @@
 // The Claude ACP bridge: the official Agent Client Protocol adapter over the
-// Claude Agent SDK, which is how the dashboard runs Claude. It is a Node package
+// Claude Agent SDK, which is how Togue runs Claude. It is a Node package
 // with its own dependencies, so it is installed at build time into a folder git
 // ignores, like Monaco, rather than committed. Unlike the others it keeps its
 // node_modules, because the app launches it.

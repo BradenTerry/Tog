@@ -1,0 +1,192 @@
+@*
+    The results of a code query, under the editor rather than in one of Monaco's
+    peek widgets. A peek wants a text model for every file it lists, which means
+    shipping each referenced file into the browser to show one line of it; here
+    the line comes from the server with the result and the file is opened only
+    when a row is picked.
+
+    Every row goes through OnPick rather than being a link, so walking a list of
+    references keeps the tab, the tree and the panel exactly as they are.
+*@
+@using Togue.Extensions
+
+<article class="card code-panel">
+    <div class="card-head">
+        <span>@Title</span>
+        <span class="chip">@Count</span>
+        <span class="spacer"></span>
+        <button class="ghost small" @onclick="OnClose" aria-label="Close the results panel">Close</button>
+    </div>
+
+    <div class="code-body">
+        @if (Hierarchy is { } hierarchy)
+        {
+            <div class="code-section">
+                <div class="code-group">Callers</div>
+                @if (hierarchy.Callers.Count == 0)
+                {
+                    <div class="row faint">Nothing calls this.</div>
+                }
+                else
+                {
+                    foreach (var caller in hierarchy.Callers)
+                    {
+                        @Item(caller)
+                    }
+                }
+            </div>
+
+            <div class="code-section">
+                <div class="code-group">Callees</div>
+                @if (hierarchy.Callees.Count == 0)
+                {
+                    <div class="row faint">This calls nothing in source.</div>
+                }
+                else
+                {
+                    foreach (var callee in hierarchy.Callees)
+                    {
+                        @Item(callee)
+                    }
+                }
+            </div>
+        }
+        else if (Locations.Count == 0)
+        {
+            <div class="row faint">No references found.</div>
+        }
+        else
+        {
+            foreach (var group in Locations.GroupBy(l => l.Path, StringComparer.Ordinal))
+            {
+                <div class="code-group mono" title="@group.Key">
+                    @group.Key
+                    <span class="faint">@group.Count()</span>
+                </div>
+
+                foreach (var location in group)
+                {
+                    @Row(location)
+                }
+            }
+        }
+    </div>
+</article>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = "";
+
+    /// <summary>The references to list. Ignored when <see cref="Hierarchy"/> is set.</summary>
+    [Parameter]
+    public IReadOnlyList<CodeLocation> Locations { get; set; } = [];
+
+    [Parameter]
+    public CallHierarchy? Hierarchy { get; set; }
+
+    /// <summary>Picking a row opens the file at that line and leaves the panel up.</summary>
+    [Parameter]
+    public EventCallback<CodeLocation> OnPick { get; set; }
+
+    [Parameter]
+    public EventCallback OnClose { get; set; }
+
+    private int Count => Hierarchy is { } h ? h.Callers.Count + h.Callees.Count : Locations.Count;
+
+    private RenderFragment Item(CallHierarchyItem item) =>
+        @<div class="code-item">
+            <div class="code-item-head">
+                <span>@item.Name</span>
+                @if (item.Container is { Length: > 0 } container)
+                {
+                    <span class="code-container">@container</span>
+                }
+            </div>
+
+            @foreach (var site in Sites(item))
+            {
+                @Row(site)
+            }
+        </div>;
+
+    private RenderFragment Row(CodeLocation location) =>
+        @<div class="code-row" role="button" tabindex="0"
+              title="@($"{location.Path}:{location.Line}")"
+              @onclick="() => OnPick.InvokeAsync(location)"
+              @onkeydown="e => Pick(e, location)">
+            <span class="ln">@location.Line</span>
+            <span class="mono">@Preview(location)</span>
+            <span class="code-container">@location.Container</span>
+        </div>;
+
+    /// <summary>An item with no call site of its own still has somewhere to go.</summary>
+    private static IReadOnlyList<CodeLocation> Sites(CallHierarchyItem item) =>
+        item.CallSites.Count == 0 ? [item.Location] : item.CallSites;
+
+    private Task Pick(KeyboardEventArgs e, CodeLocation location) =>
+        e.Key is "Enter" or " " ? OnPick.InvokeAsync(location) : Task.CompletedTask;
+
+    /// <summary>
+    /// The line of code with the symbol marked. The preview is the line trimmed,
+    /// so the columns no longer index into it: what survives the trim is the
+    /// length of the span and the fact that indentation only ever shifts it left.
+    /// The match is therefore the identifier of that length nearest the column
+    /// from below, and when nothing fits the line is shown unmarked rather than
+    /// with the wrong word picked out.
+    /// </summary>
+    private static RenderFragment Preview(CodeLocation location)
+    {
+        var line = location.Preview;
+        var start = Highlight(line, location);
+
+        if (start is not { } at)
+        {
+            return @<text>@line</text>;
+        }
+
+        var length = location.EndColumn - location.Column;
+
+        return @<text>@line[..at]<mark>@line.Substring(at, length)</mark>@line[(at + length)..]</text>;
+    }
+
+    private static int? Highlight(string text, CodeLocation location)
+    {
+        var length = location.EndColumn - location.Column;
+        if (location.EndLine != location.Line || length <= 0 || length > text.Length)
+        {
+            return null;
+        }
+
+        int? best = null;
+
+        for (var i = 0; i + length <= text.Length; i++)
+        {
+            if (!IsWholeWord(text, i, length))
+            {
+                continue;
+            }
+
+            // The true offset is at or left of the column, since trimming removed
+            // the indent. Anything further left is a worse guess, and a candidate
+            // to the right is only taken when there is nothing on the left at all.
+            if (i <= location.Column - 1)
+            {
+                best = i;
+            }
+            else if (best is null)
+            {
+                return i;
+            }
+        }
+
+        return best;
+    }
+
+    private static bool IsWholeWord(string text, int start, int length) =>
+        !IsWord(text, start - 1)
+        && !IsWord(text, start + length)
+        && (char.IsLetter(text[start]) || text[start] == '_');
+
+    private static bool IsWord(string text, int index) =>
+        index >= 0 && index < text.Length && (char.IsLetterOrDigit(text[index]) || text[index] == '_');
+}

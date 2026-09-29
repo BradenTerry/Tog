@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/icon/icon-1024.png" alt="Agents Dashboard" width="160" height="160">
+  <img src="assets/icon/icon-1024.png" alt="Togue" width="160" height="160">
 </p>
 
-<h1 align="center">Agents Dashboard</h1>
+<h1 align="center">Togue</h1>
 
 <p align="center">
   <strong>One window for every Claude Code agent you have running.</strong><br>
@@ -20,7 +20,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/screenshots/overview.png" alt="Agents Dashboard reviewing an agent's diff, with its chat underneath" width="900">
+  <img src="assets/screenshots/overview.png" alt="Togue reviewing an agent's diff, with its chat underneath" width="900">
 </p>
 
 ## Why
@@ -34,7 +34,7 @@ actually need from them are the things a terminal is worst at:
 - **Reviewing its work.** VS Code's Source Control view over the agent's
   worktree: its uncommitted files, staged and unstaged, each opening in a side
   by side diff you can edit in.
-- **Starting and steering agents.** Agents run inside the dashboard over the
+- **Starting and steering agents.** Agents run inside Togue over the
   Agent Client Protocol. Replies stream in live, and permission prompts and
   questions are answered right on the card.
 
@@ -50,7 +50,7 @@ newer, and [Claude Code](https://claude.com/claude-code).
 ```bash
 git clone https://github.com/BradenTerry/agents-dashboard.git
 cd agents-dashboard
-dotnet run --project src/AgentsDashboard.App
+dotnet run --project src/Togue.App
 ```
 
 That is the whole install. The first build fetches the editor and the Claude
@@ -77,7 +77,7 @@ picked.
 - **Links everywhere.** A file path an agent mentions in a reply opens that line
   in the editor, or in VS Code.
 - **Images open as pictures**, so an agent can show you a screenshot with its
-  `dashboard_open_file` tool.
+  `togue_open_file` tool.
 - **Any tab can move.** Drag it to another panel or split it into a section of
   its own, and the arrangement is kept.
 
@@ -95,13 +95,13 @@ loads at runtime and reloads on every build.
   or code intelligence for a language (hover, go to definition, references and
   call hierarchy; a C# one runs Roslyn in-process).
 - Give agents new tools: whatever an extension adds with `AddAgentTool` is
-  served to every agent over the dashboard's own MCP server.
+  served to every agent over Togue's own MCP server.
 - Ask for secrets such as a GitHub or Jira token by name. You approve each
   extension, values stay in the OS keychain, and no agent ever sees them.
 
 The easiest way to write one is to ask Claude: **Settings** installs a skill
 that teaches it how. Or start from the template with
-`dotnet new agents-dashboard-extension`. See
+`dotnet new togue-extension`. See
 [docs/extensions.md](docs/extensions.md).
 
 ## Learn more

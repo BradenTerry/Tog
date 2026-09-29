@@ -1,4 +1,4 @@
-# Contributing to Agents Dashboard
+# Contributing to Togue
 
 Thanks for looking under the hood. This file is the map: how to build and test
 the app, how it is put together, and where the long explanations live. The
@@ -23,7 +23,7 @@ git clone https://github.com/BradenTerry/agents-dashboard.git
 cd agents-dashboard
 dotnet build
 dotnet test
-dotnet run --project src/AgentsDashboard.App
+dotnet run --project src/Togue.App
 ```
 
 The first build fetches Monaco, Mermaid, the TextMate grammars and the Claude
@@ -35,12 +35,12 @@ differently.
 ### Running it
 
 ```bash
-dotnet run --project src/AgentsDashboard.App              # native window
-dotnet run --project src/AgentsDashboard.App -- --browser # print a URL, with this start's key, instead
-dotnet run --project src/AgentsDashboard.App -- --port 5000
-dotnet run --project src/AgentsDashboard.App -- --data-dir /tmp/dash # settings kept elsewhere
-dotnet run --project src/AgentsDashboard.App -- --extension ../my-extension
-dotnet run --project src/AgentsDashboard.App -- --no-extensions
+dotnet run --project src/Togue.App              # native window
+dotnet run --project src/Togue.App -- --browser # print a URL, with this start's key, instead
+dotnet run --project src/Togue.App -- --port 5000
+dotnet run --project src/Togue.App -- --data-dir /tmp/dash # settings kept elsewhere
+dotnet run --project src/Togue.App -- --extension ../my-extension
+dotnet run --project src/Togue.App -- --no-extensions
 ```
 
 `--data-dir` is the one to reach for while developing: a second copy of the app
@@ -85,7 +85,7 @@ npx --prefix tools/screenshots playwright install chromium
 node tools/screenshots/take.mjs
 ```
 
-It builds the app, writes the sample to `/tmp/dashboard-sample` (a git
+It builds the app, writes the sample to `/tmp/togue-sample` (a git
 repository, its worktrees, and a Claude config folder with the agents'
 transcripts), runs the app against it with `--no-extensions` and
 `CLAUDE_CONFIG_DIR` pointing at the sample, and saves the pictures into
@@ -100,10 +100,10 @@ edit `tools/screenshots/sample.mjs` or `take.mjs`.
 
 | Project | What it holds |
 | --- | --- |
-| `src/AgentsDashboard.Core` | Everything that is not UI: the ACP agent host, the Claude transcript readers, the git layer and its parsers, the monitor loop, extension discovery. No ASP.NET dependency, so all of it is testable without a host. |
-| `src/AgentsDashboard.App` | The Blazor Server UI and the Photino window. `Program.cs` starts the host on a free loopback port, then opens the window at it. |
-| `src/AgentsDashboard.Extensions` | The extension API (1.x, now 1.12), the one assembly an extension compiles against. No reference to Core. Versioned: 1.x only adds. |
-| `templates/extension` | `dotnet new agents-dashboard-extension`, with an `AGENTS.md` for writing one. |
+| `src/Togue.Core` | Everything that is not UI: the ACP agent host, the Claude transcript readers, the git layer and its parsers, the monitor loop, extension discovery. No ASP.NET dependency, so all of it is testable without a host. |
+| `src/Togue.App` | The Blazor Server UI and the Photino window. `Program.cs` starts the host on a free loopback port, then opens the window at it. |
+| `src/Togue.Extensions` | The extension API (1.x, now 1.12), the one assembly an extension compiles against. No reference to Core. Versioned: 1.x only adds. |
+| `templates/extension` | `dotnet new togue-extension`, with an `AGENTS.md` for writing one. |
 | `templates/skill` | The skill that teaches an agent to write one, shipped in the app and added from Settings. |
 | `tests/*` | xUnit v3 on Microsoft.Testing.Platform, for Core. |
 | `tools/` | The Node scripts that vendor Monaco, Mermaid, the TextMate grammars and the ACP bridge. |
@@ -115,7 +115,7 @@ also makes `--browser` free.
 
 ### How it finds things
 
-Nothing is installed and nothing is configured to get started. The dashboard
+Nothing is installed and nothing is configured to get started. Togue
 reads what Claude Code and git already write, and only ever reads: nothing of
 its own goes into `~/.claude`.
 
@@ -138,11 +138,11 @@ flowchart LR
   SA --> M
   W --> M
   S --> M
-  M --> ST[DashboardState]
+  M --> ST[TogueState]
   ST -->|SignalR circuit| UI[Blazor views]
   D --> UI
   UI --> WIN[Photino native window]
-  ST -->|IDashboardView| X[extensions]
+  ST -->|ITogueView| X[extensions]
   X -->|views| UI
 ```
 
@@ -170,7 +170,7 @@ flowchart TD
 
 Only the worktree on screen has its git status read; every other worktree
 reports none. A failed pass never stops the loop; the next one usually
-succeeds, and a dashboard that quietly stopped updating is worse than one that
+succeeds, and an app that quietly stopped updating is worse than one that
 missed a tick.
 
 ### Agents, in process
@@ -178,7 +178,7 @@ missed a tick.
 Agents run over the Agent Client Protocol. `AgentHost` launches the Claude ACP
 bridge and every agent is a session on that one process, so closing the app
 ends the agents; `agents.json` brings them back as stopped, and a message
-resumes them. The dashboard advertises no `fs` or `terminal` capability, so an
+resumes them. Togue advertises no `fs` or `terminal` capability, so an
 agent uses its own tools; it answers permission requests and form elicitation.
 See [docs/agent-control.md](docs/agent-control.md).
 
@@ -209,7 +209,7 @@ work. A feature that is not about agents, such as a tab for one language, a
 test runner or a build status, belongs in an extension, which lives outside
 this repository. If the extension API cannot express it, the API grows by a
 minor version (1.x only adds). Start one with `dotnet new
-agents-dashboard-extension` from [`templates/extension`](templates/extension),
+togue-extension` from [`templates/extension`](templates/extension),
 or ask Claude with the skill Settings installs.
 
 ## Conventions
@@ -217,7 +217,7 @@ or ask Claude with the skill Settings installs.
 - Spaces, not tabs. No em dashes or emojis in UI copy or comments.
 - Comments explain why, not what. Prefer a short paragraph on the non-obvious
   decision over a line-by-line narration.
-- Nothing the dashboard or an agent does on its own writes into `~/.claude`;
+- Nothing Togue or an agent does on its own writes into `~/.claude`;
   the app only reads it. The only changes the app makes to Claude's config are
   the extension skill and the MCP server entry, each from its button in
   Settings.

@@ -49,7 +49,7 @@ A picked folder stands for this section's files under it, the same rule as its
 row button. `PathTreeView` owns the clicks and the range, and takes the picked
 set from its caller (`Picked`), so the Files tree, which passes none, is
 unchanged. The menu is `ContextMenu`: a transparent layer over the window
-closes it on the next click anywhere, and `agentsDashboard.fitMenu` moves it
+closes it on the next click anywhere, and `togue.fitMenu` moves it
 back inside the window once its size is known.
 
 **Discard** asks first, as VS Code does, and says how many new files it will

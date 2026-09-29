@@ -1,8 +1,8 @@
-using AgentsDashboard.Extensions;
+using Togue.Extensions;
 
 namespace MyExtension;
 
-public sealed class MyExtensionExtension : IDashboardExtension
+public sealed class MyExtensionExtension : ITogueExtension
 {
     public void Configure(IExtensionBuilder builder)
     {

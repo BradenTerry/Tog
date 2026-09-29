@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Publishes this checkout of the app as a macOS app, by default
-# ~/Desktop/Agents Dashboard.app.
+# ~/Desktop/Togue.app.
 #
 # The bundle holds only a zsh launcher, an Info.plist and the icon
 # (assets/icon/AppIcon.icns, built from assets/icon/icon.svg). The builds live
-# outside it, in ~/Library/Application Support/AgentsDashboard/<bundle name>:
+# outside it, in ~/Library/Application Support/Togue/<bundle name>:
 # one folder per build under builds/, and two one-line files naming the build
 # to run (current) and one waiting (next). macOS will not let an app signed
 # only ad hoc rewrite its own bundle once Finder has launched it ("Operation
@@ -13,7 +13,7 @@
 #
 # The launcher gives the app the PATH a terminal would have, because Finder
 # starts apps with a bare one and the app runs node, git, claude and dotnet.
-# The ACP bridge in src/AgentsDashboard.App/acp is not part of the publish
+# The ACP bridge in src/Togue.App/acp is not part of the publish
 # output (it is not a static asset), so it is copied in. Extensions live in the
 # user's data directory and are left alone.
 #
@@ -22,17 +22,17 @@
 # available in its title bar, and the launcher makes it current on the next
 # start, however the app is started.
 #
-# Usage: tools/publish-local.sh [path/to/Agents Dashboard.app]
+# Usage: tools/publish-local.sh [path/to/Togue.app]
 set -euo pipefail
 
 repo="$(cd "$(dirname "$0")/.." && pwd)"
-bundle="${1:-$HOME/Desktop/Agents Dashboard.app}"
+bundle="${1:-$HOME/Desktop/Togue.app}"
 # Real paths (pwd -P): ps reports a running app by its real path, so a bundle
 # reached through a link (/tmp is /private/tmp on macOS) would otherwise never
 # match, and a running copy would look stopped.
 bundle="$(mkdir -p "$bundle" && cd "$bundle" && pwd -P)"
 name="$(basename "$bundle" .app)"
-payload="$HOME/Library/Application Support/AgentsDashboard/$name"
+payload="$HOME/Library/Application Support/Togue/$name"
 payload="$(mkdir -p "$payload" && cd "$payload" && pwd -P)"
 
 # Before builds lived outside the bundle they were in Contents/Resources/app.
@@ -47,7 +47,7 @@ if grep -qF "$payload/builds/" <<<"$executables"; then
     running=true
 fi
 legacy_running=false
-if grep -qxF "$legacy/agents-dashboard" <<<"$executables"; then
+if grep -qxF "$legacy/togue" <<<"$executables"; then
     legacy_running=true
     running=true
 fi
@@ -56,7 +56,7 @@ commit="$(git -C "$repo" rev-parse --short HEAD)"
 id="$(date +%Y%m%d-%H%M%S)-$commit"
 echo "Publishing $(git -C "$repo" rev-parse --abbrev-ref HEAD) at $commit"
 
-acp="$repo/src/AgentsDashboard.App/acp"
+acp="$repo/src/Togue.App/acp"
 if [[ ! -f "$acp/VERSION" ]]; then
     echo "The ACP bridge is not installed in $acp. Build once (it runs tools/vendor-acp.mjs), then publish again." >&2
     exit 1
@@ -66,7 +66,7 @@ mkdir -p "$payload/builds"
 staging="$payload/builds/.incoming-$id"
 trap 'rm -rf "$staging"' EXIT
 
-dotnet publish "$repo/src/AgentsDashboard.App" -c Release -o "$staging" --nologo -v quiet
+dotnet publish "$repo/src/Togue.App" -c Release -o "$staging" --nologo -v quiet
 
 # The publish output already has acp/ with the package json files in it, and
 # cp -R into an existing directory nests the copy as acp/acp, so replace it.
@@ -93,8 +93,8 @@ cat >"$bundle/Contents/MacOS/launcher" <<'LAUNCHER'
 export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 export DOTNET_ROOT="${DOTNET_ROOT:-/usr/local/share/dotnet}"
 BUNDLE="$(cd "$(dirname "$0")/../.." && pwd)"
-PAYLOAD="$HOME/Library/Application Support/AgentsDashboard/$(basename "$BUNDLE" .app)"
-LOG_DIR="$HOME/Library/Logs/AgentsDashboard"
+PAYLOAD="$HOME/Library/Application Support/Togue/$(basename "$BUNDLE" .app)"
+LOG_DIR="$HOME/Library/Logs/Togue"
 mkdir -p "$LOG_DIR"
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') launcher: $*" >>"$LOG_DIR/app.log"; }
 
@@ -111,7 +111,7 @@ fi
 
 BUILD="$(<"$PAYLOAD/current" 2>/dev/null)"
 APP_DIR="$PAYLOAD/builds/$BUILD"
-if [[ -z "$BUILD" || ! -x "$APP_DIR/agents-dashboard" ]]; then
+if [[ -z "$BUILD" || ! -x "$APP_DIR/togue" ]]; then
     log "no build to start in $PAYLOAD; publish again"
     exit 1
 fi
@@ -121,9 +121,9 @@ fi
 find "$PAYLOAD/builds" -mindepth 1 -maxdepth 1 -type d ! -name "$BUILD" -mtime +0 -exec rm -rf {} + 2>/dev/null
 
 # The app finds its bundle and its builds through these, to offer updates.
-export AGENTS_DASHBOARD_BUNDLE="$BUNDLE" AGENTS_DASHBOARD_PAYLOAD="$PAYLOAD"
+export TOGUE_BUNDLE="$BUNDLE" TOGUE_PAYLOAD="$PAYLOAD"
 cd "$APP_DIR"
-exec "$APP_DIR/agents-dashboard" "$@" >>"$LOG_DIR/app.log" 2>&1
+exec "$APP_DIR/togue" "$@" >>"$LOG_DIR/app.log" 2>&1
 LAUNCHER
 chmod +x "$bundle/Contents/MacOS/launcher"
 
@@ -133,9 +133,9 @@ if [[ ! -f "$bundle/Contents/Info.plist" ]]; then
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key><string>Agents Dashboard</string>
-    <key>CFBundleDisplayName</key><string>Agents Dashboard</string>
-    <key>CFBundleIdentifier</key><string>com.braden.agentsdashboard</string>
+    <key>CFBundleName</key><string>Togue</string>
+    <key>CFBundleDisplayName</key><string>Togue</string>
+    <key>CFBundleIdentifier</key><string>com.braden.togue</string>
     <key>CFBundleVersion</key><string>1.0</string>
     <key>CFBundleShortVersionString</key><string>1.0</string>
     <key>CFBundlePackageType</key><string>APPL</string>

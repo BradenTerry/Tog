@@ -1,0 +1,388 @@
+@inject Workbench Bench
+@inject IJSRuntime Js
+@implements IDisposable
+
+@* The middle of the window: one agent's open documents, a tab each. Files open
+   here from the Files tree, their changes from Source control, and Settings
+   from the gear. Pinned tabs sit first and cannot be closed until unpinned; the
+   preview tab, in italics, is the one the next single click replaces. Split,
+   each side has a strip of its own over one list of documents, so a tab moved
+   across keeps its editor. *@
+
+<div class="editor-area">
+    @if (Group.Docs.Count > 0)
+    {
+        <div class="editor-strips">
+        @for (var side = 0; side < (Group.Split ? 2 : 1); side++)
+        {
+            var pane = side;
+            var order = Group.TabsIn(pane).ToList();
+            var pinned = order.Count(d => d.Pinned);
+            <div class="editor-tabs @(Group.Split && pane != Group.Focused ? "unfocused" : "")" role="tablist"
+                 aria-label="@(!Group.Split ? "Open documents" : pane == 0 ? "Open documents, left" : "Open documents, right")"
+                 @ondragover:preventDefault="true" @ondrop="() => Drop(pane)" @ondrop:preventDefault="true">
+            @for (var i = 0; i < order.Count; i++)
+            {
+                var doc = order[i];
+                var active = doc.Key == Group.ActiveIn(pane);
+                @if (i == pinned && pinned > 0)
+                {
+                    <span class="etab-divider" aria-hidden="true"></span>
+                }
+                <div class="etab @(active ? "active" : "") @(doc.Pinned ? "pinned" : "") @(doc.Preview ? "preview" : "") @(doc.Dirty ? "dirty" : "")"
+                     role="tab" aria-selected="@(active ? "true" : "false")" tabindex="0"
+                     title="@(doc.Kind switch { DocKind.Diff => doc.Path + ", the working tree against the index", DocKind.StagedDiff => doc.Path + ", the index against HEAD", DocKind.Worktrees => "Every worktree, and cleaning them up", DocKind.ExtensionView => doc.Title + ", from " + doc.View!.ExtensionId, _ => doc.Path })"
+                     @key="doc.Key"
+                     @onclick="() => Bench.Activate(WorktreePath, doc.Key)"
+                     @ondblclick="() => Bench.Keep(WorktreePath, doc.Key)"
+                     @onmouseup="e => OnMouseUp(e, doc)"
+                     @oncontextmenu="e => OpenMenu(e, doc)" @oncontextmenu:preventDefault="true"
+                     draggable="true" @ondragstart="() => _dragging = doc.Key" @ondragend="EndDrag"
+                     @onkeydown="e => OnKey(e, doc)">
+                    @if (doc.Kind == DocKind.Worktrees)
+                    {
+                        <span class="file-icon" aria-hidden="true"><WorktreesGlyph Size="14" /></span>
+                    }
+                    else if (doc.Kind == DocKind.ExtensionView)
+                    {
+                        @* A puzzle piece: the tab is an extension's, not a file. *@
+                        <span class="file-icon" aria-hidden="true">
+                            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round">
+                                <path d="M3 5h2.5a1.5 1.5 0 1 1 3 0H11v2.5a1.5 1.5 0 1 1 0 3V13H8.5a1.5 1.5 0 1 0-3 0H3v-2.5a1.5 1.5 0 1 0 0-3z" />
+                            </svg>
+                        </span>
+                    }
+                    else
+                    {
+                        <FileGlyph Path="@doc.Path" />
+                    }
+                    <span class="etab-label">@doc.Title</span>
+                    @* VS Code's names for the two sides a diff can be of. *@
+                    @if (doc.Kind == DocKind.Diff)
+                    {
+                        <span class="etab-hint">Working Tree</span>
+                    }
+                    else if (doc.Kind == DocKind.StagedDiff)
+                    {
+                        <span class="etab-hint">Index</span>
+                    }
+                    @if (Hint(doc) is { } hint)
+                    {
+                        <span class="etab-hint">@hint</span>
+                    }
+                    <button type="button" class="etab-btn pin" @onclick="() => Bench.TogglePin(WorktreePath, doc.Key)" @onclick:stopPropagation
+                            title="@(doc.Pinned ? "Unpin" : "Pin")" aria-label="@(doc.Pinned ? "Unpin" : "Pin") @doc.Title"
+                            aria-pressed="@(doc.Pinned ? "true" : "false")">
+                        @* Unpinned the pin leans over, and it stands up and fills in when pinned, as in VS Code. *@
+                        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3"
+                             stroke-linejoin="round" stroke-linecap="round" aria-hidden="true">
+                            <path class="pin-head" d="M5.5 2h5l-.8 4.2 2.3 2.3H4l2.3-2.3z" />
+                            <path d="M8 8.5V14" />
+                        </svg>
+                    </button>
+                    @if (!doc.Pinned)
+                    {
+                        <button type="button" class="etab-btn close" @onclick="() => AskClose(doc)" @onclick:stopPropagation
+                                title="Close" aria-label="Close @doc.Title">
+                            <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+                                <path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                            </svg>
+                        </button>
+                    }
+                </div>
+            }
+            </div>
+        }
+        </div>
+    }
+
+    @if (Group.Split)
+    {
+        @* Dragged in app.js, like the panel borders: it sets --wb-split, which the
+           strips, the documents and the drop zones all read. *@
+        <div class="sash sash-v editor-sash" data-editor-split role="separator" aria-orientation="vertical"
+             aria-label="Resize the two sides of the editor" tabindex="0" title="Drag to resize. Double-click to reset."></div>
+    }
+
+    @if (_closing.Count > 0)
+    {
+        <div class="banner doc-banner">
+            <div class="inline">
+                @if (_closing.Count == 1)
+                {
+                    <span>Discard unsaved changes to <span class="mono">@_closing[0].Path</span>?</span>
+                }
+                else
+                {
+                    <span title="@string.Join("\n", _closing.Select(d => d.Path))">Discard unsaved changes to @_closing.Count files?</span>
+                }
+                <span class="spacer"></span>
+                <button class="small" @onclick="Discard">Discard</button>
+                <button class="ghost small" @onclick="() => _closing = []">Keep editing</button>
+            </div>
+        </div>
+    }
+
+    <div class="editor-docs @(Group.Split ? "split" : "")">
+        @if (Group.Docs.Count == 0)
+        {
+            @if (Empty is not null)
+            {
+                @Empty
+            }
+            else
+            {
+                <div class="empty editor-empty">
+                    <h2>Nothing open</h2>
+                    <p>Pick a file in Files on the left, or a change in Source control on the right.</p>
+                </div>
+            }
+        }
+
+        @foreach (var doc in Group.Docs)
+        {
+            <div class="doc-layer pane-@doc.Pane @(doc.Key == Group.ActiveIn(doc.Pane) ? "" : "hidden")" @key="doc.Key"
+                 @onmousedown="() => Bench.FocusPane(WorktreePath, doc.Pane)" @onfocusin="() => Bench.FocusPane(WorktreePath, doc.Pane)">
+                @if (doc.Kind == DocKind.Worktrees)
+                {
+                    <div class="doc-scroll">
+                        <WorktreesDocument />
+                    </div>
+                }
+                else if (doc.Kind == DocKind.ExtensionView)
+                {
+                    <div class="doc-scroll ext-editor-view">
+                        <ExtensionEditorView Tab="doc.View!" WorktreePath="@WorktreePath" IsVisible="@(doc.Key == Group.ActiveIn(doc.Pane))" />
+                    </div>
+                }
+                else if (doc.Kind == DocKind.External)
+                {
+                    <ExternalDocument Doc="doc" WorktreePath="@WorktreePath" />
+                }
+                else if (ImageTypes.IsImage(doc.Path))
+                {
+                    <ImageDocument AbsolutePath="@(WorktreeFiles.Resolve(WorktreePath, doc.Path!) ?? "")" Label="@doc.Path"
+                                   WorktreePath="@WorktreePath" Version="@doc.Reveal" />
+                }
+                else
+                {
+                    <FileDocument WorktreePath="@WorktreePath" Doc="doc" />
+                }
+            </div>
+        }
+
+        @* While a tab is dragged, the half it can go to takes the drop: the right
+           half splits the editor, and split, the other side takes the tab. A layer
+           over the documents rather than handlers on them, since Monaco would take
+           the drop as text. It is only drawn during a drag, so dragover, which
+           fires constantly, never crosses the circuit; enter and leave do, once
+           each, and the zone has no children to fire them again. *@
+        @if (_dragging is { } dragged && Group.Find(dragged) is { } moving && CanMove(moving))
+        {
+            var to = 1 - moving.Pane;
+            <div class="drop-zone side-@to @(_over ? "over" : "")"
+                 @ondragenter="() => _over = true" @ondragleave="() => _over = false"
+                 @ondragover:preventDefault="true" @ondrop="() => Drop(to)" @ondrop:preventDefault="true">
+                <span class="drop-label">@(Group.Split ? "Move here" : "Split right")</span>
+            </div>
+        }
+    </div>
+
+    @if (_menu is { } menu && Group.Find(menu.Key) is { } target)
+    {
+        var tabs = Group.TabsIn(target.Pane).ToList();
+        var at = tabs.IndexOf(target);
+        var closable = tabs.Where(d => !d.Pinned).ToList();
+        <ContextMenu X="menu.X" Y="menu.Y" OnClose="() => _menu = null">
+            <button type="button" class="context-item" role="menuitem" disabled="@target.Pinned"
+                    @onclick="() => FromMenu(() => AskClose([target]))">
+                Close <span class="faint">Del</span>
+            </button>
+            <button type="button" class="context-item" role="menuitem" disabled="@(!closable.Any(d => d != target))"
+                    @onclick="() => FromMenu(() => AskClose(closable.Where(d => d != target)))">
+                Close others
+            </button>
+            <button type="button" class="context-item" role="menuitem" disabled="@(!closable.Any(d => tabs.IndexOf(d) > at))"
+                    @onclick="() => FromMenu(() => AskClose(closable.Where(d => tabs.IndexOf(d) > at)))">
+                Close to the right
+            </button>
+            <button type="button" class="context-item" role="menuitem" disabled="@(!closable.Any(d => !d.Dirty))"
+                    @onclick="() => FromMenu(() => AskClose(closable.Where(d => !d.Dirty)))">
+                Close saved
+            </button>
+            <button type="button" class="context-item" role="menuitem" disabled="@(closable.Count == 0)"
+                    @onclick="() => FromMenu(() => AskClose(closable))">
+                @(Group.Split ? "Close all on this side" : "Close all")
+            </button>
+            @if (Group.Split)
+            {
+                <button type="button" class="context-item" role="menuitem" disabled="@(!Group.Docs.Any(d => !d.Pinned))"
+                        @onclick="() => FromMenu(() => AskClose(Group.Docs.Where(d => !d.Pinned)))">
+                    Close all on both sides
+                </button>
+            }
+            <hr class="context-sep" />
+            <button type="button" class="context-item" role="menuitem" @onclick="() => FromMenu(() => Bench.TogglePin(WorktreePath, target.Key))">
+                @(target.Pinned ? "Unpin" : "Pin")
+            </button>
+            @if (target.Preview)
+            {
+                <button type="button" class="context-item" role="menuitem" @onclick="() => FromMenu(() => Bench.Keep(WorktreePath, target.Key))">
+                    Keep open
+                </button>
+            }
+            <hr class="context-sep" />
+            @* A lone tab has nothing to leave behind: moving it would empty its side, which folds back into the other. *@
+            <button type="button" class="context-item" role="menuitem" disabled="@(!CanMove(target))"
+                    title="@(!CanMove(target) ? "Open another document first; a tab is only ever on one side" : null)"
+                    @onclick="() => FromMenu(() => Bench.MoveToOtherSide(WorktreePath, target.Key))">
+                @(target.Pane == 0 ? (Group.Split ? "Move to the right side" : "Split right") : "Move to the left side")
+            </button>
+            @if (target.Path is { } path)
+            {
+                <hr class="context-sep" />
+                <button type="button" class="context-item" role="menuitem" @onclick="() => Copy(AbsolutePath(target))">
+                    Copy path
+                </button>
+                @if (target.Kind != DocKind.External)
+                {
+                    <button type="button" class="context-item" role="menuitem" @onclick="() => Copy(path)">
+                        Copy relative path
+                    </button>
+                }
+            }
+        </ContextMenu>
+    }
+</div>
+
+@code {
+    /// <summary>The worktree whose documents these are; empty with no agent in view, where only Settings opens.</summary>
+    [Parameter, EditorRequired]
+    public string WorktreePath { get; set; } = "";
+
+    /// <summary>What to show when nothing is open, in place of the default hint.</summary>
+    [Parameter]
+    public RenderFragment? Empty { get; set; }
+
+    private EditorGroup Group => Bench.Editors(WorktreePath);
+
+    /// <summary>Tabs with unsaved work that you asked to close, waiting on an answer.</summary>
+    private List<EditorDoc> _closing = [];
+
+    /// <summary>The tab being dragged, and whether it is over the half it can be dropped on.</summary>
+    private string? _dragging;
+    private bool _over;
+
+    /// <summary>The tab a right click opened the menu on, and where.</summary>
+    private (string Key, double X, double Y)? _menu;
+
+    protected override void OnInitialized() => Bench.Changed += OnChanged;
+
+    private void OnChanged() => _ = InvokeAsync(StateHasChanged);
+
+    /// <summary>
+    /// The folder a tab's file is in, when another open tab has the same name,
+    /// so two Program.cs are told apart.
+    /// </summary>
+    private string? Hint(EditorDoc doc)
+    {
+        if (doc.Path is not { } path || !Group.Docs.Any(d => d != doc && d.Kind == doc.Kind && d.Title == doc.Title))
+        {
+            return null;
+        }
+
+        var parts = path.Split('/', '\\');
+        return parts.Length > 1 ? parts[^2] : null;
+    }
+
+    private void AskClose(EditorDoc doc) => AskClose([doc]);
+
+    /// <summary>
+    /// Unsaved work is never thrown away on a click. The saved tabs close at once,
+    /// and the unsaved ones wait on one question for all of them, so Close All over
+    /// a dozen tabs is one answer rather than a dozen.
+    /// </summary>
+    private void AskClose(IEnumerable<EditorDoc> docs)
+    {
+        var closing = docs.ToList();
+        _closing = closing.Where(d => d.Dirty).ToList();
+        Bench.Close(WorktreePath, closing.Where(d => !d.Dirty).Select(d => d.Key).ToList());
+    }
+
+    private void Discard()
+    {
+        var keys = _closing.Select(d => d.Key).ToList();
+        _closing = [];
+        Bench.Close(WorktreePath, keys);
+    }
+
+    /// <summary>
+    /// A tab can go to the other side when that leaves something behind: a lone
+    /// tab moved away would empty its side, which folds back into the other.
+    /// </summary>
+    private bool CanMove(EditorDoc doc) => Group.Split || Group.TabsIn(doc.Pane).Skip(1).Any();
+
+    /// <summary>A tab dropped on a side's documents or its strip moves there.</summary>
+    private void Drop(int pane)
+    {
+        var key = _dragging;
+        EndDrag();
+        if (key is not null && Group.Find(key) is { } doc && doc.Pane != pane && CanMove(doc))
+        {
+            Bench.MoveToOtherSide(WorktreePath, key);
+        }
+    }
+
+    private void EndDrag()
+    {
+        _dragging = null;
+        _over = false;
+    }
+
+    private void OpenMenu(MouseEventArgs e, EditorDoc doc) => _menu = (doc.Key, e.ClientX, e.ClientY);
+
+    private void FromMenu(Action act)
+    {
+        _menu = null;
+        act();
+    }
+
+    private string AbsolutePath(EditorDoc doc) =>
+        doc.Kind == DocKind.External ? doc.Path! : WorktreeFiles.Resolve(WorktreePath, doc.Path!) ?? doc.Path!;
+
+    private async Task Copy(string text)
+    {
+        _menu = null;
+        try
+        {
+            await Js.InvokeAsync<bool>("togue.copy", text);
+        }
+        catch (JSException)
+        {
+            // Nothing copied; the menu has closed either way.
+        }
+    }
+
+    /// <summary>A middle click closes a tab, as it does in a browser and in VS Code.</summary>
+    private void OnMouseUp(MouseEventArgs e, EditorDoc doc)
+    {
+        if (e.Button == 1 && !doc.Pinned)
+        {
+            AskClose(doc);
+        }
+    }
+
+    private void OnKey(KeyboardEventArgs e, EditorDoc doc)
+    {
+        if (e.Key is "Enter" or " ")
+        {
+            Bench.Activate(WorktreePath, doc.Key);
+        }
+        else if (e.Key == "Delete" && !doc.Pinned)
+        {
+            AskClose(doc);
+        }
+    }
+
+    public void Dispose() => Bench.Changed -= OnChanged;
+}

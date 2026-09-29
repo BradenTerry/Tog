@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <!--
+    The one assembly an extension compiles against. It is loaded by the app into
+    the default load context and every extension resolves it from there, so its
+    types are the same types on both sides. It does not reference Core: the app's
+    own types are free to change, and this is the part that is not.
+  -->
+  <PropertyGroup>
+    <RootNamespace>Togue.Extensions</RootNamespace>
+    <!-- Fixed for the whole of major version 1, so an extension built against
+         any 1.x resolves to whichever 1.x the running app carries. -->
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <!-- The XML documentation is what IntelliSense, and Claude, read. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+</Project>

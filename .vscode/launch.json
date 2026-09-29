@@ -2,25 +2,25 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Dashboard (native window)",
+            "name": "Togue (native window)",
             "type": "coreclr",
             "request": "launch",
             "preLaunchTask": "build",
-            "program": "${workspaceFolder}/src/AgentsDashboard.App/bin/Debug/net10.0/agents-dashboard.dll",
+            "program": "${workspaceFolder}/src/Togue.App/bin/Debug/net10.0/togue.dll",
             "args": [],
-            "cwd": "${workspaceFolder}/src/AgentsDashboard.App",
+            "cwd": "${workspaceFolder}/src/Togue.App",
             "stopAtEntry": false,
             "console": "internalConsole",
             "env": { "ASPNETCORE_ENVIRONMENT": "Development" }
         },
         {
-            "name": "Dashboard (browser, port 5178)",
+            "name": "Togue (browser, port 5178)",
             "type": "coreclr",
             "request": "launch",
             "preLaunchTask": "build",
-            "program": "${workspaceFolder}/src/AgentsDashboard.App/bin/Debug/net10.0/agents-dashboard.dll",
+            "program": "${workspaceFolder}/src/Togue.App/bin/Debug/net10.0/togue.dll",
             "args": ["--browser", "--port", "5178", "--verbose"],
-            "cwd": "${workspaceFolder}/src/AgentsDashboard.App",
+            "cwd": "${workspaceFolder}/src/Togue.App",
             "stopAtEntry": false,
             "console": "integratedTerminal",
             "serverReadyAction": {

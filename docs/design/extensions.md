@@ -6,7 +6,7 @@ described in [../extensions.md](../extensions.md); this is the rationale.
 Where the implementation differs from this design:
 
 - Tests is **not bundled**. It lives outside this repository (now the test
-  explorer in `agents-dashboard-extensions`) and is linked like anyone else's,
+  explorer in `togue-extensions`) and is linked like anyone else's,
   so the published app carries no test code.
 - `AddAgentTab` became `AddView(id, title, defaultLocation, ...)` with a
   `ViewLocation` enum, so side and bottom panels can be added without breaking
@@ -20,7 +20,7 @@ Where the implementation differs from this design:
 
 The goal: the Tests tab stops being a fixed part of every agent view and becomes
 an extension, and anyone (usually with Claude Code doing the typing) can write
-their own extension on their own machine and plug it into the dashboard with
+their own extension on their own machine and plug it into Togue with
 little ceremony.
 
 > "if I'm working with Claude, running this app on my work computer, I just want
@@ -35,13 +35,13 @@ to seeing that tab, and how quickly the second, third and tenth edit show up.
 - An extension is a **Razor class library** with an `extension.json` manifest,
   loaded **in process** into its own **collectible `AssemblyLoadContext`**.
 - It contributes through a small, versioned API assembly,
-  `AgentsDashboard.Extensions` (API 1.0): **agent tabs**, a **settings
+  `Togue.Extensions` (API 1.0): **agent tabs**, a **settings
   section**, **agent indicators** (tab count and sidebar badge) and
   **background workers**.
 - The host renders extension components with **`DynamicComponent` inside an
   `ErrorBoundary`**, never through the router, so nothing depends on
   `AdditionalAssemblies` or on the build-time static asset manifest.
-- The developer loop is `dotnet new agents-dashboard-extension`, **Link folder**
+- The developer loop is `dotnet new togue-extension`, **Link folder**
   in Settings, then `dotnet watch build`: every build is picked up and the
   extension is reloaded in the running app.
 - Tests becomes the first, bundled extension, loaded through exactly the same
@@ -88,14 +88,14 @@ through the app's own types. The app's internal types (`AgentSession`,
 | Service | What it gives | Backed by today |
 | --- | --- | --- |
 | `AgentContext` (parameter) | The agent the tab is for: id, label, backend, state, its worktree | `ChatTarget`, `WorktreeView` |
-| `IDashboardView` | The current snapshot as API records, and a `Changed` event every tick | `DashboardState` |
+| `ITogueView` | The current snapshot as API records, and a `Changed` event every tick | `TogueState` |
 | `IGitReader` | Read-only git: status, diff against a base, file at a ref, worktree list | `StatusReader`, `DiffReader`, `WorktreeLister` |
 | `IRepositoryEdits` | Offer an edit to the user's repository; the host writes it only on a click | new, generalises the Tests telemetry banner |
 | `INotifications` | An in-app toast, or an OS notification that respects the user's setting | `OsNotifier` |
 | `INavigation` | Open a file at a line in the agent's Files tab, switch to another tab | `Urls.AgentFile` |
 | `IWorktreeState` | Memory-only state per worktree, per extension | the pattern in `WorktreeViews` |
 | `IExtensionSettings<T>` | Typed settings stored in `settings.json` under the extension's id | `SettingsStore` |
-| `IExtensionStorage` | A data folder of its own: `~/.agents-dashboard/extension-data/<id>/` | `AppPaths` |
+| `IExtensionStorage` | A data folder of its own: `~/.togue/extension-data/<id>/` | `AppPaths` |
 | `ILogger<T>` | Logging into the host's log | ASP.NET logging |
 
 The API assembly is itself a Razor class library, so it can also carry a few
@@ -150,7 +150,7 @@ What works, and why:
   `.deps.json`, so two extensions can carry different versions of the same
   library. The context returns `null` from `Load` for the shared set
   (the framework, `Microsoft.AspNetCore.*`, `Microsoft.Extensions.*`, and
-  `AgentsDashboard.Extensions`) so those resolve from the default context and
+  `Togue.Extensions`) so those resolve from the default context and
   their types are the same types the host uses. Without that, the host's
   `IComponent` and the extension's would be different types and nothing would
   cast. This is the standard plugin pattern in the .NET docs.
@@ -189,7 +189,7 @@ What does not work out of the box:
   succeeding.
 - **File locks.** On Windows a loaded assembly locks its file, which would stop
   the next build. The host copies the output folder to a shadow directory
-  (`~/.agents-dashboard/extension-cache/<id>/<n>/`) and loads from there, so
+  (`~/.togue/extension-cache/<id>/<n>/`) and loads from there, so
   the build output is never held open.
 - **Crash containment.** `ErrorBoundary` in an interactive component catches
   exceptions from rendering, lifecycle methods and event handlers of what it
@@ -208,7 +208,7 @@ What does not work out of the box:
 
 Scaffolding with Claude Code: very good. It is the same language, framework and
 component model as the app itself, so an extension reads like a file from
-`Components/Shared`, and Claude Code can read the dashboard's own tabs as
+`Components/Shared`, and Claude Code can read Togue's own tabs as
 worked examples.
 
 ### (b) Out of process
@@ -216,7 +216,7 @@ worked examples.
 The extension is a program in any language. The host starts it with a port and
 a token, reverse-proxies `/ext/{id}/` to it so it is same-origin (and works
 under `--browser`), and shows its pages in an `<iframe>` in the tab. The
-extension reads the dashboard through a small HTTP API (`/api/ext/v1/...`:
+extension reads Togue through a small HTTP API (`/api/ext/v1/...`:
 snapshot, git reads, offers, notifications) and gets pushes over server-sent
 events.
 
@@ -259,23 +259,23 @@ without a format change.
 flowchart TB
     subgraph disk["On disk"]
         B["app/extensions/*<br/>bundled, e.g. dotnet-tests"]
-        I["~/.agents-dashboard/extensions/*<br/>installed copies"]
+        I["~/.togue/extensions/*<br/>installed copies"]
         L["linked dev folders<br/>listed in settings.json"]
-        SDK["~/.agents-dashboard/sdk/1.x/<br/>AgentsDashboard.Extensions.dll + xml"]
+        SDK["~/.togue/sdk/1.x/<br/>Togue.Extensions.dll + xml"]
     end
 
-    subgraph core["AgentsDashboard.Core (no ASP.NET)"]
+    subgraph core["Togue.Core (no ASP.NET)"]
         CAT["ExtensionCatalog<br/>discovery + manifest parsing"]
         SET["Settings.Extensions<br/>enabled, trusted hash, config"]
         MON["MonitorService"]
-        DS["DashboardState"]
+        DS["TogueState"]
     end
 
-    subgraph app["AgentsDashboard.App"]
+    subgraph app["Togue.App"]
         HOST["ExtensionHost<br/>load, reload, supervise"]
         ALC["ExtensionLoadContext<br/>one collectible ALC per load"]
         REG["ExtensionRegistry<br/>tabs, indicators, settings, Changed"]
-        ADP["API adapters<br/>IDashboardView, IGitReader,<br/>IRepositoryEdits, ..."]
+        ADP["API adapters<br/>ITogueView, IGitReader,<br/>IRepositoryEdits, ..."]
         CHAT["ChatPage<br/>built-in tabs + extension tabs"]
         SIDE["NavSidebar<br/>indicators"]
         SP["SettingsPage<br/>Extensions card"]
@@ -283,13 +283,13 @@ flowchart TB
     end
 
     subgraph ext["An extension (its own ALC)"]
-        E["IDashboardExtension.Configure"]
+        E["ITogueExtension.Configure"]
         C["tab / settings components"]
         W["workers"]
         S["its own services"]
     end
 
-    API["AgentsDashboard.Extensions<br/>API 1.0, default ALC"]
+    API["Togue.Extensions<br/>API 1.0, default ALC"]
 
     B --> CAT
     I --> CAT
@@ -336,7 +336,7 @@ sequenceDiagram
     end
     H->>H: shadow-copy output to extension-cache/id/n
     H->>A: new collectible context, load entry assembly
-    A->>E: find IDashboardExtension, call Configure(builder)
+    A->>E: find ITogueExtension, call Configure(builder)
     E-->>H: tabs, indicators, settings, workers, services
     H->>H: build the extension's service provider
     H->>R: register contributions under generation n
@@ -368,8 +368,8 @@ before the user enables it.
   "version": "1.0.0",
   "apiVersion": "1.0",
   "kind": "dotnet",
-  "entry": "AgentsDashboard.Extensions.DotnetTests.dll",
-  "author": "Agents Dashboard",
+  "entry": "Togue.Extensions.DotnetTests.dll",
+  "author": "Togue",
   "description": "Live pass/fail for dotnet test runs in each agent's worktree.",
   "contributes": {
     "agentTabs": [ { "id": "tests", "title": "Tests" } ],
@@ -397,9 +397,9 @@ before the user enables it.
 ### API surface (sketch)
 
 ```csharp
-namespace AgentsDashboard.Extensions;   // API 1.0
+namespace Togue.Extensions;   // API 1.0
 
-public interface IDashboardExtension
+public interface ITogueExtension
 {
     void Configure(IExtensionBuilder builder);
 }
@@ -452,9 +452,9 @@ public sealed record WorktreeContext(
 
 public sealed record GitSummary(int Changed, int Staged, int Untracked, int Ahead, int Behind);
 
-public interface IDashboardView
+public interface ITogueView
 {
-    DashboardViewSnapshot Current { get; }            // agents and worktrees, as the records above
+    TogueViewSnapshot Current { get; }            // agents and worktrees, as the records above
     event Action? Changed;                            // every monitor tick, on the monitor's thread
 }
 
@@ -501,7 +501,7 @@ public abstract class AgentTabBase : ComponentBase
 
 The API assembly is the only thing an extension compiles against. The host
 publishes it (with its XML documentation, which is what IntelliSense and Claude
-Code read) into `~/.agents-dashboard/sdk/<major.minor>/` on startup, and the
+Code read) into `~/.togue/sdk/<major.minor>/` on startup, and the
 template references it from there with `Private="false"`, so it is never copied
 into the extension's output and always resolves to the host's copy at runtime.
 No NuGet feed is needed. The assembly version is fixed at `1.0.0.0` for the
@@ -509,9 +509,9 @@ whole of major version 1.
 
 ## 5. Security and trust
 
-An enabled extension is code running inside the dashboard, as you, on your work
+An enabled extension is code running inside Togue, as you, on your work
 computer. It can read and write any file you can, start any process, and reach
-the network. The dashboard cannot sandbox in-process .NET code: .NET has no
+the network. Togue cannot sandbox in-process .NET code: .NET has no
 code access security any more, and a separate load context is for dependency
 isolation, not a security boundary.
 
@@ -551,11 +551,11 @@ generic error; there is nothing else it can or should do about it.
 
 ```mermaid
 flowchart TD
-    A["dotnet new agents-dashboard-extension -n BuildStatus<br/>(or: ask Claude Code to)"] --> B["Settings, Extensions, Link folder<br/>or: run the app with --extension path"]
+    A["dotnet new togue-extension -n BuildStatus<br/>(or: ask Claude Code to)"] --> B["Settings, Extensions, Link folder<br/>or: run the app with --extension path"]
     B --> C["Consent card: dev extension, Enable"]
     C --> D["dotnet watch build<br/>in the extension folder"]
     D --> E["edit a .razor or .cs file<br/>(you or Claude Code)"]
-    E --> F["build writes bin/dashboard/"]
+    E --> F["build writes bin/togue/"]
     F --> G{"host sees the entry<br/>assembly change,<br/>debounced 500 ms"}
     G --> H["stop workers, drop old generation,<br/>shadow-copy, load new ALC"]
     H --> I["tabs rebuild in the open window"]
@@ -576,9 +576,9 @@ click. The template produces:
 ```
 BuildStatus/
   BuildStatus.csproj        Razor SDK, net10.0, references the SDK folder,
-                            output to bin/dashboard/, copies extension.json
+                            output to bin/togue/, copies extension.json
   extension.json            manifest with the id and one tab declared
-  BuildStatusExtension.cs   IDashboardExtension with one AddAgentTab call
+  BuildStatusExtension.cs   ITogueExtension with one AddAgentTab call
   BuildStatusTab.razor      inherits AgentTabBase, shows the agent's worktree
   _Imports.razor
   AGENTS.md                 the API in one page, the two project rules,
@@ -589,7 +589,7 @@ BuildStatus/
 
 The `AGENTS.md` is the part that makes "I just want Claude to create it" work:
 Claude Code opens the folder, reads it, and has everything it needs without
-reading the dashboard's source. Pointing it at the dashboard repo as well gives
+reading Togue's source. Pointing it at Togue repo as well gives
 it the built-in tabs as examples.
 
 ### Where extensions live
@@ -597,11 +597,11 @@ it the built-in tabs as examples.
 | Location | What | Loaded when |
 | --- | --- | --- |
 | `<app output>/extensions/<id>/` | Bundled with the app (Tests) | Enabled in Settings |
-| `~/.agents-dashboard/extensions/<id>/` | Installed: a copy of a build output | Enabled and hash trusted |
+| `~/.togue/extensions/<id>/` | Installed: a copy of a build output | Enabled and hash trusted |
 | Any folder, listed in `settings.json` | Linked for development | Enabled; reloaded on every build |
 | `--extension <path>` | This run only, not saved | Always, marked dev |
 
-The `~/.agents-dashboard` locations come from `AppPaths`, so `--data-dir`
+The `~/.togue` locations come from `AppPaths`, so `--data-dir`
 moves them with everything else. **Install** on a linked extension copies its
 current build output into the installed folder and records the hash, for when
 you are done iterating and want a stable copy. If an id appears in more than
@@ -641,11 +641,11 @@ it must offer rather than make (the telemetry installer).
 
 | From | To |
 | --- | --- |
-| `App/Components/Shared/TestsTab.razor`, `TestSummary.razor` | `extensions/AgentsDashboard.Extensions.DotnetTests/` |
+| `App/Components/Shared/TestsTab.razor`, `TestSummary.razor` | `extensions/Togue.Extensions.DotnetTests/` |
 | `App/Services/TelemetryCache.cs` | the extension, registered in its own container |
 | `Core/Testing/*` (tracker, TRX parser and scanner, locator, process scanner, project probe, runner, installer) | the extension |
 | `Core/Model/Tests.cs` | the extension |
-| `tests/.../TrxParserTests.cs`, `TestRunTrackerTests.cs`, `TelemetryTests.cs`, `TestingSupportTests.cs` | `tests/AgentsDashboard.Extensions.DotnetTests.Tests/` |
+| `tests/.../TrxParserTests.cs`, `TestRunTrackerTests.cs`, `TelemetryTests.cs`, `TestingSupportTests.cs` | `tests/Togue.Extensions.DotnetTests.Tests/` |
 | `docs/test-monitoring.md` | stays in `docs/`, with a line saying it describes the bundled extension |
 
 ### What changes in the app
@@ -660,7 +660,7 @@ it must offer rather than make (the telemetry installer).
 - `ChatPage` loses the hard-coded Tests tab, the Tests badge and `"tests"` in
   `CurrentTab`, and gains a loop over the registry's tabs that renders
   `ExtensionTab` for each. Chat, Changes and Files stay built in.
-- `_Imports.razor` loses `AgentsDashboard.Core.Testing`.
+- `_Imports.razor` loses `Togue.Core.Testing`.
 - The app's build copies the extension's output to `extensions/dotnet-tests/`
   so it ships with the app and loads through the same code path as anyone
   else's, which is the best test the loader will get.
@@ -673,7 +673,7 @@ the git layer, settings, `AppPaths`. Nothing test-specific.
 ### The extension itself
 
 ```csharp
-public sealed class DotnetTestsExtension : IDashboardExtension
+public sealed class DotnetTestsExtension : ITogueExtension
 {
     public void Configure(IExtensionBuilder b)
     {
@@ -692,7 +692,7 @@ public sealed class DotnetTestsExtension : IDashboardExtension
 }
 ```
 
-- `TrackerWorker` subscribes to `IDashboardView.Changed`, passes the current
+- `TrackerWorker` subscribes to `ITogueView.Changed`, passes the current
   worktree paths to the tracker and polls it, which is exactly what
   `MonitorService` did on its tick. It publishes to `TestRunStore`.
 - `TestsTab` reads runs from `TestRunStore` instead of `View.TestRuns`, and
@@ -763,7 +763,7 @@ extension pages through a host route, if anything has asked for them.
    2. Keep `kind` in the manifest and build the `web` adapter only when there
    is an extension that needs it.
 4. **Where should the SDK come from?** Recommended: the local
-   `~/.agents-dashboard/sdk/` folder the app fills on startup, over a NuGet
+   `~/.togue/sdk/` folder the app fills on startup, over a NuGet
    package. Nothing to publish, and it always matches the running app.
 5. **Should a changed installed extension ask for consent again?**
    Recommended: yes for installed, never for linked dev folders.

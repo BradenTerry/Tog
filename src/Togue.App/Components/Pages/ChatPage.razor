@@ -1,0 +1,157 @@
+@page "/"
+@page "/chat"
+@page "/chat/{SessionId}"
+@page "/chat/{SessionId}/{Tab}"
+@inherits StateComponent
+@inject Workbench Bench
+@inject AgentDirectory Directory
+@inject ExtensionHost Extensions
+@inject NavigationManager Nav
+
+@* An agent's page is the editor in the middle of the window: its open files and
+   its diff. Everything else about the agent is in the panels around it, which
+   follow the agent this page names. The URL can also carry an instruction, a
+   file to open or a panel tab to bring up, which is carried out once and then
+   dropped from the address so the same link works again. *@
+
+<PageTitle>@(Current?.Label ?? "Agents") - Togue</PageTitle>
+
+@* Always the editor, so a tab that belongs to no file, Settings, has somewhere
+   to open even with no agent picked. Without a worktree its tabs are kept
+   under the empty one, and what would be the "nothing open" hint says why
+   there are no files. *@
+@{
+    var worktree = Bench.WorktreeInView(Snapshot.Value) ?? "";
+}
+<EditorArea WorktreePath="@worktree" @key="worktree">
+    <Empty>
+        @if (Current is null)
+        {
+            <div class="empty editor-empty">
+                <h2>@(SessionId is null ? "Pick an agent" : "Agent not found")</h2>
+                <p>
+                    @(SessionId is null
+                        ? "Choose an agent in the list at the bottom right to read its conversation, its files and its changes."
+                        : "It may have been removed, or it has not reached the registry yet.")
+                </p>
+            </div>
+        }
+        else if (worktree.Length == 0)
+        {
+            <div class="empty editor-empty">
+                <h2>No worktree</h2>
+                <p>This agent is not working in a git worktree, so there are no files or changes to show. Its conversation is below.</p>
+            </div>
+        }
+    </Empty>
+</EditorArea>
+
+@code {
+    [Parameter]
+    public string? SessionId { get; set; }
+
+    /// <summary>A panel tab to bring up: files, changes, chat, or an extension view's key.</summary>
+    [Parameter]
+    public string? Tab { get; set; }
+
+    /// <summary>A file a link asked to open, and the line in it.</summary>
+    [SupplyParameterFromQuery(Name = "file")]
+    public string? File { get; set; }
+
+    [SupplyParameterFromQuery(Name = "line")]
+    public int? Line { get; set; }
+
+    /// <summary>Set once the URL's instruction has been carried out, so the address can be tidied.</summary>
+    private bool _applied;
+
+    private ChatTarget? Current =>
+        SessionId is null ? null : Directory.Targets(Snapshot.Value).FirstOrDefault(t => t.SessionId == SessionId);
+
+    protected override void OnParametersSet()
+    {
+        // A window opened on no agent picks up where the app was left.
+        if (SessionId is null && Bench.TakeAgentToReopen(Snapshot.Value) is { } reopen)
+        {
+            Nav.NavigateTo(Urls.Chat(reopen), replace: true);
+            return;
+        }
+
+        Bench.Select(SessionId);
+        Apply();
+    }
+
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+
+        // An agent's worktree is only known once it is placed, so an instruction
+        // that needs it waits for the snapshot that brings it.
+        State.Changed += OnSnapshot;
+    }
+
+    private void OnSnapshot() => _ = InvokeAsync(Apply);
+
+    private void Apply()
+    {
+        if (!RendererInfo.IsInteractive || _applied || SessionId is null || (Tab is null && File is null))
+        {
+            return;
+        }
+
+        if (Current is not { } agent || (agent.WorktreePath is null && (File is not null || Tab is "files" or "changes")))
+        {
+            return;
+        }
+
+        // A link into the agent's files or changes is about its worktree, so a
+        // worktree picked by hand gives way to it.
+        var worktree = agent.WorktreePath;
+        if (worktree is not null && (File is not null || Tab is "files" or "changes"))
+        {
+            Bench.FollowAgent();
+        }
+
+        switch (Tab)
+        {
+            case "chat":
+                Bench.Show(Workbench.ChatTab);
+                break;
+            case "files":
+                Bench.Show(Workbench.FilesTab);
+                break;
+            case "changes":
+                Bench.Show(Workbench.SourceControlTab);
+                break;
+            case { } key when Extensions.Views.Any(v => v.View.Key == key):
+                Bench.Show(key);
+                break;
+        }
+
+        if (File is { Length: > 0 } file && worktree is not null)
+        {
+            Bench.OpenFile(worktree, file, Line, keep: true);
+        }
+
+        _applied = true;
+        StateHasChanged();
+    }
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (_applied)
+        {
+            _applied = false;
+            Nav.NavigateTo(Urls.Chat(SessionId), replace: true);
+        }
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            State.Changed -= OnSnapshot;
+        }
+
+        base.Dispose(disposing);
+    }
+}

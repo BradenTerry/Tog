@@ -1,0 +1,262 @@
+@inject AgentHost Host
+@inject ChatDrafts Drafts
+@inject IJSRuntime Js
+
+@* Questions the agent is waiting on you to answer, all in one card: Claude's
+   AskUserQuestion, a form an MCP server sent, or the bridge's refusal fallback. One Submit answers them all;
+   Skip tells the agent you would rather not, and it carries on.
+
+   The chat redraws every second, so nothing typed or picked lives in the markup.
+   Picks and text go straight into the draft kept in ChatDrafts, and a text box's
+   value is written only once, from what the draft held when the card was built:
+   a value rendered from the live draft would be a keystroke behind whenever a
+   redraw landed mid-word, and writing it back would drop what was typed. *@
+
+@* Who is asking comes first and is Togue's own wording. An MCP server's
+   message is shown only under that heading, quoted as the server's, so a server
+   cannot pass off "paste your token" as the agent or Togue asking. *@
+<form class="question-card @(FromServer ? "from-server" : "")" @ref="_form" @onsubmit="Submit" aria-labelledby="@($"{Id}-title")">
+    <strong class="question-title" id="@($"{Id}-title")">@Title</strong>
+    @if (FromServer && Form.Message is { Length: > 0 } said)
+    {
+        <p class="question-server-message"><span class="faint">The server says:</span> @said</p>
+    }
+
+    @for (var i = 0; i < Form.Questions.Count; i++)
+    {
+        var question = Form.Questions[i];
+        var number = i + 1;
+        var name = $"{Id}-{question.Key}";
+        <fieldset class="question">
+            <legend>
+                @if (Form.Questions.Count > 1)
+                {
+                    <span class="question-num" aria-hidden="true">@number</span>
+                }
+                @if (question.Header is { Length: > 0 } header)
+                {
+                    <span class="question-header">@header</span>
+                }
+                @if (Asked(question) is { Length: > 0 } asked)
+                {
+                    <span class="question-text">@asked</span>
+                }
+                @if (question.Required)
+                {
+                    <span class="faint question-required">required</span>
+                }
+            </legend>
+
+            @switch (question.Kind)
+            {
+                case QuestionKind.OneOf:
+                case QuestionKind.AnyOf:
+                    var many = question.Kind == QuestionKind.AnyOf;
+                    <div class="question-options">
+                        @foreach (var option in question.Options)
+                        {
+                            var value = option.Value;
+                            <label class="question-option">
+                                @if (many)
+                                {
+                                    <input type="checkbox" name="@name" value="@value"
+                                           checked="@Draft.IsPicked(question, value)"
+                                           @onchange="e => Draft.Pick(question, value, e.Value is true)" />
+                                }
+                                else
+                                {
+                                    <input type="radio" name="@name" value="@value"
+                                           checked="@Draft.IsPicked(question, value)"
+                                           @onchange="() => Draft.Pick(question, value)" />
+                                }
+                                <span class="question-option-text">
+                                    <span>@option.Label</span>
+                                    @if (option.Description is { Length: > 0 } description)
+                                    {
+                                        <span class="faint question-option-detail">@description</span>
+                                    }
+                                </span>
+                            </label>
+                        }
+                    </div>
+                    @if (!many && !question.Required && question.Options.Any(o => Draft.IsPicked(question, o.Value)))
+                    {
+                        <button type="button" class="ghost small question-clear"
+                                @onclick="() => Clear(question)">Clear choice</button>
+                    }
+                    @if (question.OtherKey is { } other)
+                    {
+                        <label class="question-other">
+                            <span class="faint">Other</span>
+                            <input type="text" value="@_initial.GetValueOrDefault(other)"
+                                   placeholder="@(question.OtherHint ?? "Your own answer (optional)")"
+                                   aria-label="@($"Other answer to question {number}")"
+                                   aria-describedby="@(FromServer ? $"{name}-caution" : null)"
+                                   @oninput="e => Draft.SetText(other, e.Value as string ?? string.Empty)" />
+                        </label>
+                        @if (FromServer)
+                        {
+                            <span class="question-caution" id="@($"{name}-caution")">@Caution</span>
+                        }
+                    }
+                    break;
+
+                case QuestionKind.YesNo:
+                    <label class="question-option">
+                        <input type="checkbox" checked="@Draft.Flag(question.Key)"
+                               @onchange="e => Draft.SetFlag(question.Key, e.Value is true)" />
+                        <span>Yes</span>
+                    </label>
+                    break;
+
+                default:
+                    var key = question.Key;
+                    <input type="@InputType(question)" class="question-input"
+                           value="@_initial.GetValueOrDefault(key)"
+                           inputmode="@(question.Kind == QuestionKind.Integer ? "numeric" : question.Kind == QuestionKind.Number ? "decimal" : null)"
+                           aria-label="@(Asked(question) ?? question.Header ?? $"Answer to question {number}")"
+                           aria-describedby="@(FromServer && question.Kind == QuestionKind.Text ? $"{name}-caution" : null)"
+                           @oninput="e => Draft.SetText(key, e.Value as string ?? string.Empty)" />
+                    @if (FromServer && question.Kind == QuestionKind.Text)
+                    {
+                        <span class="question-caution" id="@($"{name}-caution")">@Caution</span>
+                    }
+                    break;
+            }
+        </fieldset>
+    }
+
+    @if (_problems.Count > 0)
+    {
+        <ul class="question-problems" role="alert">
+            @foreach (var problem in _problems)
+            {
+                <li>@problem</li>
+            }
+        </ul>
+    }
+
+    <div class="question-actions">
+        <button type="submit" class="primary small" disabled="@_sent">@(Form.Questions.Count > 1 ? "Submit answers" : "Submit")</button>
+        <button type="button" class="ghost small" @onclick="Skip" disabled="@_sent"
+                title="Answer nothing. The agent is told you skipped, and carries on.">Skip</button>
+        <span class="faint question-keys">@(OperatingSystem.IsMacOS() ? "Cmd" : "Ctrl")+Enter submits</span>
+    </div>
+</form>
+
+@code {
+    [Parameter, EditorRequired]
+    public string SessionId { get; set; } = "";
+
+    [Parameter, EditorRequired]
+    public QuestionForm Form { get; set; } = default!;
+
+    private QuestionDraft Draft => Drafts.Answers(SessionId, Form);
+
+    /// <summary>What each text box held when the card was built. See the note at the top.</summary>
+    private Dictionary<string, string> _initial = new(StringComparer.Ordinal);
+
+    private IReadOnlyList<string> _problems = [];
+    private ElementReference _form;
+    private bool _bound;
+
+    /// <summary>Answered, and waiting for the agent to take the card away. Stops a second answer.</summary>
+    private bool _sent;
+
+    /// <summary>Unique on the page, for the radio groups' names and the label ids.</summary>
+    private string Id => "q" + Form.Key;
+
+    /// <summary>
+    /// The card's heading. With one question the form's message is the question,
+    /// and the question's legend repeats nothing.
+    /// </summary>
+    private string Title => Form.Source switch
+    {
+        FormSource.McpServer => QuestionForm.McpServerAsking,
+        FormSource.Bridge => "Claude Code is asking",
+        _ => Form.Questions.Count == 1 ? "A question from the agent" : "Questions from the agent",
+    };
+
+    private bool FromServer => Form.Source == FormSource.McpServer;
+
+    /// <summary>Beside every free-text box on a server's form, where a request for a secret would be answered.</summary>
+    private const string Caution = "Only answer if you trust this server. Do not paste passwords or tokens.";
+
+    /// <summary>
+    /// The question's own words, or the form's message when there is only one
+    /// question and it has none. Not for a server's form, whose message is
+    /// already shown, marked as the server's.
+    /// </summary>
+    private string? Asked(Question question) =>
+        question.Text ?? (!FromServer && Form.Questions.Count == 1 && Form.Message.Length > 0 ? Form.Message : null);
+
+    private static string InputType(Question question) => question.Kind switch
+    {
+        QuestionKind.Number or QuestionKind.Integer => "text",
+        _ => question.Format switch
+        {
+            "email" => "email",
+            "uri" => "url",
+            "date" => "date",
+            _ => "text",
+        },
+    };
+
+    protected override void OnInitialized()
+    {
+        var draft = Draft;
+        foreach (var question in Form.Questions)
+        {
+            _initial[question.Key] = draft.Text(question.Key);
+            if (question.OtherKey is { } other)
+            {
+                _initial[other] = draft.Text(other);
+            }
+        }
+    }
+
+    private void Clear(Question question)
+    {
+        foreach (var option in question.Options)
+        {
+            Draft.Pick(question, option.Value, on: false);
+        }
+    }
+
+    private void Submit()
+    {
+        var draft = Draft;
+        _problems = draft.Problems();
+        if (_problems.Count > 0)
+        {
+            return;
+        }
+
+        _sent = true;
+        Host.AnswerQuestions(SessionId, Form.Key, draft.Content());
+    }
+
+    private void Skip()
+    {
+        _sent = true;
+        Host.AnswerQuestions(SessionId, Form.Key, null);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_bound)
+        {
+            return;
+        }
+
+        _bound = true;
+        try
+        {
+            await Js.InvokeVoidAsync("togue.bindQuestions", _form);
+        }
+        catch (Exception e) when (e is JSException or InvalidOperationException or TaskCanceledException)
+        {
+            // The circuit went away. There is nothing to bind.
+        }
+    }
+}

@@ -23,17 +23,17 @@ import { createSample } from './sample.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const out = join(repoRoot, 'assets', 'screenshots');
-const appDir = join(repoRoot, 'src', 'AgentsDashboard.App');
+const appDir = join(repoRoot, 'src', 'Togue.App');
 const args = new Set(process.argv.slice(2));
 
 // A short, neutral path, since the status bar prints it.
-const sampleRoot = process.platform === 'win32' ? join(tmpdir(), 'dashboard-sample') : '/tmp/dashboard-sample';
+const sampleRoot = process.platform === 'win32' ? join(tmpdir(), 'togue-sample') : '/tmp/togue-sample';
 
 if (!args.has('--no-build')) {
   execFileSync('dotnet', ['build', appDir, '-v', 'q', '-nologo'], { stdio: 'inherit' });
 }
 
-const dll = join(appDir, 'bin', 'Debug', 'net10.0', 'agents-dashboard.dll');
+const dll = join(appDir, 'bin', 'Debug', 'net10.0', 'togue.dll');
 if (!existsSync(dll)) {
   throw new Error(`No build at ${dll}. Run without --no-build.`);
 }
