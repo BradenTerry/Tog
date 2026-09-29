@@ -20,7 +20,7 @@ flowchart TB
         end
         R["Right panel<br/>Source control + extensions"]
     end
-    S["Status bar: directory, worktree, branch"]
+    S["Status bar: directory, plan usage"]
     T --- W
     W --- S
 ```

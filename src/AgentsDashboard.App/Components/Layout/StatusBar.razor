@@ -4,10 +4,10 @@
 @inject AgentHost Host
 @inject IJSRuntime Js
 
-@* Along the bottom of the window, as VS Code's status bar: where the agent in
-   view works, each part labelled, so which branch you are looking at is never
-   a guess. On the right, how much of the Claude plan is used, as the last turn
-   reported it. *@
+@* Along the bottom of the window, as VS Code's status bar: the directory the
+   agent in view works in. The worktree and branch are in the header above, so
+   they are not repeated here. On the right, how much of the Claude plan is
+   used, as the last turn reported it. *@
 
 <footer class="statusbar" aria-label="Where the agent works and plan usage">
     @if (Agent is { } agent)
@@ -21,28 +21,6 @@
             <span class="mono truncate">.../@Fmt.Leaf(directory)</span>
             <button class="ghost status-copy" @onclick="() => Copy(directory)"
                     title="Copy the full path">@(_copied == directory ? "Copied" : "Copy")</button>
-        </span>
-        @if (agent.WorktreeName is { } worktreeName)
-        {
-            <span class="status-item">
-                <span class="status-label">Worktree</span>
-                <span class="truncate">@worktreeName</span>
-            </span>
-        }
-        <span class="status-item">
-            <span class="status-label">Branch</span>
-            @if (agent.Branch is { Length: > 0 } branch)
-            {
-                <span class="mono truncate">@branch</span>
-            }
-            else if (agent.Detached)
-            {
-                <span class="truncate" title="No branch is checked out: commits made here belong to no branch">none (detached HEAD)</span>
-            }
-            else
-            {
-                <span class="faint">not a git repository</span>
-            }
         </span>
     }
     else
