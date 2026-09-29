@@ -20,7 +20,10 @@
 </p>
 
 <p align="center">
-  <img src="assets/screenshots/overview.png" alt="Tog reviewing an agent's diff, with its chat underneath" width="900">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/overview-dark.png">
+    <img src="assets/screenshots/overview-light.png" alt="Tog reviewing an agent's diff, with its chat underneath" width="900">
+  </picture>
 </p>
 
 ## Why
@@ -82,7 +85,10 @@ picked.
   its own, and the arrangement is kept.
 
 <p align="center">
-  <img src="assets/screenshots/dark.png" alt="The file an agent wrote, open in the editor in the dark theme" width="900">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/editor-dark.png">
+    <img src="assets/screenshots/editor-light.png" alt="The file an agent wrote, open in the editor" width="900">
+  </picture>
 </p>
 
 ## Make it yours with extensions

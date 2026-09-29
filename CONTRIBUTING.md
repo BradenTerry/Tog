@@ -88,13 +88,13 @@ node tools/screenshots/take.mjs
 It builds the app, writes the sample to `/tmp/tog-sample` (a git
 repository, its worktrees, and a Claude config folder with the agents'
 transcripts), runs the app against it with `--no-extensions` and
-`CLAUDE_CONFIG_DIR` pointing at the sample, and saves the pictures into
-`assets/screenshots`. Dates and times are fixed, so an unchanged app draws
+`CLAUDE_CONFIG_DIR` pointing at the sample, and saves each picture in the light
+and the dark theme into `assets/screenshots`. The README shows the one matching
+the reader's GitHub theme. Dates and times are fixed, so an unchanged app draws
 byte-identical files.
 
-The Screenshots workflow runs it on every push to `main` that touches the app,
-and opens a pull request if any picture changed. To change what is pictured,
-edit `tools/screenshots/sample.mjs` or `take.mjs`.
+Rerun it when a change alters what the README shows. To change what is
+pictured, edit `tools/screenshots/sample.mjs` or `take.mjs`.
 
 ## Architecture
 
@@ -106,7 +106,7 @@ edit `tools/screenshots/sample.mjs` or `take.mjs`.
 | `templates/extension` | `dotnet new tog-extension`, with an `AGENTS.md` for writing one. |
 | `templates/skill` | The skill that teaches an agent to write one, shipped in the app and added from Settings. |
 | `tests/*` | xUnit v3 on Microsoft.Testing.Platform, for Core. |
-| `tools/` | The Node scripts that vendor Monaco, Mermaid, the TextMate grammars and the ACP bridge. |
+| `tools/` | The Node scripts that vendor Monaco, Mermaid, the TextMate grammars and the ACP bridge, and `tools/screenshots`, which takes the README pictures. |
 
 Blazor Server rather than a hybrid webview because its circuit is the push
 channel this app needs: a file watcher on a background thread publishes a
@@ -232,7 +232,7 @@ or ask Claude with the skill Settings installs.
 - If you changed a subsystem with a doc above, update the doc in the same pull
   request.
 - UI changes are easier to review with a screenshot. Run a second copy with
-  `--data-dir` and `--no-extensions` so it shows the app, not your setup. The
-  README's own screenshots update themselves after merge (see above).
+  `--data-dir` and `--no-extensions` so it shows the app, not your setup. If the
+  change alters what the README shows, retake its screenshots too (see above).
 - Versions come from `vMAJOR.MINOR.PATCH` git tags plus the commits since
   (see [docs/release.md](docs/release.md)); there is nothing to bump by hand.

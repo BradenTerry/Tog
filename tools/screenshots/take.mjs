@@ -72,16 +72,21 @@ try {
 async function shoot(url) {
   const browser = await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : {});
   try {
-    const light = await open(browser, url, 'light');
+    // Each picture in both themes: the README shows the one matching the
+    // reader's GitHub theme.
+    for (const scheme of ['light', 'dark']) {
+      const page = await open(browser, url, scheme);
 
-    // Overview: the agent's change to the orders route, side by side.
-    await openChange(light, 'orders.ts');
-    await light.screenshot({ path: join(out, 'overview.png') });
+      // The agent's change to the orders route, side by side.
+      await openChange(page, 'orders.ts');
+      await page.screenshot({ path: join(out, `overview-${scheme}.png`) });
 
-    // Dark: the file the agent wrote, opened with Go to File.
-    const dark = await open(browser, url, 'dark');
-    await goToFile(dark, 'rateLimit.ts');
-    await dark.screenshot({ path: join(out, 'dark.png') });
+      // The file the agent wrote, opened with Go to File.
+      await goToFile(page, 'rateLimit.ts');
+      await page.screenshot({ path: join(out, `editor-${scheme}.png`) });
+
+      await page.close();
+    }
   } finally {
     await browser.close();
   }
