@@ -21,6 +21,21 @@ const editors = new Map();
 // (saving, word wrap, dirty state).
 const diffViews = new Map();
 
+// The observers that tell each DiffView it came near the screen or left it, by
+// handle. A view has one from its first render, and a Monaco diff only while
+// it is near: a review of hundreds of files builds a few dozen editors, not
+// hundreds, and a file's texts cross the circuit only when it is scrolled to.
+const diffWatches = new Map();
+
+// How far outside the scrolled box a view counts as near, so it is built
+// before it shows and not torn down by a small scroll back.
+const diffViewMargin = '1500px 0px';
+
+// Chromium and Firefox keep what is on screen still when something above it
+// changes height; WebKit, which the window is on macOS, does not, so there the
+// views do it themselves.
+const nativeScrollAnchoring = typeof CSS !== 'undefined' && CSS.supports('overflow-anchor', 'auto');
+
 // Model URI to editor state. The C# providers below are registered once for the
 // whole page, and a provider is handed a model rather than an editor, so this is
 // how a hover in one editor reaches the .NET object that owns it.
@@ -657,6 +672,54 @@ function scrollParent(element) {
     return document.scrollingElement;
 }
 
+// The nearest ancestor that can scroll, whether or not it overflows yet: the
+// root a view's observer measures nearness against. Null is the viewport.
+function scrollBox(element) {
+    for (let node = element.parentElement; node; node = node.parentElement) {
+        const overflow = getComputedStyle(node).overflowY;
+        if (overflow === 'auto' || overflow === 'scroll') {
+            return node;
+        }
+    }
+
+    return null;
+}
+
+// Sets a view's height, and where the browser does not anchor the scroll,
+// moves the scroll by the difference when the view is wholly above what is on
+// screen: a view built or torn down up there would otherwise push the page.
+function setDiffViewHeight(element, height) {
+    const px = height + 'px';
+    if (element.style.height === px) {
+        return false;
+    }
+
+    const before = element.getBoundingClientRect();
+    element.style.height = px;
+    if (!nativeScrollAnchoring && before.height > 0) {
+        const scroller = scrollBox(element) ?? document.scrollingElement;
+        const top = scroller === document.scrollingElement ? 0 : scroller.getBoundingClientRect().top;
+        if (before.bottom <= top) {
+            scroller.scrollTop += height - before.height;
+        }
+    }
+
+    return true;
+}
+
+// A view's height before it has ever been built: the rows its changes would
+// take at the editor's line height. Only a guess, since the diff is not worked
+// out until Monaco has both texts, but close enough that the scrollbar does not
+// jump much when the real height lands.
+function estimateDiffView(settings) {
+    const e = settings.estimate || {};
+    const sideBySide = settings.sideBySide ?? savedSideBySide();
+    const all = sideBySide ? Math.max(e.before || 0, e.after || 0) : (e.after || 0) + (e.removed || 0);
+    const changed = sideBySide ? Math.max(e.added || 0, e.removed || 0) : (e.added || 0) + (e.removed || 0);
+    const rows = settings.collapse === false ? all : Math.min(all, changed + 8);
+    return Math.max(24, Math.ceil(rows * Math.round(savedFontSize() * 1.5)));
+}
+
 function diffViewSideBySide(view) {
     return view.settings.sideBySide ?? savedSideBySide();
 }
@@ -672,9 +735,7 @@ function fitDiffView(view) {
         ? Math.max(original.getContentHeight(), modified.getContentHeight())
         : modified.getContentHeight();
 
-    const px = Math.max(24, Math.ceil(height)) + 'px';
-    if (view.element.style.height !== px) {
-        view.element.style.height = px;
+    if (setDiffViewHeight(view.element, Math.max(24, Math.ceil(height)))) {
         view.diff.layout();
     }
 }
@@ -736,6 +797,34 @@ function commentLines(selection, line) {
 }
 
 window.agentsEditor = {
+    // Gives the view its guessed height and tells .NET, through Near, whenever
+    // it comes within the margin of the screen or leaves it. The height a view
+    // was last built at stays when it is torn down, so the page keeps its length.
+    watchDiffView: (element, dotnetRef, settings) => {
+        if (!element.style.height) {
+            element.style.height = estimateDiffView(settings || {}) + 'px';
+        }
+
+        let near = false;
+        const observer = new IntersectionObserver((entries) => {
+            const now = entries[entries.length - 1].isIntersecting;
+            if (now !== near) {
+                near = now;
+                dotnetRef.invokeMethodAsync('Near', now);
+            }
+        }, { root: scrollBox(element), rootMargin: diffViewMargin });
+        observer.observe(element);
+
+        const handle = nextHandle++;
+        diffWatches.set(handle, observer);
+        return handle;
+    },
+
+    unwatchDiffView: (handle) => {
+        diffWatches.get(handle)?.disconnect();
+        diffWatches.delete(handle);
+    },
+
     createDiffView: async (element, dotnetRef, options) => {
         const monaco = await ensureLoaded();
         const settings = options || {};

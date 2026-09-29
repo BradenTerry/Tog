@@ -319,6 +319,17 @@ flowchart LR
   so a page of them scrolls as one. `CollapseUnchanged` (on by default) is
   Monaco's `hideUnchangedRegions`, whose hidden areas already leave the
   content height.
+- **Built only near the screen.** A review can hold hundreds of them, and an
+  editor for each, with both texts sent over the circuit, made a large one
+  crawl. `watchDiffView` puts an `IntersectionObserver` on the host, rooted at
+  the nearest scrolling ancestor with a 1500px margin, and `DiffViewEditor`
+  builds the Monaco diff when it reports `Near(true)` and disposes it on
+  `Near(false)`. Before the first build the host gets a guessed height from
+  line counts (both sides, and added and removed lines matched as a bag); torn
+  down, it keeps the height it last had, so the page keeps its length. A
+  `Reveal` builds the view wherever it is. WebKit, the window on macOS, has no
+  scroll anchoring, so there a height change wholly above the screen moves the
+  scroll by the difference; Chromium and Firefox do that themselves.
 - **Read-only, anonymous models.** They are not named after the file, unlike a
   file tab's (see `AGENTS.md`), so they never clash with an open tab's model
   and the code intelligence providers, which only answer models they own,
