@@ -50,8 +50,8 @@ standard other coding agents speak too, so support for more agents is planned.
 
 ## Get started
 
-You need the .NET SDK named in [`global.json`](global.json), `git`, Node 22 or
-newer, and [Claude Code](https://claude.com/claude-code).
+You need a .NET 10 SDK, `git`, Node 22 or newer, and
+[Claude Code](https://claude.com/claude-code).
 
 ```bash
 git clone https://github.com/BradenTerry/tog.git
@@ -147,3 +147,7 @@ while you are looking at another one. Its sign takes you to the agent.
 Issues and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers
 building and testing, the architecture, and where each subsystem's rationale
 lives.
+
+## License
+
+[Apache 2.0](LICENSE)
