@@ -1,0 +1,18 @@
+# Keeps the pinned things current: the NuGet lock files, the ACP bridge's
+# lockfile, and the commit each GitHub Action is pinned to. Monaco, Mermaid and
+# the TextMate grammars are pinned by a VERSION constant in tools/vendor-*.mjs
+# and are bumped by hand.
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directory: /tools/acp
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

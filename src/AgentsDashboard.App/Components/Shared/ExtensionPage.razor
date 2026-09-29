@@ -73,6 +73,13 @@ else
                 }
                 <span>Code fingerprint </span><span class="mono">@(ExtensionCatalog.Hash(found)?[..16] ?? "missing")</span>
             </p>
+            @if (manifest.Secrets.Count > 0)
+            {
+                <p class="faint" style="margin: 0 0 8px;">
+                    It declares these secrets: @SecretText.Needs(manifest.Secrets). Enabling gives it none;
+                    each waits until you choose one of yours for it in Secrets.
+                </p>
+            }
             <div class="inline">
                 <button class="primary small" @onclick="() => Enable(found.Id)">Enable</button>
                 <button class="ghost small" @onclick="() => _confirming = false">Cancel</button>
@@ -169,6 +176,12 @@ else
                 {
                     <dt>API</dt>
                     <dd class="nums">@manifest.ApiVersion</dd>
+                }
+
+                @if (manifest is { Secrets.Count: > 0 })
+                {
+                    <dt>Secrets</dt>
+                    <dd>@SecretText.Needs(manifest.Secrets). <span class="faint">Bound in Secrets.</span></dd>
                 }
 
                 @if (entry.Status == ExtensionStatus.Loaded && entry.Views.Count > 0)

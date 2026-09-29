@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using AgentsDashboard.Core.Secrets;
 
 namespace AgentsDashboard.Core.Extensions;
 
@@ -29,6 +30,12 @@ public sealed record ExtensionManifest
 
     /// <summary>Only <c>dotnet</c> today. Reserved so other kinds need no format change.</summary>
     public string Kind { get; init; } = "dotnet";
+
+    /// <summary>
+    /// The secrets it needs, by its own names for them, and where each is sent.
+    /// The only ones it can ask for. Since API 1.12; see <see cref="SecretNeed"/>.
+    /// </summary>
+    public IReadOnlyList<SecretNeed> Secrets { get; init; } = [];
 }
 
 /// <summary>Reads and checks manifests.</summary>
@@ -37,7 +44,7 @@ public static partial class ExtensionManifests
     public const string FileName = "extension.json";
 
     /// <summary>The API version this app provides.</summary>
-    public static readonly Version Api = new(1, 11);
+    public static readonly Version Api = new(1, 12);
 
     private static readonly JsonSerializerOptions Options = new() { PropertyNameCaseInsensitive = true };
 
@@ -80,7 +87,13 @@ public static partial class ExtensionManifests
             return (null, "The entry is a file name, not a path. Point output at its folder.");
         }
 
-        return ApiError(manifest.ApiVersion) is { } error ? (null, error) : (manifest, null);
+        if (ApiError(manifest.ApiVersion) is { } error)
+        {
+            return (null, error);
+        }
+
+        var (needs, needsError) = SecretNeed.Check(manifest.Secrets);
+        return needsError is null ? (manifest with { Secrets = needs }, null) : (null, needsError);
     }
 
     /// <summary>

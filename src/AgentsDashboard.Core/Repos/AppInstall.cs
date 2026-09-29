@@ -1,7 +1,7 @@
 namespace AgentsDashboard.Core.Repos;
 
 /// <summary>A build waiting to be started, as <c>tools/publish-local.sh</c> described it.</summary>
-public sealed record StagedUpdate(string Id, string Commit, string Subject, DateTimeOffset? StagedAt);
+public sealed record StagedUpdate(string Id, string Commit, string Subject, DateTimeOffset? StagedAt, string? Version = null);
 
 /// <summary>
 /// Where an installed copy of the app lives: the <c>.app</c> bundle that is
@@ -23,7 +23,7 @@ public sealed record AppInstall(string Bundle, string PayloadRoot)
     public const string BundleVariable = "AGENTS_DASHBOARD_BUNDLE";
     public const string PayloadVariable = "AGENTS_DASHBOARD_PAYLOAD";
 
-    /// <summary>Written into every build folder by the publish script: commit, subject, staged.</summary>
+    /// <summary>Written into every build folder by the publish script: commit, subject, staged, version.</summary>
     public const string InfoFile = "build-info";
 
     /// <summary>The installed copy this process runs as, or null when it was not started by a bundle's launcher.</summary>
@@ -76,6 +76,7 @@ public sealed record AppInstall(string Bundle, string PayloadRoot)
             id,
             values.GetValueOrDefault("commit") ?? "unknown",
             values.GetValueOrDefault("subject") ?? "",
-            DateTimeOffset.TryParse(values.GetValueOrDefault("staged"), out var at) ? at : null);
+            DateTimeOffset.TryParse(values.GetValueOrDefault("staged"), out var at) ? at : null,
+            values.GetValueOrDefault("version") is { Length: > 0 } version ? version : null);
     }
 }

@@ -1,0 +1,69 @@
+<Project>
+
+  <!--
+    The version comes from git, not from a number in a file. The newest tag of
+    the form vMAJOR.MINOR.PATCH is the version, so a release is `git tag
+    v0.2.0` and nothing to bump or forget. A build past the tag says how far:
+    0.2.0 on the tag itself, 0.2.0+3.1a2b3c4 three commits later, and .dirty on
+    the end when the tree has uncommitted changes. Before the first tag it is
+    0.0.0 plus the commit count. Without git at all (a source archive) it is
+    0.0.0+unknown, and the build goes on.
+
+    Version drives AssemblyVersion and FileVersion; AgentsDashboard.Extensions
+    fixes those itself, since they are its API contract, and takes only the
+    informational one. AppVersion in Core reads the result at run time.
+  -->
+  <Target Name="VersionFromGit" BeforeTargets="GetAssemblyVersion" Condition="'$(VersionFromGit)' != 'false'">
+    <Exec Command="git describe --tags --match &quot;v[0-9]*.[0-9]*.[0-9]*&quot; --long --abbrev=7 --dirty"
+          WorkingDirectory="$(MSBuildThisFileDirectory)"
+          ConsoleToMsBuild="true" IgnoreExitCode="true" IgnoreStandardErrorWarningFormat="true"
+          StandardOutputImportance="low" StandardErrorImportance="low" EchoOff="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_GitDescribe" />
+      <Output TaskParameter="ExitCode" PropertyName="_GitDescribeExit" />
+    </Exec>
+
+    <PropertyGroup>
+      <_GitTagged>false</_GitTagged>
+      <_GitTagged Condition="'$(_GitDescribeExit)' == '0' and $([System.Text.RegularExpressions.Regex]::IsMatch('$(_GitDescribe)', '^v\d+\.\d+\.\d+-\d+-g[0-9a-f]+(-dirty)?$'))">true</_GitTagged>
+    </PropertyGroup>
+
+    <PropertyGroup Condition="$(_GitTagged)">
+      <Version>$([System.Text.RegularExpressions.Regex]::Replace('$(_GitDescribe)', '^v(\d+\.\d+\.\d+)-.*$', '$1'))</Version>
+      <_GitHeight>$([System.Text.RegularExpressions.Regex]::Replace('$(_GitDescribe)', '^v[^-]+-(\d+)-g.*$', '$1'))</_GitHeight>
+      <_GitSha>$([System.Text.RegularExpressions.Regex]::Replace('$(_GitDescribe)', '^.*-g([0-9a-f]+).*$', '$1'))</_GitSha>
+    </PropertyGroup>
+
+    <!-- No tag yet: the commit and how many there are, so two untagged builds still tell apart. -->
+    <Exec Condition="!$(_GitTagged)" Command="git describe --always --abbrev=7 --dirty"
+          WorkingDirectory="$(MSBuildThisFileDirectory)"
+          ConsoleToMsBuild="true" IgnoreExitCode="true" IgnoreStandardErrorWarningFormat="true"
+          StandardOutputImportance="low" StandardErrorImportance="low" EchoOff="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_GitDescribe" />
+      <Output TaskParameter="ExitCode" PropertyName="_GitDescribeExit" />
+    </Exec>
+    <Exec Condition="!$(_GitTagged)" Command="git rev-list --count HEAD"
+          WorkingDirectory="$(MSBuildThisFileDirectory)"
+          ConsoleToMsBuild="true" IgnoreExitCode="true" IgnoreStandardErrorWarningFormat="true"
+          StandardOutputImportance="low" StandardErrorImportance="low" EchoOff="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_GitHeight" />
+    </Exec>
+
+    <PropertyGroup Condition="!$(_GitTagged)">
+      <Version>0.0.0</Version>
+      <_GitSha Condition="'$(_GitDescribeExit)' == '0' and $([System.Text.RegularExpressions.Regex]::IsMatch('$(_GitDescribe)', '^[0-9a-f]+(-dirty)?$'))">$(_GitDescribe.Replace('-dirty', ''))</_GitSha>
+      <_GitSha Condition="'$(_GitSha)' == ''">unknown</_GitSha>
+      <_GitHeight Condition="'$(_GitSha)' == 'unknown' or !$([System.Text.RegularExpressions.Regex]::IsMatch('$(_GitHeight)', '^\d+$'))">0</_GitHeight>
+    </PropertyGroup>
+
+    <PropertyGroup>
+      <_GitDirty>false</_GitDirty>
+      <_GitDirty Condition="$(_GitDescribe.EndsWith('-dirty'))">true</_GitDirty>
+      <VersionPrefix>$(Version)</VersionPrefix>
+      <InformationalVersion>$(Version)</InformationalVersion>
+      <InformationalVersion Condition="'$(_GitHeight)' != '0' or $(_GitDirty)">$(Version)+$(_GitHeight).$(_GitSha)</InformationalVersion>
+      <InformationalVersion Condition="$(_GitDirty)">$(InformationalVersion).dirty</InformationalVersion>
+      <InformationalVersion Condition="'$(_GitSha)' == 'unknown'">$(Version)+unknown</InformationalVersion>
+    </PropertyGroup>
+  </Target>
+
+</Project>

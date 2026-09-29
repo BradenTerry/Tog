@@ -41,12 +41,52 @@ public class ExtensionCatalogTests
     [InlineData("1.9", true)]
     [InlineData("1.10", true)]
     [InlineData("1.11", true)]
-    [InlineData("1.12", false)]
+    [InlineData("1.12", true)]
+    [InlineData("1.13", false)]
     [InlineData("2.0", false)]
     [InlineData("0.9", false)]
     [InlineData("one", false)]
     public void Only_our_major_and_no_newer_minor_loads(string api, bool loads) =>
         Assert.Equal(loads, ExtensionManifests.Parse(Manifest("x", api)).Error is null);
+
+    [Fact]
+    public void Declared_secrets_are_read_with_their_hosts_written_one_way()
+    {
+        var (manifest, error) = ExtensionManifests.Parse("""
+            { "id": "x", "name": "x", "entry": "x.dll", "apiVersion": "1.12",
+              "secrets": [
+                { "name": "github", "purpose": " Lists your pull requests. ", "hosts": ["API.GitHub.com", "api.github.com:443"] },
+                { "name": "linear", "read": true } ] }
+            """);
+
+        Assert.Null(error);
+        var github = manifest!.Secrets[0];
+        Assert.Equal(["api.github.com"], github.Hosts);
+        Assert.Equal("Lists your pull requests.", github.Purpose);
+        Assert.False(github.Read);
+        Assert.True(manifest.Secrets[1].Read);
+    }
+
+    [Theory]
+    [InlineData("""{ "name": "GitHub", "hosts": ["api.github.com"] }""")]
+    [InlineData("""{ "name": "github", "hosts": ["https://api.github.com/user"] }""")]
+    [InlineData("""{ "name": "github", "hosts": ["*.github.com"] }""")]
+    [InlineData("""{ "name": "github" }""")]
+    [InlineData("""{ "hosts": ["api.github.com"] }""")]
+    public void A_secret_that_could_not_be_used_as_declared_stops_the_manifest(string need) =>
+        Assert.NotNull(ExtensionManifests.Parse(
+            $$"""{ "id": "x", "name": "x", "entry": "x.dll", "secrets": [ {{need}} ] }""").Error);
+
+    [Fact]
+    public void A_secret_declared_twice_stops_the_manifest() =>
+        Assert.NotNull(ExtensionManifests.Parse("""
+            { "id": "x", "name": "x", "entry": "x.dll",
+              "secrets": [ { "name": "github", "read": true }, { "name": "github", "read": true } ] }
+            """).Error);
+
+    [Fact]
+    public void A_manifest_with_no_secrets_declares_none() =>
+        Assert.Empty(ExtensionManifests.Parse(Manifest("x")).Manifest!.Secrets);
 
     [Fact]
     public void Malformed_json_is_an_error_not_an_exception() =>

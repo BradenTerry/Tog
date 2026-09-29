@@ -74,14 +74,18 @@ It never starts the agent: the user presses Start. Call it from a click.
 was started.
 
 `ISecrets` (API 1.8) is only in your own container: a service's constructor
-or `Context.Get<ISecrets>()` in a view, never `@inject`. Ask for a secret by
-name (`github`, `jira`, `linear`); the user approves your extension, per
-build, before it gets anything, and the call waits until they answer, so pass
-a cancellation token. Prefer `SendAsync(name, request, SecretAuth.Bearer)`:
-the dashboard sends the https request with the secret added and you never hold
-it. `GetAsync(name)` hands you the value, for a library that wants it. Never
-give a secret to an agent: not in a tool result, a prompt or a file. A secret
-asked for while answering an agent tool call throws.
+or `Context.Get<ISecrets>()` in a view, never `@inject`. Since API 1.12 every
+secret must be declared in `extension.json` first, by your own name for it:
+`"secrets": [{ "name": "github", "purpose": "...", "hosts": ["api.github.com"] }]`,
+with `"read": true` only if you need the value itself. Asking for an undeclared
+name, or sending to an undeclared host, throws. The user binds each need to
+one of their secrets, per build, before you get anything, and the call waits
+until they do, so pass a cancellation token. Prefer
+`SendAsync(name, request, SecretAuth.Bearer)`: the dashboard sends the https
+request with the secret added and you never hold it. `GetAsync(name)` hands
+you the value, only for a need declared with `read`. Never give a secret to an
+agent: not in a tool result, a prompt or a file. A secret asked for while
+answering an agent tool call throws.
 
 `b.AddOverlay<T>(id)` (API 1.10) draws a component once per window over
 the layout, written against `OverlayBase`: a celebration, a toast. The layer

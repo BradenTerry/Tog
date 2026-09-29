@@ -73,9 +73,13 @@ dotnet publish "$repo/src/AgentsDashboard.App" -c Release -o "$staging" --nologo
 rm -rf "$staging/acp"
 cp -R "$acp" "$staging/acp"
 
-printf 'commit=%s\nsubject=%s\nstaged=%s\n' \
-    "$commit" "$(git -C "$repo" log -1 --format=%s)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+# The version file is written by the App project's publish, from git's newest
+# v* tag (see Directory.Build.targets); the app shows it in Settings.
+version="$(cat "$staging/version" 2>/dev/null || echo 0.0.0+unknown)"
+printf 'commit=%s\nsubject=%s\nstaged=%s\nversion=%s\n' \
+    "$commit" "$(git -C "$repo" log -1 --format=%s)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$version" \
     >"$staging/build-info"
+echo "Version $version"
 
 # A rename within one folder: the build appears complete or not at all.
 mv "$staging" "$payload/builds/$id"

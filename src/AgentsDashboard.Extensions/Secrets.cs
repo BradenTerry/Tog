@@ -12,11 +12,20 @@ namespace AgentsDashboard.Extensions;
 /// resolves from the app's container, gets one that refuses every call.
 /// </para>
 /// <para>
-/// The first time a build of the extension asks for a secret, the user is
-/// shown who is asking, for what, and why, and the call waits until they
-/// answer. Their answer is kept with the extension's code hash, so the next
-/// call returns at once, and a rebuilt or updated extension is asked about
-/// again. A secret the user has not added yet can be entered in the prompt.
+/// Since API 1.12 a secret must be declared in <c>extension.json</c> before it
+/// can be asked for, under <c>secrets</c>: the extension's own name for it, a
+/// purpose, the hosts it is sent to, and <c>"read": true</c> only if the
+/// extension needs the value itself. A name that is not declared, or a
+/// brokered request to a host that is not, throws
+/// <see cref="InvalidOperationException"/> with no prompt.
+/// </para>
+/// <para>
+/// A declared need gets nothing until the user binds it to one of their
+/// stored secrets, in Settings or in the prompt the first call puts up, and
+/// the call waits until they do. The binding is kept with the extension's code
+/// hash, so the next call returns at once, and a rebuilt or updated extension
+/// is asked about again. The user's name for the secret may differ from the
+/// extension's; the extension never learns it.
 /// </para>
 /// <para>
 /// Prefer <see cref="SendAsync"/>: the app makes the request and adds the
@@ -38,8 +47,8 @@ public interface ISecrets
     /// cancelled when the result stops mattering, such as a worker's
     /// <c>stopping</c>.
     /// </summary>
-    /// <param name="name">Lower case letters, digits, <c>.</c>, <c>-</c> and <c>_</c>, such as <c>github</c> or <c>linear</c>.</param>
-    /// <param name="purpose">A sentence for the prompt: what the extension will do with it.</param>
+    /// <param name="name">A name the manifest declares with <c>"read": true</c>, such as <c>github</c>.</param>
+    /// <param name="purpose">Ignored since API 1.12: the prompt shows the purpose from the manifest.</param>
     /// <param name="ct">Stops waiting. The prompt stays until the user answers it.</param>
     Task<string?> GetAsync(string name, string? purpose = null, CancellationToken ct = default);
 
@@ -50,10 +59,10 @@ public interface ISecrets
     /// Redirects are not followed, since the secret would go with them: a 3xx
     /// comes back as it is.
     /// </summary>
-    /// <param name="name">The secret's name.</param>
+    /// <param name="name">A name the manifest declares, with this request's host among its hosts.</param>
     /// <param name="request">The request. A header of the same name as <paramref name="auth"/>'s is replaced.</param>
     /// <param name="auth">Where the secret goes. <see cref="SecretAuth.Bearer"/> when null.</param>
-    /// <param name="purpose">A sentence for the prompt: what the extension will do with it.</param>
+    /// <param name="purpose">Ignored since API 1.12: the prompt shows the purpose from the manifest.</param>
     /// <param name="ct">Stops waiting, or the request.</param>
     Task<HttpResponseMessage?> SendAsync(
         string name,

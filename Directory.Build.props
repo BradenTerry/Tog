@@ -12,4 +12,20 @@
     <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
   </PropertyGroup>
 
+  <!--
+    Reproducible builds. The lock files pin every package, transitive ones
+    included, and CI restores with locked-mode so a drifted one fails the build
+    instead of changing it. Only the app's own projects: templates/extension is
+    a template, and a lock file in it would be copied into every new extension.
+    ContinuousIntegrationBuild makes the paths in the PDBs the same on every
+    runner, so two builds of one commit are byte-identical and can be compared.
+  -->
+  <PropertyGroup>
+    <RestorePackagesWithLockFile Condition="$(MSBuildProjectDirectory.StartsWith('$(MSBuildThisFileDirectory)src')) or $(MSBuildProjectDirectory.StartsWith('$(MSBuildThisFileDirectory)tests'))">true</RestorePackagesWithLockFile>
+    <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
+    <!-- Directory.Build.targets puts the commit in the version itself; the SDK
+         would append the full hash a second time. -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+
 </Project>

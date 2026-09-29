@@ -734,7 +734,7 @@ public sealed class ExtensionHost : IDisposable
 
             var stored = _settings.Load().Extensions.GetValueOrDefault(found.Id)?.Settings ?? new Dictionary<string, string>();
             var settingValues = new ExtensionSettingValues(builder.Settings, stored);
-            services = BuildServices(builder, info, hash, settingValues);
+            services = BuildServices(builder, info, hash, manifest.Secrets, settingValues);
             var indicators = builder.Indicators.ToDictionary(
                 i => i.ViewId,
                 i => services.GetRequiredService(i.Provider),
@@ -833,7 +833,8 @@ public sealed class ExtensionHost : IDisposable
     /// from the app. Built per load, because the app's container is fixed once
     /// the app has started.
     /// </summary>
-    private ServiceProvider BuildServices(ExtensionBuilder builder, ExtensionInfo info, string hash, IExtensionSettings settings)
+    private ServiceProvider BuildServices(
+        ExtensionBuilder builder, ExtensionInfo info, string hash, IReadOnlyList<SecretNeed> needs, IExtensionSettings settings)
     {
         var services = builder.Services;
         services.AddSingleton(info);
@@ -843,7 +844,7 @@ public sealed class ExtensionHost : IDisposable
         services.AddSingleton(_app.GetRequiredService<ITextLinker>());
         services.AddSingleton<IExtensionStorage>(new ExtensionStorage(_paths, info.Id));
         services.AddSingleton<ISecrets>(new ExtensionSecrets(
-            _app.GetRequiredService<SecretBroker>(), new SecretCaller(info.Id, info.Name, hash)));
+            _app.GetRequiredService<SecretBroker>(), new SecretCaller(info.Id, info.Name, hash, needs)));
         services.AddSingleton(_app.GetRequiredService<ILoggerFactory>());
         services.AddSingleton(typeof(ILogger<>), typeof(Logger<>));
         return services.BuildServiceProvider();

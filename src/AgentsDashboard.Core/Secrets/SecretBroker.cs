@@ -3,14 +3,19 @@ using AgentsDashboard.Core.Platform;
 
 namespace AgentsDashboard.Core.Secrets;
 
-/// <summary>Which build of which extension is asking. The app vouches for all three.</summary>
+/// <summary>Which build of which extension is asking, and what its manifest declared. The app vouches for all of it.</summary>
 /// <param name="Hash">The SHA-256 of the entry assembly that is running, as loaded.</param>
-public sealed record SecretCaller(string ExtensionId, string ExtensionName, string Hash);
+/// <param name="Needs">The secrets its <c>extension.json</c> declares; the only names it can ask for.</param>
+public sealed record SecretCaller(string ExtensionId, string ExtensionName, string Hash, IReadOnlyList<SecretNeed> Needs)
+{
+    public SecretNeed? Need(string name) => Needs.FirstOrDefault(n => n.Name == name);
+}
 
-/// <summary>An extension waiting for you to answer about a secret.</summary>
-/// <param name="Host">For a brokered request, where it is going.</param>
-/// <param name="Purpose">What the extension says it wants it for. Its own words, not checked.</param>
-public sealed record SecretRequest(SecretCaller Caller, string Name, SecretAccess Access, string? Host, string? Purpose);
+/// <summary>An extension waiting for you to choose which secret answers one of its needs.</summary>
+public sealed record SecretRequest(SecretCaller Caller, SecretNeed Need)
+{
+    public string Name => Need.Name;
+}
 
 /// <summary>How the app puts a secret on a brokered request.</summary>
 /// <param name="Header">The header it goes in.</param>
@@ -19,23 +24,32 @@ public sealed record SecretRequest(SecretCaller Caller, string Name, SecretAcces
 public sealed record SecretPlacement(string Header, string? Scheme, bool Base64);
 
 /// <summary>
-/// Hands secrets to extensions you approved, asks you about the rest, and
-/// sends requests with a secret on an extension's behalf.
+/// Hands secrets to extensions through the bindings you made, asks you to make
+/// one when a declared need has none, and sends requests with a secret on an
+/// extension's behalf.
 /// </summary>
 /// <remarks>
 /// <para>
-/// A call waits until it is answered. Every call about the same thing (the
-/// same build of an extension, the same secret, the same access and host)
-/// shares one prompt, so a worker's retries and a view's renders do not pile
-/// up questions. Your answer is kept with the extension's hash, and a no is
-/// kept too, so an extension that asks on a timer is answered from the
-/// catalog after the first time rather than asking you again.
+/// An extension can only ask for a secret its manifest declares, by its own
+/// name for it, and a brokered request can only go to a host declared for it.
+/// Anything else throws: no prompt, since a prompt for a name nobody declared
+/// is a question you should never have to answer. A declared need is answered
+/// by a binding, which you make in Settings or in the prompt a first call puts
+/// up, by choosing which of your secrets it gets. Binding is the approval, and
+/// it covers everything the need declared, so there is one decision per need
+/// and build, not one per host.
+/// </para>
+/// <para>
+/// A call waits until it is answered, and every call for the same need of the
+/// same build shares one prompt, so a worker's retries and a view's renders do
+/// not pile up questions. A no is kept too, so an extension that asks on a
+/// timer is answered from the catalog after the first time.
 /// </para>
 /// <para>
 /// None of this is isolation. An extension runs in the app's process with its
 /// types, and one that means harm can reach this object, or the OS store, by
-/// reflection. The approval keeps a well-behaved extension to the secrets you
-/// meant it to have; the boundary is still consenting to its code.
+/// reflection. Binding keeps a well-behaved extension to the secrets you meant
+/// it to have; the boundary is still consenting to its code.
 /// </para>
 /// </remarks>
 public sealed class SecretBroker : IDisposable
@@ -47,10 +61,10 @@ public sealed class SecretBroker : IDisposable
     private readonly Lock _gate = new();
     private readonly Dictionary<Key, (SecretRequest Request, TaskCompletionSource<bool> Prompt)> _pending = [];
 
-    /// <summary>What one prompt is about. Not the purpose, which is the extension's words and may vary per call.</summary>
-    private sealed record Key(SecretCaller Caller, string Name, SecretAccess Access, string? Host)
+    /// <summary>What one prompt is about: one need of one build.</summary>
+    private sealed record Key(string ExtensionId, string Hash, string Need)
     {
-        public static Key Of(SecretRequest r) => new(r.Caller, r.Name, r.Access, r.Host);
+        public static Key Of(SecretRequest r) => new(r.Caller.ExtensionId, r.Caller.Hash, r.Need.Name);
     }
 
     /// <summary>Set while an agent tool runs, and in everything it starts. See <see cref="ForAgent"/>.</summary>
@@ -84,7 +98,7 @@ public sealed class SecretBroker : IDisposable
         }
     }
 
-    /// <summary>How stale a grant's last-used time may be before it is written again.</summary>
+    /// <summary>How stale a binding's last-used time may be before it is written again.</summary>
     private static readonly TimeSpan UseResolution = TimeSpan.FromMinutes(1);
 
     public SecretBroker(SecretCatalog catalog, ISecretVault vault, IClock clock, HttpMessageHandler? handler = null)
@@ -109,6 +123,11 @@ public sealed class SecretBroker : IDisposable
 
     public IReadOnlyList<SecretEntry> Secrets => _catalog.Secrets;
 
+    public IReadOnlyList<SecretBinding> Bindings => _catalog.Bindings;
+
+    /// <summary>The binding for an extension's need, whatever build it was made for.</summary>
+    public SecretBinding? Binding(string extensionId, string need) => _catalog.Binding(extensionId, need);
+
     /// <summary>Requests waiting for an answer.</summary>
     public IReadOnlyList<SecretRequest> Pending
     {
@@ -129,41 +148,47 @@ public sealed class SecretBroker : IDisposable
     public bool Exists(string name) => _catalog.Find(name) is not null;
 
     /// <summary>
-    /// The value, once you have let this build of the extension read it; null
-    /// when you said no or there is no such secret and you declined to add it.
-    /// Waits until you answer.
+    /// The value of the secret bound to the caller's need, once you have bound
+    /// it for this build; null when you said no. The need must declare
+    /// <c>read</c>. Waits until you answer.
     /// </summary>
-    public async Task<string?> ReadAsync(SecretCaller caller, string name, string? purpose, CancellationToken ct)
+    public async Task<string?> ReadAsync(SecretCaller caller, string name, CancellationToken ct)
     {
-        if (SecretNames.Problem(name) is { } problem)
+        RefuseAgents();
+        var need = Declared(caller, name);
+        if (!need.Read)
         {
-            throw new ArgumentException(problem, nameof(name));
+            throw new InvalidOperationException(
+                $"{caller.ExtensionName} declares the secret {name} without \"read\": true, so it can only be sent with SendAsync.");
         }
 
-        RefuseAgents();
-        return await Decide(new SecretRequest(caller, name, SecretAccess.Read, null, purpose), ct).ConfigureAwait(false)
-            ? Take(caller, name)
+        return await Decide(caller, need, SecretAccess.Read, null, ct).ConfigureAwait(false)
+            ? Take(caller, need.Name)
             : null;
     }
 
     /// <summary>
-    /// Sends <paramref name="request"/> with the secret on it, once you have let
-    /// this build of the extension use it with the request's host. Null when you
-    /// said no. The extension never sees the value.
+    /// Sends <paramref name="request"/> with the secret bound to the caller's
+    /// need, once you have bound it for this build. Null when you said no. The
+    /// host must be one the need declares. The extension never sees the value.
     /// </summary>
     public async Task<HttpResponseMessage?> SendAsync(
-        SecretCaller caller, string name, HttpRequestMessage request, SecretPlacement placement, string? purpose, CancellationToken ct)
+        SecretCaller caller, string name, HttpRequestMessage request, SecretPlacement placement, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(request);
         RefuseAgents();
-        if (SecretNames.Problem(name) is { } problem)
-        {
-            throw new ArgumentException(problem, nameof(name));
-        }
+        var need = Declared(caller, name);
 
         if (request.RequestUri is not { IsAbsoluteUri: true, Scheme: "https" } uri || uri.Host.Length == 0)
         {
             throw new ArgumentException("A brokered request needs an absolute https address.", nameof(request));
+        }
+
+        var host = SecretNames.HostOf(uri);
+        if (!need.Read && !need.Hosts.Contains(host))
+        {
+            throw new InvalidOperationException(
+                $"{host} is not a host {caller.ExtensionName} declares for the secret {name}. Declared: {string.Join(", ", need.Hosts)}.");
         }
 
         // The extension keeps its request object, so it could change the
@@ -186,9 +211,8 @@ public sealed class SecretBroker : IDisposable
             }
         }
 
-        var host = uri.IsDefaultPort ? uri.IdnHost.ToLowerInvariant() : $"{uri.IdnHost.ToLowerInvariant()}:{uri.Port}";
-        if (!await Decide(new SecretRequest(caller, name, SecretAccess.Brokered, host, purpose), ct).ConfigureAwait(false)
-            || Take(caller, name) is not { } value)
+        if (!await Decide(caller, need, SecretAccess.Brokered, host, ct).ConfigureAwait(false)
+            || Take(caller, need.Name) is not { } value)
         {
             return null;
         }
@@ -207,20 +231,34 @@ public sealed class SecretBroker : IDisposable
         return response;
     }
 
+    /// <summary>The caller's declared need of that name, or the reason it cannot ask.</summary>
+    private static SecretNeed Declared(SecretCaller caller, string name)
+    {
+        if (SecretNames.Problem(name) is { } problem)
+        {
+            throw new ArgumentException(problem, nameof(name));
+        }
+
+        return caller.Need(name) ?? throw new InvalidOperationException(
+            $"{caller.ExtensionName} asked for the secret {name}, which its extension.json does not declare. "
+            + "Add it to \"secrets\" there, with the hosts it is sent to.");
+    }
+
     /// <summary>
     /// True once the caller may go ahead, false when you said no. Answers from
     /// the catalog when it can and otherwise waits on the one prompt for this
-    /// request, then looks again: you may have answered a wider question in
-    /// the meantime, or deleted the secret.
+    /// need, then looks again: the binding you made may not cover this call, or
+    /// you may have deleted the secret meanwhile.
     /// </summary>
-    private async Task<bool> Decide(SecretRequest request, CancellationToken ct)
+    private async Task<bool> Decide(SecretCaller caller, SecretNeed need, SecretAccess access, string? host, CancellationToken ct)
     {
+        var request = new SecretRequest(caller, need);
         while (true)
         {
             Task<bool> wait;
             lock (_gate)
             {
-                switch (Standing(Key.Of(request)))
+                switch (Standing(caller, need.Name, access, host))
                 {
                     case true:
                         return true;
@@ -240,8 +278,8 @@ public sealed class SecretBroker : IDisposable
             }
 
             // A cancelled caller stops waiting; the prompt stays for the others
-            // and for you, and answering it still records the grant. False is
-            // a no with nothing to record it against; true means look again.
+            // and for you, and answering it still records the binding. False
+            // is a no with nothing to record it against; true means look again.
             if (!await wait.WaitAsync(ct).ConfigureAwait(false))
             {
                 return false;
@@ -249,107 +287,103 @@ public sealed class SecretBroker : IDisposable
         }
     }
 
-    /// <summary>True when allowed, false when refused, null when you have not said.</summary>
-    private bool? Standing(Key request)
+    /// <summary>True when bound and covering this call, false when refused, null when you have not said.</summary>
+    private bool? Standing(SecretCaller caller, string need, SecretAccess access, string? host)
     {
-        if (_catalog.Find(request.Name) is not { } entry)
+        if (_catalog.Binding(caller.ExtensionId, need) is not { } binding || binding.Hash != caller.Hash)
         {
             return null;
         }
 
-        var grant = entry.Grants.FirstOrDefault(g => g.ExtensionId == request.Caller.ExtensionId);
-        if (grant is null || grant.Hash != request.Caller.Hash)
-        {
-            return null;
-        }
-
-        if (grant.Refused)
+        if (binding.Refused)
         {
             return false;
         }
 
-        return grant.Access == SecretAccess.Read
-               || (request.Access == SecretAccess.Brokered && grant.Hosts.Contains(request.Host))
+        if (!Exists(binding.Secret!))
+        {
+            return null;
+        }
+
+        return binding.Access == SecretAccess.Read
+               || (access == SecretAccess.Brokered && binding.Hosts.Contains(host))
             ? true
             : null;
     }
 
     /// <summary>
-    /// Your yes. For a secret that does not exist yet, <paramref name="value"/>
-    /// is what to store. Returns why it failed, or null; a failed answer leaves
+    /// Your yes from the prompt: <paramref name="secret"/> answers the request's
+    /// need. When no secret of that name exists yet, <paramref name="value"/>
+    /// is stored as it. Returns why it failed, or null; a failed answer leaves
     /// the request waiting so the prompt can say why.
     /// </summary>
-    public string? Allow(SecretRequest request, string? value = null)
+    public string? Allow(SecretRequest request, string secret, string? value = null) =>
+        Bind(request.Caller.ExtensionId, request.Caller.Hash, request.Need, secret, value);
+
+    /// <summary>
+    /// Binds an extension's need to one of your secrets for one build of it,
+    /// covering what the need declares now: its hosts, or reading the value.
+    /// Replaces any binding the need had. Returns why it failed, or null.
+    /// </summary>
+    public string? Bind(string extensionId, string hash, SecretNeed need, string secret, string? value = null)
     {
-        var now = _clock.Now;
-        if (!Exists(request.Name))
+        if (SecretNames.Problem(secret) is { } problem)
+        {
+            return problem;
+        }
+
+        if (!Exists(secret))
         {
             if (string.IsNullOrEmpty(value))
             {
-                return $"There is no secret called {request.Name} yet. Enter its value to add it.";
+                return $"There is no secret called {secret} yet. Enter its value to add it.";
             }
 
-            if (Store(request.Name, value) is { } failed)
+            if (Store(secret, value) is { } failed)
             {
                 return failed;
             }
         }
 
-        _catalog.UpdateEntry(request.Name, entry =>
+        var now = _clock.Now;
+        _catalog.Update(state =>
         {
-            var old = entry!.Grants.FirstOrDefault(g => g.ExtensionId == request.Caller.ExtensionId);
-
-            // A grant for this same build only widens: by host, or from brokered
-            // to read. Anything else starts over.
-            var same = old is { Refused: false } && old.Hash == request.Caller.Hash;
-            var hosts = same && old!.Access == SecretAccess.Brokered ? old.Hosts : [];
-            var access = same && old!.Access == SecretAccess.Read ? SecretAccess.Read : request.Access;
-            var grant = new SecretGrant
+            var old = state.Bindings.FirstOrDefault(b => b.ExtensionId == extensionId && b.Need == need.Name);
+            var binding = new SecretBinding
             {
-                ExtensionId = request.Caller.ExtensionId,
-                Hash = request.Caller.Hash,
-                Access = access,
-                Hosts = access == SecretAccess.Read ? [] : request.Host is { } host && !hosts.Contains(host) ? [.. hosts, host] : hosts,
+                ExtensionId = extensionId,
+                Need = need.Name,
+                Secret = secret,
+                Hash = hash,
+                Access = need.Read ? SecretAccess.Read : SecretAccess.Brokered,
+                Hosts = need.Read ? [] : need.Hosts,
                 DecidedAt = now,
-                LastUsed = old?.Hash == request.Caller.Hash ? old.LastUsed : null,
+                LastUsed = old is { } o && o.Secret == secret && o.Hash == hash ? o.LastUsed : null,
             };
-            return entry with { Grants = [.. entry.Grants.Where(g => g != old), grant] };
+            return state with { Bindings = [.. state.Bindings.Where(b => b != old), binding] };
         });
 
-        Answer(request);
+        Wake(extensionId, need.Name);
         return null;
     }
 
     /// <summary>
     /// Your no. Kept for this build, so the extension is answered null from now
-    /// on without asking. A secret that does not exist is not added for it, and
-    /// the no is not kept either: there is nothing to keep it against.
+    /// on without asking, until Settings forgets it.
     /// </summary>
     public void Refuse(SecretRequest request)
     {
-        if (_catalog.Find(request.Name) is null)
+        var (id, need) = (request.Caller.ExtensionId, request.Need.Name);
+        var now = _clock.Now;
+        _catalog.Update(state => state with
         {
-            Dismiss(request);
-            return;
-        }
-
-        {
-            _catalog.UpdateEntry(request.Name, entry => entry! with
-            {
-                Grants =
-                [
-                    .. entry.Grants.Where(g => g.ExtensionId != request.Caller.ExtensionId),
-                    new SecretGrant
-                    {
-                        ExtensionId = request.Caller.ExtensionId,
-                        Hash = request.Caller.Hash,
-                        Refused = true,
-                        DecidedAt = _clock.Now,
-                    },
-                ],
-            });
-            Answer(request);
-        }
+            Bindings =
+            [
+                .. state.Bindings.Where(b => b.ExtensionId != id || b.Need != need),
+                new SecretBinding { ExtensionId = id, Need = need, Secret = null, Hash = request.Caller.Hash, DecidedAt = now },
+            ],
+        });
+        Wake(id, need);
     }
 
     /// <summary>
@@ -362,34 +396,36 @@ public sealed class SecretBroker : IDisposable
         TaskCompletionSource<bool>? prompt;
         lock (_gate)
         {
-            if (_pending.Remove(Key.Of(request), out var pending))
-            {
-                prompt = pending.Prompt;
-            }
-            else
-            {
-                prompt = null;
-            }
+            prompt = _pending.Remove(Key.Of(request), out var pending) ? pending.Prompt : null;
         }
 
         prompt?.TrySetResult(false);
         Raise();
     }
 
-    private void Answer(SecretRequest request)
+    /// <summary>
+    /// Forgets the binding for a need, yes or no. The next call for it asks
+    /// again; a call already waiting keeps waiting.
+    /// </summary>
+    public void Unbind(string extensionId, string need)
     {
-        // Every waiting request this answer may settle is woken to look again;
-        // one it did not settle puts its prompt straight back.
-        List<TaskCompletionSource<bool>> woken;
+        _catalog.Update(state => state with
+        {
+            Bindings = [.. state.Bindings.Where(b => b.ExtensionId != extensionId || b.Need != need)],
+        });
+        Raise();
+    }
+
+    /// <summary>
+    /// Wakes every call waiting on this need, of any build, to look again. One
+    /// the new binding does not cover puts its prompt straight back.
+    /// </summary>
+    private void Wake(string extensionId, string need)
+    {
+        List<TaskCompletionSource<bool>> woken = [];
         lock (_gate)
         {
-            var settled = _pending.Keys
-                .Where(k => k.Name == request.Name && k.Caller.ExtensionId == request.Caller.ExtensionId && Standing(k) is not null)
-                .Append(Key.Of(request))
-                .Distinct()
-                .ToList();
-            woken = [];
-            foreach (var key in settled)
+            foreach (var key in _pending.Keys.Where(k => k.ExtensionId == extensionId && k.Need == need).ToList())
             {
                 if (_pending.Remove(key, out var pending))
                 {
@@ -406,13 +442,18 @@ public sealed class SecretBroker : IDisposable
         Raise();
     }
 
-    /// <summary>Reads the value for a caller that has been let through, and notes the use.</summary>
-    private string? Take(SecretCaller caller, string name)
+    /// <summary>Reads the value bound to a caller's need once it has been let through, and notes the use.</summary>
+    private string? Take(SecretCaller caller, string need)
     {
+        if (_catalog.Binding(caller.ExtensionId, need) is not { Secret: { } secret } binding)
+        {
+            return null;
+        }
+
         string? value;
         try
         {
-            value = _vault.Read(name);
+            value = _vault.Read(secret);
         }
         catch (SecretVaultException)
         {
@@ -425,12 +466,11 @@ public sealed class SecretBroker : IDisposable
         }
 
         var now = _clock.Now;
-        if (_catalog.Find(name)?.Grants.FirstOrDefault(g => g.ExtensionId == caller.ExtensionId) is { } grant
-            && (grant.LastUsed is not { } last || now - last >= UseResolution))
+        if (binding.LastUsed is not { } last || now - last >= UseResolution)
         {
-            _catalog.UpdateEntry(name, entry => entry is null ? null : entry with
+            _catalog.Update(state => state with
             {
-                Grants = [.. entry.Grants.Select(g => g.ExtensionId == caller.ExtensionId ? g with { LastUsed = now } : g)],
+                Bindings = [.. state.Bindings.Select(b => b.ExtensionId == caller.ExtensionId && b.Need == need ? b with { LastUsed = now } : b)],
             });
             Raise();
         }
@@ -466,14 +506,19 @@ public sealed class SecretBroker : IDisposable
         }
 
         var now = _clock.Now;
-        _catalog.UpdateEntry(name, entry => entry ?? new SecretEntry { Name = name, Added = now });
+        _catalog.Update(state => state.Secrets.Any(e => e.Name == name)
+            ? state
+            : state with { Secrets = [.. state.Secrets, new SecretEntry { Name = name, Added = now }] });
 
         // A request waiting on a secret that did not exist can now be asked properly.
         Raise();
         return null;
     }
 
-    /// <summary>Deletes a secret: its value from the OS store, and every grant. Returns why it failed, or null.</summary>
+    /// <summary>
+    /// Deletes a secret: its value from the OS store, and every binding to it,
+    /// so the needs it answered are asked about again. Returns why it failed, or null.
+    /// </summary>
     public string? Delete(string name)
     {
         try
@@ -485,22 +530,11 @@ public sealed class SecretBroker : IDisposable
             return e.Message;
         }
 
-        _catalog.UpdateEntry(name, _ => null);
+        _catalog.Update(state => new SecretState(
+            [.. state.Secrets.Where(s => s.Name != name)],
+            [.. state.Bindings.Where(b => b.Secret != name)]));
         Raise();
         return null;
-    }
-
-    /// <summary>
-    /// Forgets what you decided about one extension and a secret, yes or no.
-    /// It will be asked again the next time it wants it.
-    /// </summary>
-    public void Revoke(string name, string extensionId)
-    {
-        _catalog.UpdateEntry(name, entry => entry is null ? null : entry with
-        {
-            Grants = [.. entry.Grants.Where(g => g.ExtensionId != extensionId)],
-        });
-        Raise();
     }
 
     private void Raise() => Changed?.Invoke();

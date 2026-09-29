@@ -37,6 +37,8 @@ twice:
 - `docs/code-intelligence.md` - the `ICodeIntelligence` extension point, the C#
   extension's Roslyn load (opt-in per worktree), MSBuild in a load context, why
   references land in a panel rather than a peek widget
+- `docs/release.md` - build from source, no binaries: the version from git
+  tags, the lock files, the pinned actions, and what a security review asks
 
 A change to one of those subsystems belongs in its doc, with at most a line in
 the README. Keep the README a landing page.
@@ -101,8 +103,9 @@ A script or test that loads a page has to start from the printed address.
 `DesktopWindow` sets Photino's log verbosity to 0, since at its default it
 prints `Load(url)`, key included, to stdout.
 
-**Secrets never reach an agent.** Extensions ask `ISecrets` (API 1.8) by name;
-values live in the OS store (`ISecretVault`), names and grants in
+**Secrets never reach an agent.** Extensions ask `ISecrets` (API 1.8) only for
+the needs their `extension.json` declares (1.12), each bound by the user to a
+stored secret per build; values live in the OS store (`ISecretVault`), names and grants in
 `secrets.json`, never `settings.json`. No agent tool serves them, no session's
 environment carries them, and `SecretBroker.ForAgent` wraps every MCP
 request, so the broker and the OS store itself throw on any secret read or

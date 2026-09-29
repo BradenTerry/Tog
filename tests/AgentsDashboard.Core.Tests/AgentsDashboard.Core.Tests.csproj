@@ -26,4 +26,17 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <!--
+    xunit.v3's Microsoft.Testing.Platform runner depends on
+    Microsoft.Testing.Extensions.Telemetry, which registers itself through this
+    hook and sends usage data to Microsoft through Application Insights on every
+    test run unless TESTINGPLATFORM_TELEMETRY_OPTOUT is set. That is most of the
+    transitive packages in packages.lock.json. The package cannot be dropped, since
+    xunit depends on it, but without the hook it is never registered and never
+    runs, on any machine, with no variable to remember.
+  -->
+  <ItemGroup>
+    <TestingPlatformBuilderHook Remove="98058041-B5B6-4A75-9834-58E6DF796A22" />
+  </ItemGroup>
+
 </Project>
