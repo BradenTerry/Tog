@@ -768,9 +768,30 @@ public sealed class Workbench : IDisposable
     /// <summary>A section Settings should turn to, taken once by the page: Open Keyboard Shortcuts asks for "keys".</summary>
     public string? SettingsSection { get; set; }
 
-    /// <summary>Opens the Worktrees view, every worktree of every repo, the way Settings opens.</summary>
-    public void OpenWorktrees(string? worktreePath) =>
-        OpenPage(worktreePath, EditorDoc.WorktreesKey, DocKind.Worktrees);
+    /// <summary>
+    /// Opens the Worktrees view as a dialog over the window, the way Settings
+    /// opens: it is every worktree of every repo, so it belongs to none of them
+    /// and has no place among one agent's tabs.
+    /// </summary>
+    public void OpenWorktrees()
+    {
+        if (!WorktreesOpen)
+        {
+            WorktreesOpen = true;
+            Raise();
+        }
+    }
+
+    public bool WorktreesOpen { get; private set; }
+
+    public void CloseWorktrees()
+    {
+        if (WorktreesOpen)
+        {
+            WorktreesOpen = false;
+            Raise();
+        }
+    }
 
     /// <summary>
     /// Asks to remove a worktree: <c>RemoveWorktreeDialog</c> takes the request
@@ -785,18 +806,6 @@ public sealed class Workbench : IDisposable
 
     /// <summary>A worktree whose remove dialog should open, taken once.</summary>
     public string? RemoveRequest { get; set; }
-
-    private void OpenPage(string? worktreePath, string key, DocKind kind)
-    {
-        var group = Editors(worktreePath ?? "");
-        if (group.Find(key) is null)
-        {
-            group.Add(new EditorDoc(key, kind, null));
-        }
-
-        group.ActiveKey = key;
-        Raise();
-    }
 
     /// <summary>
     /// Records where a jump left from: go to definition, into another file or
@@ -1037,9 +1046,6 @@ public enum DocKind
     /// <summary>One file's staged changes: the index against HEAD.</summary>
     StagedDiff,
 
-    /// <summary>Every worktree of every repo, and cleaning them up.</summary>
-    Worktrees,
-
     /// <summary>A file outside the worktree, by absolute path, asked for from outside the app. Read-only.</summary>
     External,
 
@@ -1211,8 +1217,6 @@ public sealed class EditorGroup
 /// <summary>A tab in the editor.</summary>
 public sealed class EditorDoc(string key, DocKind kind, string? path)
 {
-    public const string WorktreesKey = "worktrees";
-
     public static string FileKey(string path) => "file:" + path;
 
     public static string ExternalKey(string absolutePath) => "ext:" + absolutePath;
@@ -1254,7 +1258,6 @@ public sealed class EditorDoc(string key, DocKind kind, string? path)
 
     public string Title => Kind switch
     {
-        DocKind.Worktrees => "Worktrees",
         DocKind.ExtensionView => View!.Title,
         DocKind.External => System.IO.Path.GetFileName(Path!),
         _ => Path![(Path!.LastIndexOf('/') + 1)..],
