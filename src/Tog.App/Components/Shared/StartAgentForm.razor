@@ -27,7 +27,7 @@
                     <div class="field">
                         <label class="field-label" for="start-repo">Repository</label>
                         <Picker Id="start-repo" Value="@Repo" Options="@RepoOptions"
-                                ValueChanged="v => { _repo = v; _worktree = string.Empty; _branch = string.Empty; Touch(); }" />
+                                ValueChanged="v => { _repo = v; _worktree = string.Empty; _branch = string.Empty; _offeredBranch = null; Touch(); }" />
                     </div>
 
                     <div class="field">
@@ -44,7 +44,7 @@
                                one branch in two worktrees. A remote branch gets a local
                                branch of the same name that tracks it. *@
                             <Picker Id="start-branch" Value="@(Branch?.Ref ?? "")" Options="@BranchOptions"
-                                    ValueChanged="v => { _branch = v; Touch(); }" />
+                                    ValueChanged="v => { _branch = v; _offeredBranch = null; Touch(); }" />
                         </div>
 
                         <div class="field">
@@ -64,6 +64,10 @@
                             @if (_fetchError is { } fetchError)
                             {
                                 @($"Fetch failed: {fetchError}")
+                            }
+                            else if (Branch is null && _offeredBranch is { } offered && _branches.Count > 0)
+                            {
+                                @($"No branch {offered} here yet. Fetch brings it in, and it is picked then.")
                             }
                             else if (Branch is null)
                             {
@@ -346,6 +350,7 @@
             _worktree = place.WorktreePath ?? "";
             _worktreeName = place.WorktreeName ?? "";
             _prompt = place.Prompt ?? "";
+            _offeredBranch = place.Branch;
         }
         else if (Bench.WorktreeInView(State.Snapshot) is { } inView
             && Workbench.Find(State.Snapshot, inView) is { } seen)
@@ -434,7 +439,32 @@
         if (_branchesFor == repo)
         {
             _branches = branches;
+            PickOfferedBranch();
             await InvokeAsync(Touch);
+        }
+    }
+
+    /// <summary>
+    /// A branch an extension's offer named, such as a pull request's, until the
+    /// list has it or you pick another. Kept past a list without it, so Fetch
+    /// can bring it in and it is picked then.
+    /// </summary>
+    private string? _offeredBranch;
+
+    private void PickOfferedBranch()
+    {
+        if (_offeredBranch is not { } name)
+        {
+            return;
+        }
+
+        // Your own branch of that name first: it may hold work not pushed yet.
+        var match = _branches.FirstOrDefault(b => b.Remote is null && b.Name == name)
+            ?? _branches.Where(b => b.Name == name).OrderBy(b => b.Remote == "origin" ? 0 : 1).FirstOrDefault();
+        if (match is not null)
+        {
+            _branch = match.Ref;
+            _offeredBranch = null;
         }
     }
 

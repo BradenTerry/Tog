@@ -16,7 +16,7 @@
   <img src="https://img.shields.io/badge/Blazor-Server-512BD4?logo=blazor&logoColor=white" alt="Blazor Server">
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey" alt="macOS, Windows, Linux">
   <img src="https://img.shields.io/badge/Claude%20Code-ACP-D97757?logo=claude&logoColor=white" alt="Claude Code over ACP">
-  <img src="https://img.shields.io/badge/extensions-API%201.12-2ea44f" alt="Extension API 1.12">
+  <img src="https://img.shields.io/badge/extensions-API%201.13-2ea44f" alt="Extension API 1.13">
 </p>
 
 <p align="center">

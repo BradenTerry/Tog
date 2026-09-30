@@ -177,7 +177,8 @@ public sealed class AgentOffers(Workbench bench) : IAgentOffers
             Folder(offer.Repository),
             Folder(offer.Worktree),
             Blank(offer.WorktreeName),
-            Blank(offer.Prompt)));
+            Blank(offer.Prompt),
+            Blank(offer.Branch)));
     }
 
     private static string? Folder(string? path) =>
@@ -192,6 +193,8 @@ public sealed class Navigation : INavigation
 {
     public string FileHref(string agentId, string relativePath, int? line = null) =>
         Urls.AgentFile(agentId, relativePath, line);
+
+    public string AgentHref(string agentId) => Urls.Chat(agentId);
 }
 
 /// <summary>The same linking the app's own <c>FileLinks</c> does, for extensions.</summary>

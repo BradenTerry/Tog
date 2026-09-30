@@ -103,7 +103,7 @@ pictured, edit `tools/screenshots/sample.mjs` or `take.mjs`.
 | --- | --- |
 | `src/Tog.Core` | Everything that is not UI: the ACP agent host, the Claude transcript readers, the git layer and its parsers, the monitor loop, extension discovery. No ASP.NET dependency, so all of it is testable without a host. |
 | `src/Tog.App` | The Blazor Server UI and the Photino window. `Program.cs` starts the host on a free loopback port, then opens the window at it. |
-| `src/Tog.Extensions` | The extension API (1.x, now 1.12), the one assembly an extension compiles against. No reference to Core. Versioned: 1.x only adds. |
+| `src/Tog.Extensions` | The extension API (1.x, now 1.13), the one assembly an extension compiles against. No reference to Core. Versioned: 1.x only adds. |
 | `templates/extension` | `dotnet new tog-extension`, with an `AGENTS.md` for writing one. |
 | `templates/skill` | The skill that teaches an agent to write one, shipped in the app and copied from Settings. |
 | `tests/*` | xUnit v3 on Microsoft.Testing.Platform, for Core. |
