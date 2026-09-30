@@ -9,7 +9,14 @@ namespace Tog.Core.Git;
 /// Set when git removed the worktree but its folder could not be deleted: the
 /// removal happened, and something is still on disk that the user has to hear about.
 /// </param>
-public sealed record CleanupResult(bool Ok, string Message, LeftoverFolder? Leftover = null);
+public sealed record CleanupResult(bool Ok, string Message, LeftoverFolder? Leftover = null)
+{
+    /// <summary>
+    /// The worktree went but the branch it was asked to delete stayed: the one
+    /// part of a successful removal that is news to whoever clicked it.
+    /// </summary>
+    public bool BranchKept { get; init; }
+}
 
 /// <summary>
 /// Finds out whether a worktree can go, and takes it away when asked.
@@ -357,7 +364,10 @@ public sealed class WorktreeCleanup(IGitCli git, StatusReader status)
 
         return branch.Ok
             ? new CleanupResult(true, $"Removed {worktree.Name} and branch {worktree.Branch}.{left}", leftover)
-            : new CleanupResult(true, $"Removed {worktree.Name}. Kept branch {worktree.Branch}: {branch.Message}{left}", leftover);
+            : new CleanupResult(true, $"Removed {worktree.Name}. Kept branch {worktree.Branch}: {branch.Message}{left}", leftover)
+            {
+                BranchKept = true,
+            };
     }
 
     /// <summary>
