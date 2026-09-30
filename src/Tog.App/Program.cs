@@ -142,6 +142,9 @@ builder.Services.AddSingleton<WorktreeLister>();
 builder.Services.AddSingleton<StatusReader>();
 builder.Services.AddSingleton<DiffReader>();
 builder.Services.AddSingleton<Staging>();
+// Hooks run on a commit and a push waits on the network, so these outlast the
+// 30 seconds every other git call gets.
+builder.Services.AddSingleton(_ => new Commits(new GitCli(TimeSpan.FromMinutes(10))));
 builder.Services.AddSingleton<WorktreeFiles>();
 builder.Services.AddSingleton<RepoDiscovery>();
 builder.Services.AddSingleton<WorktreeCreator>();

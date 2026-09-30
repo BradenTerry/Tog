@@ -225,6 +225,16 @@ function growComposer(box) {
     }
 }
 
+// Source control's commit message box grows with the message, to a limit, as
+// VS Code's does. It sits in a fixed strip above the file list, so unlike the
+// composer there is no scroll position to hold while it is measured.
+function growCommitBox(box) {
+    if (box) {
+        box.style.height = 'auto';
+        box.style.height = Math.min(box.scrollHeight + 2, 160) + 'px';
+    }
+}
+
 // Slash commands in the composer: typing a slash at the start of a word lists
 // the commands the agent takes (its skills, your custom commands, its own) and
 // narrows them as you type. It all happens here rather than on the circuit, so
@@ -526,6 +536,24 @@ window.tog = {
         box.focus({ preventScroll: true });
         box.setSelectionRange(box.value.length, box.value.length);
     },
+    // Enter starts a new line, since a commit message has a body; Cmd or
+    // Ctrl+Enter commits, which is VS Code's key for it.
+    bindCommitBox: (box) => {
+        if (!box || box.dataset.bound) {
+            return;
+        }
+
+        box.dataset.bound = '1';
+        box.addEventListener('input', () => growCommitBox(box));
+        box.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.isComposing) {
+                event.preventDefault();
+                box.form?.requestSubmit();
+            }
+        });
+        growCommitBox(box);
+    },
+    growCommitBox: (box) => growCommitBox(box),
     resetComposer: (box) => {
         if (box) {
             box.value = '';

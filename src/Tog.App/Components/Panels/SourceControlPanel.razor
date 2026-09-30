@@ -2,11 +2,12 @@
 @inject TogState State
 @inject MonitorService Monitor
 @inject IGitCli Git
+@inject IJSRuntime Js
 @implements IDisposable
 
-@* The right panel's Source control, as VS Code's: the uncommitted files split
-   the way git holds them, and where the branch stands against its upstream. A
-   file opens its changes side by side in the editor. *@
+@* The right panel's Source control, as VS Code's: a commit box, the
+   uncommitted files split the way git holds them, and where the branch stands
+   against its upstream. A file opens its changes side by side in the editor. *@
 
 <div class="panel-tools">
     <span class="spacer"></span>
@@ -33,7 +34,49 @@
     </button>
 </div>
 
+@* The commit box. Cmd or Ctrl+Enter commits (app.js, bindCommitBox), and the
+   chevron holds what VS Code keeps beside its Commit button. *@
+<form class="scm-commit" @onsubmit="() => Commit(amend: false, push: false)">
+    <textarea @ref="_messageBox" rows="1" class="scm-message"
+              placeholder="@MessagePlaceholder" aria-label="Commit message"
+              @bind:get="Model.CommitMessage" @bind:set="SetMessage" @bind:event="oninput"></textarea>
+    <div class="scm-commit-row">
+        <button type="submit" class="primary scm-commit-btn" disabled="@(!CanCommit)"
+                title="@(Model.HasStaged ? "Commit the staged changes" : "Commit all changes")">
+            @(Model.IsCommitting ? "Working..." : "Commit")
+        </button>
+        <button type="button" class="primary scm-commit-more" @onclick="OpenCommitMenu"
+                disabled="@(Model.IsCommitting || Model.IsStaging)"
+                title="More actions" aria-label="More commit actions" aria-haspopup="menu">
+            <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+                <path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+        </button>
+    </div>
+</form>
+
 <div class="panel-scroll">
+    @if (_stageAllFirst is { } pending)
+    {
+        <div class="banner info panel-banner">
+            <strong>There are no staged changes to commit.</strong>
+            <p class="muted" style="margin: 5px 0 8px;">Stage all changes and commit them directly?</p>
+            <div class="inline">
+                <button class="primary small" @onclick="() => StageAllAndCommit(pending.Push)" disabled="@Model.IsCommitting">Stage all and commit</button>
+                <button class="ghost small" @onclick="() => { _stageAllFirst = null; Touch(); }">Cancel</button>
+            </div>
+        </div>
+    }
+
+    @if (Model.CommitError is { Length: > 0 } commitError)
+    {
+        <div class="banner danger panel-banner">
+            <strong>Git failed.</strong>
+            <p class="mono muted scm-error" style="margin: 5px 0 8px;">@commitError</p>
+            <button class="ghost small" @onclick="Model.DismissCommitError">Dismiss</button>
+        </div>
+    }
+
     @if (_discarding is { } discard)
     {
         <div class="banner danger panel-banner">
@@ -143,6 +186,26 @@
         </ContextMenu>
     }
 
+    @if (_commitMenu is { } at)
+    {
+        <ContextMenu X="at.X" Y="at.Y" OnClose="CloseCommitMenu">
+            <button type="button" class="context-item" disabled="@(!CanCommit)"
+                    @onclick="() => FromCommitMenu(() => Commit(amend: false, push: false))">Commit</button>
+            <button type="button" class="context-item" disabled="@(!CanCommit)"
+                    @onclick="() => FromCommitMenu(() => Commit(amend: false, push: true))">Commit &amp; Push</button>
+            <button type="button" class="context-item"
+                    title="Replace the last commit with it plus what is staged. An empty message keeps the last one."
+                    @onclick="() => FromCommitMenu(() => Commit(amend: true, push: false))">Commit (Amend)</button>
+            <hr class="context-sep" />
+            <button type="button" class="context-item"
+                    title="Take the last commit back. Its changes stay staged and nothing in the files moves."
+                    @onclick="() => FromCommitMenu(Model.UndoLastCommit)">Undo Last Commit</button>
+            <hr class="context-sep" />
+            <button type="button" class="context-item" @onclick="() => FromCommitMenu(Model.Pull)">Pull</button>
+            <button type="button" class="context-item" @onclick="() => FromCommitMenu(Model.Push)">Push</button>
+        </ContextMenu>
+    }
+
 </div>
 
 @code {
@@ -186,6 +249,32 @@
 
     private void Touch() => _render = true;
 
+    private ElementReference _messageBox;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        try
+        {
+            if (firstRender)
+            {
+                await Js.InvokeVoidAsync("tog.bindCommitBox", _messageBox);
+            }
+            else
+            {
+                // A commit clears the box and an undo refills it, both from here
+                // rather than from typing, so the box is sized again after each.
+                await Js.InvokeVoidAsync("tog.growCommitBox", _messageBox);
+            }
+        }
+        catch (JSException)
+        {
+            // The box stays one line tall and Enter only starts a new line.
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
     protected override async Task OnInitializedAsync()
     {
         // Reading a diff is several git invocations, and prerendering throws the
@@ -213,14 +302,16 @@
     });
 
     /// <summary>Where the branch stands against its upstream, as last rendered.</summary>
-    private sealed record Sync(int Ahead, int Behind, string? Upstream);
+    private sealed record Sync(int Ahead, int Behind, string? Upstream, string? Branch);
 
     private Sync? _sync;
     private bool _fetching;
     private string? _fetchError;
 
     private Sync? SyncNow() =>
-        State.Worktree(WorktreePath)?.Status is { } s ? new Sync(s.Ahead, s.Behind, s.Upstream) : null;
+        State.Worktree(WorktreePath) is { Status: { } s } view
+            ? new Sync(s.Ahead, s.Behind, s.Upstream, view.Worktree.Branch)
+            : null;
 
     /// <summary>
     /// Renders on a snapshot only when the push and pull counts moved: a
@@ -260,6 +351,96 @@
         _fetchError = result.Ok ? null : result.Message.Trim();
         Monitor.InvalidateStatus(WorktreePath);
         Touch();
+    }
+
+    /// <summary>A commit waiting on the offer to stage everything first.</summary>
+    private sealed record PendingCommit(bool Push);
+
+    private PendingCommit? _stageAllFirst;
+
+    /// <summary>Where the commit actions menu opened, when it is open.</summary>
+    private sealed record MenuAt(double X, double Y);
+
+    private MenuAt? _commitMenu;
+
+    private string MessagePlaceholder
+    {
+        get
+        {
+            var key = OperatingSystem.IsMacOS() ? "Cmd" : "Ctrl";
+            return _sync?.Branch is { } branch
+                ? $"Message ({key}+Enter to commit on '{branch}')"
+                : $"Message ({key}+Enter to commit)";
+        }
+    }
+
+    private bool CanCommit =>
+        !Model.IsCommitting
+        && !Model.IsStaging
+        && !string.IsNullOrWhiteSpace(Model.CommitMessage)
+        && Model.Diff is { Files.Count: > 0 };
+
+    /// <summary>
+    /// Keeps the typed message on the model without drawing the panel again
+    /// per key. Only whether there is a message at all changes what is drawn.
+    /// </summary>
+    private void SetMessage(string? value)
+    {
+        value ??= "";
+        if (string.IsNullOrWhiteSpace(value) != string.IsNullOrWhiteSpace(Model.CommitMessage))
+        {
+            Touch();
+        }
+
+        Model.CommitMessage = value;
+    }
+
+    /// <summary>
+    /// Commits what is staged. With nothing staged it asks to stage everything
+    /// first, as VS Code does, rather than committing all of it unasked. An
+    /// amend with nothing staged is allowed: it only rewords.
+    /// </summary>
+    private async Task Commit(bool amend, bool push)
+    {
+        Touch();
+        _stageAllFirst = null;
+        if (!amend && !CanCommit)
+        {
+            return;
+        }
+
+        if (!amend && !Model.HasStaged)
+        {
+            _stageAllFirst = new PendingCommit(push);
+            return;
+        }
+
+        await Model.Commit(amend: amend, push: push);
+    }
+
+    private async Task StageAllAndCommit(bool push)
+    {
+        Touch();
+        _stageAllFirst = null;
+        await Model.Commit(stageAll: true, push: push);
+    }
+
+    private void OpenCommitMenu(MouseEventArgs e)
+    {
+        Touch();
+        _commitMenu = new MenuAt(e.ClientX, e.ClientY);
+    }
+
+    private void CloseCommitMenu()
+    {
+        Touch();
+        _commitMenu = null;
+    }
+
+    private async Task FromCommitMenu(Func<Task> action)
+    {
+        CloseCommitMenu();
+        await action();
     }
 
     /// <summary>

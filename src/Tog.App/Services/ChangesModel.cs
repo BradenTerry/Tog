@@ -1,5 +1,6 @@
 using Tog.Core.Git;
 using Tog.Core.Model;
+using Tog.Core.Monitoring;
 
 namespace Tog.App.Services;
 
@@ -16,7 +17,9 @@ namespace Tog.App.Services;
 public sealed class ChangesModel(
     string worktreePath,
     DiffReader diffs,
-    Staging staging) : IDisposable
+    Staging staging,
+    Commits commits,
+    MonitorService monitor) : IDisposable
 {
     private CancellationTokenSource? _load;
 
@@ -36,6 +39,20 @@ public sealed class ChangesModel(
     public bool IsStaging { get; private set; }
 
     public string? StageError { get; private set; }
+
+    /// <summary>
+    /// The commit message being written. Kept here rather than in the panel so
+    /// a draft survives switching agents and back, as VS Code keeps it per
+    /// repository.
+    /// </summary>
+    public string CommitMessage { get; set; } = "";
+
+    /// <summary>A commit, undo, push or pull is running.</summary>
+    public bool IsCommitting { get; private set; }
+
+    public string? CommitError { get; private set; }
+
+    public bool HasStaged => Stages.Values.Any(s => s.Staged);
 
     public FileStage StageOf(string path) => Stages.TryGetValue(path, out var stage) ? stage : default;
 
@@ -95,6 +112,90 @@ public sealed class ChangesModel(
     }
 
     public Task UnstageAll() => Restage(() => staging.UnstageAllAsync(WorktreePath));
+
+    /// <summary>
+    /// Commits what is staged with <see cref="CommitMessage"/>, which is
+    /// cleared once it is in. With <paramref name="stageAll"/> everything is
+    /// staged first, which is what VS Code offers when nothing is.
+    /// </summary>
+    public Task Commit(bool amend = false, bool stageAll = false, bool push = false) => RunGit(async () =>
+    {
+        if (stageAll)
+        {
+            var staged = await staging.StageAllAsync(WorktreePath);
+            if (!staged.Ok)
+            {
+                return staged;
+            }
+        }
+
+        var result = await commits.CommitAsync(WorktreePath, CommitMessage, amend);
+        if (!result.Ok)
+        {
+            return result;
+        }
+
+        CommitMessage = "";
+        return push ? await commits.PushAsync(WorktreePath) : result;
+    });
+
+    /// <summary>
+    /// Takes the last commit back into Staged Changes, and its message back into
+    /// the box when the box is empty, so undo and commit again is a round trip.
+    /// </summary>
+    public Task UndoLastCommit() => RunGit(async () =>
+    {
+        var message = await commits.LastMessageAsync(WorktreePath);
+        var result = await commits.UndoLastAsync(WorktreePath);
+        if (result.Ok && string.IsNullOrWhiteSpace(CommitMessage) && message is not null)
+        {
+            CommitMessage = message;
+        }
+
+        return result;
+    });
+
+    public Task Push() => RunGit(() => commits.PushAsync(WorktreePath));
+
+    public Task Pull() => RunGit(() => commits.PullAsync(WorktreePath));
+
+    public void DismissCommitError()
+    {
+        CommitError = null;
+        Raise();
+    }
+
+    /// <summary>
+    /// Runs a commit, undo, push or pull, then reads everything again: each one
+    /// can move files out of the list or into it, and the push and pull counts.
+    /// </summary>
+    private async Task RunGit(Func<Task<GitResult>> action)
+    {
+        if (IsCommitting)
+        {
+            return;
+        }
+
+        IsCommitting = true;
+        CommitError = null;
+        Raise();
+
+        try
+        {
+            var result = await action();
+            CommitError = result.Ok ? null : result.Message.Trim();
+        }
+        catch (Exception e) when (e is IOException or InvalidOperationException)
+        {
+            CommitError = e.Message;
+        }
+        finally
+        {
+            IsCommitting = false;
+            monitor.InvalidateStatus(WorktreePath);
+            await Load();
+        }
+    }
 
     /// <summary>
     /// Runs a staging change and re-reads where things are.

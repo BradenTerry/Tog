@@ -81,3 +81,42 @@ single line of that diff. Only the staging state is re-read after an action,
 which is one `git status` rather than a whole diff. An open diff tab does read
 its sides again, since a stage moves the index, which is one side of both kinds
 of tab.
+
+## Committing
+
+Above the two sections sits a commit box, as in VS Code: the message, then a
+Commit button with the rest of its actions behind a chevron. Enter starts a new
+line, since a message has a body, and Cmd or Ctrl+Enter commits. The draft lives
+on `ChangesModel`, so it survives switching agents and back.
+
+```mermaid
+flowchart TD
+    C["Commit"] --> S{"anything staged?"}
+    S -->|yes| G["git commit -m message"]
+    S -->|no| O["offer: stage all and commit"]
+    O -->|accepted| A["git add --all"] --> G
+    G --> P{"and push?"}
+    P -->|yes| U["git push, or publish to origin"]
+```
+
+| Action | What runs |
+| --- | --- |
+| Commit | `git commit -m`, staged changes only |
+| Commit & Push | the same, then Push |
+| Commit (Amend) | `git commit --amend`; an empty message keeps the last one (`--no-edit`) |
+| Undo Last Commit | `git reset --soft HEAD~1`, or `git update-ref -d HEAD` for the first commit |
+| Push | `git push`; with no upstream, `git push --set-upstream origin HEAD` (or the only remote) |
+| Pull | `git pull`, as the repository is configured |
+
+With nothing staged, Commit asks before staging everything rather than
+committing it all unasked, which is VS Code's smart commit behind its prompt. An
+amend with nothing staged is allowed: it only rewords. Undo leaves the commit's
+changes staged and puts its message back in an empty box, so undo and commit
+again is a round trip.
+
+The message is one `-m` argument. `IGitCli` passes arguments as a list, so a
+message that starts with a dash or runs to several lines is still the message,
+and git never opens an editor. `Commits` gets its own `GitCli` with a ten minute
+timeout rather than the usual 30 seconds: a commit runs the repository's hooks,
+and a push or pull waits on the network. After any of these the diff, the
+staging state and the push and pull counts are all read again.

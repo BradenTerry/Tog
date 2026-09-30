@@ -35,7 +35,8 @@ file per subsystem that is easy to get wrong twice:
   `textmate.js`
 - `docs/agent-control.md` - ACP, the host, a turn, permissions, the bridge,
   adding another agent
-- `docs/staging.md` - the two-character status field, unstaging with no HEAD
+- `docs/staging.md` - the two-character status field, unstaging with no HEAD,
+  the commit box and what each commit action runs
 - `docs/editor.md` - Monaco in the editor, vendoring it, stamp-based saves,
   images, opening a file from outside the app
 - `docs/workbench.md` - the VS Code-style layout, the panels, editor tabs, the
