@@ -87,6 +87,7 @@ builder.Services.AddRazorComponents()
 // Platform
 builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddSingleton<IClipboard, Clipboard>();
+builder.Services.AddSingleton<IFileManager, FileManager>();
 
 // Storage and settings
 builder.Services.AddSingleton(new AppPaths(options.DataDir));

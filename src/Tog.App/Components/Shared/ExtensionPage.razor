@@ -1,6 +1,7 @@
 @using Tog.Core.Extensions
 @using Tog.Extensions
 @inject ExtensionHost Extensions
+@inject Tog.Core.Platform.IFileManager FileManager
 @implements IDisposable
 
 @* One extension's page in Settings: whether it runs, what it is, and its own
@@ -137,7 +138,10 @@ else
                 <dd><span class="chip">@ExtensionLabels.SourceName(found.Source)</span> <span class="faint">@ExtensionLabels.SourceTip(found.Source)</span></dd>
 
                 <dt>Folder</dt>
-                <dd class="mono truncate" title="@found.Directory">@found.Directory</dd>
+                <dd class="inline">
+                    <span class="mono truncate" style="flex: 1; min-width: 0;" title="@found.Directory">@found.Directory</span>
+                    <button class="ghost small" @onclick="() => OpenFolder(found.Directory)">@(_openFailed ? "Could not open" : $"Open in {FileManager.Name}")</button>
+                </dd>
 
                 @if (manifest?.Author is { Length: > 0 } by)
                 {
@@ -182,6 +186,7 @@ else
     public string Id { get; set; } = "";
 
     private bool _confirming;
+    private bool _openFailed;
     private string? _shown;
 
     private ExtensionEntry? Entry => Extensions.Entries.FirstOrDefault(e => e.Found.Id == Id);
@@ -195,6 +200,7 @@ else
         {
             _shown = Id;
             _confirming = false;
+            _openFailed = false;
         }
     }
 
@@ -215,6 +221,8 @@ else
             _confirming = true;
         }
     }
+
+    private void OpenFolder(string directory) => _openFailed = !FileManager.TryOpen(directory);
 
     private Task Enable(string id)
     {
