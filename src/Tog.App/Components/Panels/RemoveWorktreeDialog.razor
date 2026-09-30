@@ -13,8 +13,9 @@
    Bench.AskRemoveWorktree. It used to live inside the Worktrees view, which
    meant asking from the agent list switched the editor to that view behind
    the dialog. Nothing is removed without a confirmation here. A removal that
-   went through closes the dialog and says so in a toast, kept branch and all;
-   only a folder left on disk keeps it open, since that is still to deal with. *@
+   went through closes the dialog quietly, since the click said what to do; a
+   branch git would not delete is the one thing it mentions, in a toast. Only a
+   folder left on disk keeps it open, since that is still to deal with. *@
 
 @if (_path is { } path)
 {
@@ -368,7 +369,13 @@
             {
                 _busy = false;
                 Close();
-                Notes.Show(result.Message);
+
+                // The row leaving the list says it was removed; only a branch
+                // that was asked to go and stayed is worth a toast.
+                if (result.BranchKept)
+                {
+                    Notes.Show(result.Message);
+                }
             }
             else
             {
