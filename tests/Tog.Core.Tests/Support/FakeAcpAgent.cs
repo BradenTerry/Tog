@@ -24,6 +24,9 @@ public sealed class FakeAcpAgent : IAgentLauncher
 
     public int Launches { get; private set; }
 
+    /// <summary>What its session ids start with, so two fakes side by side hand out different ones.</summary>
+    public string SessionPrefix { get; init; } = "s";
+
     /// <summary>
     /// What a prompt does, given a way to send updates and to ask for permission.
     /// Returns the stop reason. By default it says "hello" in two chunks.
@@ -214,7 +217,7 @@ public sealed class FakeAcpAgent : IAgentLauncher
                     owner.Calls.Enqueue(method);
                     owner.McpServers = p.GetProperty("mcpServers").GetRawText();
                     owner.SessionMeta = p.TryGetProperty("_meta", out var newMeta) ? newMeta.GetRawText() : null;
-                    return new { sessionId = "s" + Interlocked.Increment(ref _sessions), configOptions = Options() };
+                    return new { sessionId = owner.SessionPrefix + Interlocked.Increment(ref _sessions), configOptions = Options() };
 
                 case "session/resume":
                     owner.Calls.Enqueue(method + ":" + sessionId);

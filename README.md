@@ -108,8 +108,9 @@ loads at runtime and reloads on every build.
 - Ask for secrets such as a GitHub or Jira token by name. You approve each
   extension, values stay in the OS keychain, and no agent ever sees them.
 
-The easiest way to write one is to ask Claude: **Settings** installs a skill
-that teaches it how, and an agent Tog runs can ask you to add what it built.
+The easiest way to write one is to ask an agent. Agents Tog runs already know
+how; for any other, **Settings** has a skill to copy and give it. Either can
+ask you to add what it built.
 Nothing loads until you accept. Or start from the template with
 `dotnet new tog-extension`, or from the example in
 [examples/NodeTests](examples/NodeTests). See

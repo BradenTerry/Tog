@@ -38,12 +38,33 @@ public sealed record Subagent(
 /// <param name="StartedAt">When the agent started it.</param>
 public sealed record BackgroundCommand(string ToolUseId, string Description, DateTimeOffset StartedAt);
 
+/// <summary>What a session's record says it is doing, from its agent's transcripts.</summary>
+/// <param name="Title">What the conversation is called, when the record names it.</param>
+/// <param name="Subagents">Subagents still running under it, oldest first.</param>
+/// <param name="BackgroundCommands">Shell commands it started in the background that have not finished.</param>
+public sealed record SessionActivity(
+    string? Title,
+    string? LastPrompt,
+    string? LastReply,
+    IReadOnlyList<string> Skills,
+    IReadOnlyList<Subagent> Subagents,
+    IReadOnlyList<BackgroundCommand> BackgroundCommands);
+
+/// <summary>A conversation that once ran in a folder, which can be resumed.</summary>
+/// <param name="Title">What it is called, when it has a name.</param>
+/// <param name="LastPrompt">The last thing it was asked.</param>
+/// <param name="UpdatedAt">When it last changed.</param>
+public sealed record PastSession(string SessionId, string? Title, string? LastPrompt, DateTimeOffset UpdatedAt);
+
 /// <summary>
-/// One live Claude session, as the registry and its transcript describe it.
+/// One live agent session, as the host and its transcript describe it.
 /// </summary>
 public sealed record AgentSession
 {
     public required string SessionId { get; init; }
+
+    /// <summary>The id of the agent it runs on, such as "claude".</summary>
+    public string Backend { get; init; } = "";
 
     /// <summary>Pid of the Claude process, which is also its registry file name.</summary>
     public required int Pid { get; init; }

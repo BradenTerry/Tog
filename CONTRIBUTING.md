@@ -105,7 +105,7 @@ pictured, edit `tools/screenshots/sample.mjs` or `take.mjs`.
 | `src/Tog.App` | The Blazor Server UI and the Photino window. `Program.cs` starts the host on a free loopback port, then opens the window at it. |
 | `src/Tog.Extensions` | The extension API (1.x, now 1.12), the one assembly an extension compiles against. No reference to Core. Versioned: 1.x only adds. |
 | `templates/extension` | `dotnet new tog-extension`, with an `AGENTS.md` for writing one. |
-| `templates/skill` | The skill that teaches an agent to write one, shipped in the app and added from Settings. |
+| `templates/skill` | The skill that teaches an agent to write one, shipped in the app and copied from Settings. |
 | `tests/*` | xUnit v3 on Microsoft.Testing.Platform, for Core. |
 | `tools/` | The Node scripts that vendor Monaco, Mermaid, the TextMate grammars and the ACP bridge, and `tools/screenshots`, which takes the README pictures. |
 
@@ -211,7 +211,7 @@ test runner or a build status, belongs in an extension, which lives outside
 this repository. If the extension API cannot express it, the API grows by a
 minor version (1.x only adds). Start one with `dotnet new
 tog-extension` from [`templates/extension`](templates/extension),
-or ask Claude with the skill Settings installs.
+or ask an agent, giving it the skill Settings has to copy.
 
 ## Conventions
 
@@ -219,9 +219,9 @@ or ask Claude with the skill Settings installs.
 - Comments explain why, not what. Prefer a short paragraph on the non-obvious
   decision over a line-by-line narration.
 - Nothing Tog or an agent does on its own writes into `~/.claude`;
-  the app only reads it. The only changes the app makes to Claude's config are
-  the extension skill and the MCP server entry, each from its button in
-  Settings.
+  the app only reads it. The only change the app makes to Claude's config is
+  the MCP server entry, from its button in Settings. The extension skill is
+  shown there to copy, never written.
 - Anything that edits the user's repository is offered, never done on its own.
 - Secrets never reach an agent: no agent tool serves them and no session's
   environment carries them. See [docs/extensions.md](docs/extensions.md).

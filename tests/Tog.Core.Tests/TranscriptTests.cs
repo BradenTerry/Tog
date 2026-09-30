@@ -117,8 +117,8 @@ public class TranscriptReaderTests
         var subagent = new Subagent("a1", "general-purpose", "Review", 1, at.AddMinutes(-10), "bg",
             secondsAfter is { } s ? at.AddSeconds(s) : null);
 
-        Assert.Equal(finished, Tog.Core.Monitoring.MonitorService.Finished(subagent, new Dictionary<string, DateTimeOffset> { ["bg"] = at }));
-        Assert.False(Tog.Core.Monitoring.MonitorService.Finished(subagent, new Dictionary<string, DateTimeOffset>()));
+        Assert.Equal(finished, Tog.Core.Claude.ClaudeTranscripts.Finished(subagent, new Dictionary<string, DateTimeOffset> { ["bg"] = at }));
+        Assert.False(Tog.Core.Claude.ClaudeTranscripts.Finished(subagent, new Dictionary<string, DateTimeOffset>()));
     }
 
     [Fact]

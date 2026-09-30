@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Tog.Core.Agents;
+using Tog.Core.Claude;
 using Tog.Core.Repos;
 using Tog.Core.Tests.Support;
 
@@ -7,7 +8,7 @@ namespace Tog.Core.Tests;
 
 public class PlanUsageTests
 {
-    private static readonly AgentBackend Backend = new("claude", "Claude", "fake", []);
+    private static readonly AgentBackend Backend = new AgentBackend("claude", "Claude", "fake", []).Hooked();
 
     private static readonly DateTimeOffset Now = new(2026, 9, 5, 12, 0, 0, TimeSpan.Zero);
 

@@ -2,6 +2,7 @@
 @inject ExtensionHost Extensions
 @inject FolderPicker Folders
 @inject ExtensionSkill Skill
+@inject Tog.Core.Platform.IClipboard Clipboard
 @implements IDisposable
 
 @* The General page of Extensions: which ones there are, where they come from,
@@ -134,68 +135,58 @@
     </div>
 </section>
 
-@* The skill is the one thing the app writes into an agent's config folder,
-   and only from this button. Agents Tog runs do not need it: its
-   MCP server hands them the same guide. *@
+@* The app never writes the skill into an agent's config: every agent keeps
+   skills and rules somewhere different, so it is shown here to copy and the
+   user puts it wherever their agent reads it. Agents Tog runs do not need
+   it: its MCP server hands them the same guide. *@
 <section class="settings-group">
     <div class="settings-group-head">
         <div class="stack">
             <h3>Write one with an agent</h3>
             <span class="faint">
-                Ask an agent to make an extension and it scaffolds one from Tog's template, builds
-                it and asks you here to turn it on. Agents started in Tog already know how; the
-                skill teaches ones you start in a terminal too. It names this machine's SDK and template,
-                so update it after Tog updates.
+                Agents started in Tog already know how. For any other agent, copy this skill and
+                give it to your agent: save it as a skill or rules file, or paste it into the
+                conversation. It scaffolds an extension from Tog's template, builds it and asks you
+                here to turn it on. It names this machine's SDK and template, so copy it again after
+                Tog updates.
             </span>
         </div>
     </div>
 
     <div class="card">
-        @foreach (var (target, state) in _skills)
+        @if (_skill is null)
+        {
+            <div class="card-body">
+                <p class="faint" style="margin: 0;">This build of the app does not include the skill.</p>
+            </div>
+        }
+        else
         {
             <div class="row setting-row">
                 <div class="stack" style="flex: 1; min-width: 0;">
-                    <div class="inline">
-                        <strong>@target.AgentName skill</strong>
-                        @if (target.Available)
-                        {
-                            <span class="chip @(state == SkillState.Current ? "active" : state == SkillState.Outdated ? "accent" : "")">@SkillStateName(state)</span>
-                        }
-                    </div>
-                    @if (target.Available)
-                    {
-                        <span class="mono faint truncate" title="@Skill.FileFor(target)">@Skill.FileFor(target)</span>
-                    }
-                    else
-                    {
-                        <span class="faint">@target.AgentName is not set up on this machine (no <span class="mono">@target.SkillsDir</span>).</span>
-                    }
+                    <strong>@ExtensionSkill.Name</strong>
+                    <span class="faint">@_skill.Split('\n').Length lines, for API @($"{ExtensionManifests.Api.Major}.{ExtensionManifests.Api.Minor}")</span>
                 </div>
-                @if (target.Available)
-                {
-                    <div class="inline">
-                        @switch (state)
-                        {
-                            case SkillState.Missing:
-                                <button class="small" @onclick="() => InstallSkill(target)">Add skill</button>
-                                break;
-                            case SkillState.Outdated:
-                                <button class="small" @onclick="() => InstallSkill(target)">Update</button>
-                                <button class="ghost small" @onclick="() => RemoveSkill(target)">Remove</button>
-                                break;
-                            default:
-                                <button class="ghost small" @onclick="() => RemoveSkill(target)">Remove</button>
-                                break;
-                        }
-                    </div>
-                }
+                <div class="inline">
+                    <button class="ghost small" @onclick="() => _showSkill = !_showSkill">@(_showSkill ? "Hide" : "Show")</button>
+                    <button class="small" @onclick="CopySkill">@(_copied ? "Copied" : "Copy skill")</button>
+                </div>
             </div>
-        }
-        @if (_skillError is { Length: > 0 })
-        {
-            <div class="card-body">
-                <p class="faint" style="margin: 0; color: var(--danger);">@_skillError</p>
-            </div>
+            @if (_showSkill)
+            {
+                <div class="card-body">
+                    <textarea class="mono" readonly rows="16" style="width: 100%; resize: vertical;"
+                              aria-label="The extension skill">@_skill</textarea>
+                </div>
+            }
+            @if (_copyFailed)
+            {
+                <div class="card-body">
+                    <p class="faint" style="margin: 0; color: var(--danger);">
+                        Could not reach the clipboard. Show it and copy the text from there.
+                    </p>
+                </div>
+            }
         }
     </div>
 </section>
@@ -212,36 +203,24 @@
     private string? _error;
     private bool _picking;
     private string? _confirming;
-    private IReadOnlyList<(SkillTarget Target, SkillState State)> _skills = [];
-    private string? _skillError;
+    private string? _skill;
+    private bool _showSkill;
+    private bool _copied;
+    private bool _copyFailed;
 
     protected override void OnInitialized()
     {
         Extensions.Changed += OnChanged;
-        ReadSkills();
+
+        // Read once, not per render: it reads a file.
+        _skill = Skill.Text();
     }
 
-    /// <summary>Read once and after each button, not per render: it reads files.</summary>
-    private void ReadSkills() => _skills = [.. Skill.Targets.Select(t => (t, t.Available ? Skill.State(t) : SkillState.Missing))];
-
-    private void InstallSkill(SkillTarget target)
+    private void CopySkill()
     {
-        _skillError = Skill.Install(target);
-        ReadSkills();
+        _copied = _skill is not null && Clipboard.TryCopy(_skill);
+        _copyFailed = !_copied;
     }
-
-    private void RemoveSkill(SkillTarget target)
-    {
-        _skillError = Skill.Remove(target);
-        ReadSkills();
-    }
-
-    private static string SkillStateName(SkillState state) => state switch
-    {
-        SkillState.Current => "added",
-        SkillState.Outdated => "out of date",
-        _ => "not added",
-    };
 
     private void OnChanged() => _ = InvokeAsync(StateHasChanged);
 

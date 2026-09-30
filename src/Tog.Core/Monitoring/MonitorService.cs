@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using Tog.Core.Claude;
 using Tog.Core.Git;
 using Tog.Core.Model;
 using Tog.Core.Platform;
@@ -45,9 +44,6 @@ public sealed class MonitorService : IAsyncDisposable
     private readonly TogState _state;
     private readonly SettingsStore _settings;
     private readonly IAgentSessionSource _registry;
-    private readonly TranscriptLocator _locator;
-    private readonly TranscriptReader _transcripts;
-    private readonly SubagentReader _subagents;
     private readonly RepoDiscovery _discovery;
     private readonly WorktreeLister _worktrees;
     private readonly StatusReader _status;
@@ -76,9 +72,6 @@ public sealed class MonitorService : IAsyncDisposable
         TogState state,
         SettingsStore settings,
         IAgentSessionSource registry,
-        TranscriptLocator locator,
-        TranscriptReader transcripts,
-        SubagentReader subagents,
         RepoDiscovery discovery,
         WorktreeLister worktrees,
         StatusReader status,
@@ -88,9 +81,6 @@ public sealed class MonitorService : IAsyncDisposable
         _state = state;
         _settings = settings;
         _registry = registry;
-        _locator = locator;
-        _transcripts = transcripts;
-        _subagents = subagents;
         _discovery = discovery;
         _worktrees = worktrees;
         _status = status;
@@ -207,8 +197,10 @@ public sealed class MonitorService : IAsyncDisposable
         var sessions = _registry.Read();
 
         var live = sessions.Select(s => s.SessionId).ToHashSet(StringComparer.Ordinal);
-        _locator.Forget(live);
-        _transcripts.Forget(live);
+        foreach (var backend in sessions.Select(s => s.Backend).Distinct())
+        {
+            _registry.Transcripts(backend)?.Forget(live);
+        }
 
         var enriched = sessions.Select(Enrich).ToList();
 
@@ -234,22 +226,9 @@ public sealed class MonitorService : IAsyncDisposable
         }
     }
 
-    /// <summary>
-    /// A subagent the session heard back from, and whose own transcript has not
-    /// been written since, which a resumed one would be. A few seconds' grace,
-    /// since its last line lands just before the notice about it.
-    /// </summary>
-    public static bool Finished(Subagent subagent, IReadOnlyDictionary<string, DateTimeOffset>? finished) =>
-        subagent.ToolUseId is { } call
-        && finished?.TryGetValue(call, out var at) == true
-        && (subagent.LastActivity is not { } last || last <= at + TimeSpan.FromSeconds(10));
-
     private AgentSession Enrich(AgentSession session)
     {
-        var transcript = _locator.Locate(session.SessionId, session.Cwd);
-        var facts = transcript is null
-            ? new TranscriptFacts(null, [], null, null)
-            : _transcripts.Read(session.SessionId, transcript);
+        var activity = _registry.Transcripts(session.Backend)?.Activity(session.SessionId, session.Cwd);
 
         // Background work started before the current agent process began was
         // killed with the one before it, and nothing records that: no notice for
@@ -258,14 +237,12 @@ public sealed class MonitorService : IAsyncDisposable
         var since = session.ProcessStartedAt ?? DateTimeOffset.MinValue;
         return session with
         {
-            Summary = facts.Summary,
-            LastPrompt = facts.LastPrompt,
-            LastReply = facts.LastReply,
-            Skills = facts.Skills,
-            Subagents = _subagents.Read(session.SessionId, session.Cwd)
-                .Where(s => s.StartedAt >= since && !Finished(s, facts.FinishedSubagents))
-                .ToList(),
-            BackgroundCommands = (facts.BackgroundCommands ?? []).Where(c => c.StartedAt >= since).ToList(),
+            Summary = activity?.Title,
+            LastPrompt = activity?.LastPrompt,
+            LastReply = activity?.LastReply,
+            Skills = activity?.Skills ?? [],
+            Subagents = (activity?.Subagents ?? []).Where(s => s.StartedAt >= since).ToList(),
+            BackgroundCommands = (activity?.BackgroundCommands ?? []).Where(c => c.StartedAt >= since).ToList(),
         };
     }
 

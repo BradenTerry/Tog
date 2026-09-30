@@ -2,8 +2,6 @@
 @inject AgentHost Host
 @inject AgentDirectory Directory
 @inject MonitorService Monitor
-@inject TranscriptLocator Locator
-@inject ConversationReader Conversations
 @inject IJSRuntime Js
 @inject ChatDrafts Drafts
 @inject Workbench Bench
@@ -146,7 +144,7 @@ else
                         @if (entry.Steps.Count > 0)
                         {
                             <details class="activity">
-                                <summary>@ConversationReader.Describe(entry.Steps)</summary>
+                                <summary>@ChatSteps.Describe(entry.Steps)</summary>
                                 <ul>
                                     @foreach (var step in entry.Steps)
                                     {
@@ -219,7 +217,7 @@ else
                                                             }
                                                             @if (edit.Truncated)
                                                             {
-                                                                <div class="edit-more faint">Longer than @ConversationReader.MaxEditLines lines; the rest is left out.</div>
+                                                                <div class="edit-more faint">Longer than @ChatSteps.MaxEditLines lines; the rest is left out.</div>
                                                             }
                                                         }
                                                     </div>
@@ -630,24 +628,23 @@ else
             return;
         }
 
+        var history = Host.Transcripts(target.Backend);
         if (_viewing is { } subagent)
         {
-            // Kept apart from the agent's own cursor, under a key of its own, and
-            // read with the side-chain lines the agent's conversation leaves out.
-            var own = Locator.SubagentTranscript(target.SessionId, target.Cwd, subagent.Id);
+            var own = history?.SubagentConversation(target.SessionId, target.Cwd, subagent.Id);
             _transcriptMissing = own is null;
-            _entries = own is null ? [] : Conversations.Read(target.SessionId + "/" + subagent.Id, own, sidechain: true);
+            _entries = own ?? [];
             return;
         }
 
-        var path = Locator.Locate(target.SessionId, target.Cwd);
-        _transcriptMissing = path is null;
-        if (path is null)
+        var read = history?.Conversation(target.SessionId, target.Cwd);
+        _transcriptMissing = read is null;
+        if (read is null)
         {
             return;
         }
 
-        _entries = Conversations.Read(target.SessionId, path);
+        _entries = read;
         _liveShown = LiveToShow(target);
 
         // A delivered message stops being "pending" once the transcript has it.

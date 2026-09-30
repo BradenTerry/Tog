@@ -1,3 +1,4 @@
+using Tog.Core.Agents;
 using Tog.Core.Model;
 
 namespace Tog.Core.Monitoring;
@@ -6,4 +7,7 @@ namespace Tog.Core.Monitoring;
 public interface IAgentSessionSource
 {
     IReadOnlyList<AgentSession> Read();
+
+    /// <summary>Where a kind of agent's history is read from, for what its sessions are doing.</summary>
+    IAgentTranscripts? Transcripts(string backendId);
 }

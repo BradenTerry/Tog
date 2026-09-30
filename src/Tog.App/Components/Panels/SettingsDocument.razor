@@ -663,7 +663,10 @@
     private IReadOnlyList<PickerOption> Choices(string id) =>
     [
         new("", "Leave to the agent", "Its own default applies"),
-        .. StartChoices.For(id, Host.KnownOptions).Select(c => new PickerOption(c.Value, c.Name)),
+        // The defaults apply to whichever agent is started, so they are listed
+        // from the first: the one New agent picks unless told otherwise.
+        .. StartChoices.For(id, Host.Backends.FirstOrDefault() is { } agent ? Host.KnownOptions(agent.Id) : [], Host.Backends.FirstOrDefault()?.Defaults ?? StartDefaults.None)
+            .Select(c => new PickerOption(c.Value, c.Name)),
     ];
     private static readonly IReadOnlyList<PickerOption> ThemeChoices =
         Themes.All.Select(t => new PickerOption(t.Id, t.Name, t.Description)).ToList();

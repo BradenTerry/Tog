@@ -46,6 +46,7 @@ public sealed record PermissionAsk(string Key, string Title, string? Detail, IRe
 /// <param name="Commands">The slash commands it takes, as it last listed them, or those another session listed while it has not.</param>
 /// <param name="Questions">A form of questions it is waiting on you to answer, the oldest when there are several.</param>
 /// <param name="TurnEndedAt">When its last turn ended, kept across restarts, for telling a finished turn you have read from one you have not.</param>
+/// <param name="Backend">The id of the agent it runs on, such as "claude".</param>
 public sealed record HostedAgent(
     string SessionId,
     string Cwd,
@@ -63,7 +64,8 @@ public sealed record HostedAgent(
     bool FolderGone = false,
     IReadOnlyList<AcpCommand>? Commands = null,
     QuestionForm? Questions = null,
-    DateTimeOffset? TurnEndedAt = null)
+    DateTimeOffset? TurnEndedAt = null,
+    string Backend = "")
 {
     /// <summary>What it is waiting on you for, in a few words, when it is.</summary>
     /// <remarks>An MCP server's form is named as one, never by its own message, which is the server's to write.</remarks>
@@ -87,13 +89,15 @@ public sealed record ContextUsage(long Used, long Size)
 }
 
 /// <summary>What to start an agent with. Blank settings leave the agent's own default.</summary>
+/// <param name="Backend">Which agent to run, by id. Null for the first one there is.</param>
 public sealed record AgentStart(
     string Cwd,
     string? Prompt = null,
     string? Model = null,
     string? Effort = null,
     string? Mode = null,
-    string? Title = null);
+    string? Title = null,
+    string? Backend = null);
 
 /// <summary>An agent's folder is gone, so its conversation cannot be resumed there.</summary>
 public sealed class FolderGoneException(string folder)
@@ -113,11 +117,12 @@ public sealed record HostResult(bool Ok, string Message, string? SessionId = nul
 /// </summary>
 /// <remarks>
 /// <para>
-/// One agent process hosts every session: ACP is built for many sessions on one
-/// connection, and one Node process per agent would cost memory for nothing. It
-/// is started on first use and again after it dies. When it dies, every session
-/// it held stops; their conversations are saved by the agent, so a message
-/// resumes them.
+/// One process per kind of agent hosts every session of that kind: ACP is built
+/// for many sessions on one connection, and one process per session would cost
+/// memory for nothing. Each is started on first use and again after it dies.
+/// When one dies, every session it held stops; their conversations are saved by
+/// the agent, so a message resumes them. Which agents there are is up to
+/// <see cref="IAgentBackends"/>: the app has none of its own.
 /// </para>
 /// <para>
 /// Tog is the host, so closing it ends the agents with it. That is the
@@ -133,7 +138,8 @@ public sealed record HostResult(bool Ok, string Message, string? SessionId = nul
 /// </remarks>
 public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
 {
-    private readonly AgentBackend _backend;
+    private readonly IAgentBackends _backends;
+    private readonly RecordedTranscripts? _recorder;
     private readonly IAgentLauncher _launcher;
     private readonly HostedAgentStore _store;
     private readonly IClock _clock;
@@ -146,15 +152,14 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
     private readonly Lock _flushGate = new();
     private readonly IAgentMcpServers? _mcpServers;
 
-    private IAgentProcess? _process;
-    private AcpClient? _client;
-
-    /// <summary>When the running agent process started. Background work begun before it died with the last one.</summary>
-    private DateTimeOffset? _processStartedAt;
+    /// <summary>The running process of each kind of agent, by backend id.</summary>
+    private readonly Dictionary<string, Link> _links = new(StringComparer.Ordinal);
     private bool _dirty;
     private bool _recordChanged;
     private bool _planChanged;
-    private IReadOnlyList<AcpConfigOption> _knownOptions = [];
+
+    /// <summary>What each kind of agent offered the last session it started, by backend id.</summary>
+    private readonly Dictionary<string, IReadOnlyList<AcpConfigOption>> _knownOptions = new(StringComparer.Ordinal);
 
     /// <summary>
     /// The commands the last session listed. The agent lists them only once a
@@ -166,16 +171,31 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
     /// </summary>
     private IReadOnlyList<AcpCommand> _knownCommands = [];
 
+    /// <summary>A host for one agent, for tests.</summary>
     public AgentHost(
         AgentBackend backend,
         IAgentLauncher launcher,
         HostedAgentStore store,
         IClock? clock = null,
         PlanUsageStore? planStore = null,
-        IAgentMcpServers? mcpServers = null)
+        IAgentMcpServers? mcpServers = null,
+        RecordedTranscripts? recorder = null)
+        : this(new FixedAgentBackends(backend), launcher, store, clock, planStore, mcpServers, recorder)
+    {
+    }
+
+    public AgentHost(
+        IAgentBackends backends,
+        IAgentLauncher launcher,
+        HostedAgentStore store,
+        IClock? clock = null,
+        PlanUsageStore? planStore = null,
+        IAgentMcpServers? mcpServers = null,
+        RecordedTranscripts? recorder = null)
     {
         _mcpServers = mcpServers;
-        _backend = backend;
+        _backends = backends;
+        _recorder = recorder;
         _launcher = launcher;
         _store = store;
         _clock = clock ?? new SystemClock();
@@ -188,7 +208,8 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
 
         foreach (var saved in store.Load())
         {
-            _entries[saved.SessionId] = new Entry(saved.SessionId, saved.Cwd, saved.AddedAt, _clock.Now)
+            // Agents saved before there was more than one kind were all Claude.
+            _entries[saved.SessionId] = new Entry(saved.SessionId, saved.Cwd, saved.AddedAt, _clock.Now, saved.Backend ?? "claude")
             {
                 Title = saved.Title,
                 Prompt = saved.Prompt,
@@ -209,23 +230,32 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
     /// <summary>Raised when any agent changes, at most ten times a second.</summary>
     public event Action? Changed;
 
-    public AgentBackend Backend => _backend;
+    /// <summary>The agents that can be started now.</summary>
+    public IReadOnlyList<AgentBackend> Backends => _backends.All;
+
+    /// <summary>An agent by id, or null when no adapter provides it now.</summary>
+    public AgentBackend? Backend(string id) => _backends.All.FirstOrDefault(b => b.Id == id);
 
     /// <summary>
-    /// The settings the agent offered the last session it started, such as its
+    /// The settings an agent offered the last session it started, such as its
     /// models and modes. Empty until one has started. The start form lists these
     /// rather than a list of its own, so it offers exactly what the agent has.
     /// </summary>
-    public IReadOnlyList<AcpConfigOption> KnownOptions
+    public IReadOnlyList<AcpConfigOption> KnownOptions(string backendId)
     {
-        get
+        lock (_gate)
         {
-            lock (_gate)
-            {
-                return _knownOptions;
-            }
+            return _knownOptions.GetValueOrDefault(backendId) ?? [];
         }
     }
+
+    /// <summary>
+    /// Where an agent's history is read from: its adapter's reader of the
+    /// agent's own transcripts, else the app's recording. Null when the agent
+    /// has no adapter now and nothing was recorded for it.
+    /// </summary>
+    public IAgentTranscripts? Transcripts(string backendId) =>
+        Backend(backendId)?.Transcripts ?? _recorder?.For(backendId);
 
     /// <summary>
     /// The subscription plan's usage limits as Claude last reported them, leaving
@@ -271,15 +301,23 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
     /// <summary>Starts a new conversation in a folder, and sends it the prompt if there is one.</summary>
     public async Task<HostResult> StartAsync(AgentStart start, CancellationToken ct = default)
     {
+        var backend = start.Backend is { } wanted ? Backend(wanted) : _backends.All.FirstOrDefault();
+        if (backend is null)
+        {
+            return HostResult.Failed(start.Backend is null
+                ? "No agent is set up. Add one under Settings, Agents."
+                : $"No agent called \"{start.Backend}\" is set up. Its adapter may be turned off in Settings, Extensions.");
+        }
+
         try
         {
-            var client = await ConnectAsync(ct).ConfigureAwait(false);
-            var mcp = _mcpServers?.Grant(start.Cwd, null);
+            var client = await ConnectAsync(backend, ct).ConfigureAwait(false);
+            var mcp = backend.SessionMeta is null ? null : _mcpServers?.Grant(start.Cwd, null);
             string sessionId;
             IReadOnlyList<AcpConfigOption> options;
             try
             {
-                (sessionId, options) = await client.NewSessionAsync(start.Cwd, ct, mcp).ConfigureAwait(false);
+                (sessionId, options) = await client.NewSessionAsync(start.Cwd, ct, mcp, Meta(backend, mcp)).ConfigureAwait(false);
             }
             catch
             {
@@ -292,7 +330,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
                 _mcpServers!.Bind(mcp.Key, sessionId);
             }
 
-            var entry = new Entry(sessionId, start.Cwd, _clock.Now, _clock.Now)
+            var entry = new Entry(sessionId, start.Cwd, _clock.Now, _clock.Now, backend.Id)
             {
                 Title = start.Title,
                 Prompt = Clip(start.Prompt),
@@ -305,7 +343,12 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
             lock (_gate)
             {
                 _entries[sessionId] = entry;
-                _knownOptions = options;
+                _knownOptions[backend.Id] = options;
+            }
+
+            if (backend.Transcripts is null)
+            {
+                _recorder?.Begin(backend.Id, sessionId, start.Cwd, _clock.Now);
             }
 
             Save();
@@ -321,7 +364,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
         }
         catch (Exception e) when (IsAgentFailure(e))
         {
-            return HostResult.Failed(Explain(e));
+            return HostResult.Failed(Explain(e, backend.Id));
         }
     }
 
@@ -335,7 +378,8 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
         {
             if (!_entries.ContainsKey(sessionId))
             {
-                _entries[sessionId] = new Entry(sessionId, start.Cwd, _clock.Now, _clock.Now) { Title = start.Title };
+                var backend = start.Backend ?? _backends.All.FirstOrDefault()?.Id ?? "";
+                _entries[sessionId] = new Entry(sessionId, start.Cwd, _clock.Now, _clock.Now, backend) { Title = start.Title };
             }
         }
 
@@ -362,10 +406,10 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
             // chat already says why it cannot continue.
             if (e is not FolderGoneException)
             {
-                Fail(sessionId, Explain(e));
+                Fail(sessionId, Explain(e, BackendOf(sessionId)));
             }
 
-            return HostResult.Failed(Explain(e));
+            return HostResult.Failed(Explain(e, BackendOf(sessionId)));
         }
     }
 
@@ -387,10 +431,10 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
             // chat already says why it cannot continue.
             if (e is not FolderGoneException)
             {
-                Fail(sessionId, Explain(e));
+                Fail(sessionId, Explain(e, BackendOf(sessionId)));
             }
 
-            return HostResult.Failed(Explain(e));
+            return HostResult.Failed(Explain(e, BackendOf(sessionId)));
         }
     }
 
@@ -416,10 +460,10 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
             // chat already says why it cannot continue.
             if (e is not FolderGoneException)
             {
-                Fail(sessionId, Explain(e));
+                Fail(sessionId, Explain(e, BackendOf(sessionId)));
             }
 
-            return HostResult.Failed(Explain(e));
+            return HostResult.Failed(Explain(e, BackendOf(sessionId)));
         }
 
         lock (_gate)
@@ -441,6 +485,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
             entry.Prompt ??= Clip(text);
         }
 
+        Recorder(sessionId)?.You(sessionId, text, _clock.Now);
         Touch();
         _ = RunTurnAsync(client, sessionId, text);
         return new HostResult(true, "Sent.", sessionId);
@@ -449,12 +494,12 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
     /// <summary>Stops the turn in progress. The agent stays, idle, with everything so far kept.</summary>
     public async Task<HostResult> CancelAsync(string sessionId, CancellationToken ct = default)
     {
-        AcpClient? client;
+        AcpClient? client = null;
         lock (_gate)
         {
-            client = _client;
             if (_entries.TryGetValue(sessionId, out var entry))
             {
+                client = _links.GetValueOrDefault(entry.BackendId)?.Client;
                 entry.Abandon();
                 Resume(entry);
             }
@@ -472,20 +517,23 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
         }
         catch (Exception e) when (IsAgentFailure(e))
         {
-            return HostResult.Failed(Explain(e));
+            return HostResult.Failed(Explain(e, BackendOf(sessionId)));
         }
     }
 
     /// <summary>Ends the agent's session. It moves to stopped and a message resumes it.</summary>
     public async Task<HostResult> StopAsync(string sessionId, CancellationToken ct = default)
     {
-        AcpClient? client;
+        AcpClient? client = null;
         bool attached;
         lock (_gate)
         {
-            client = _client;
             attached = _entries.TryGetValue(sessionId, out var entry) && entry.Attached;
-            entry?.Abandon();
+            if (entry is not null)
+            {
+                client = _links.GetValueOrDefault(entry.BackendId)?.Client;
+                entry.Abandon();
+            }
         }
 
         if (attached && client is not null)
@@ -566,35 +614,35 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
     /// <summary>The agents running in this process, for the monitor: stopped ones are not running.</summary>
     public IReadOnlyList<AgentSession> Read()
     {
-        int pid;
-        DateTimeOffset? since;
-        List<HostedAgent> running;
+        List<(HostedAgent Agent, int Pid, DateTimeOffset? Since)> running;
         lock (_gate)
         {
-            pid = _process?.ProcessId ?? 0;
-            since = _processStartedAt;
-            running = _entries.Values.Where(e => e.Attached).Select(e => e.Snapshot(_knownCommands)).ToList();
+            running = _entries.Values
+                .Where(e => e.Attached)
+                .Select(e => (e.Snapshot(_knownCommands), _links.GetValueOrDefault(e.BackendId) is { } link ? link.Process.ProcessId : 0, _links.GetValueOrDefault(e.BackendId)?.StartedAt))
+                .ToList();
         }
 
-        return running.Select(a => new AgentSession
+        return running.Select(r => (a: r.Agent, r.Pid, r.Since)).Select(x => new AgentSession
         {
-            SessionId = a.SessionId,
-            Pid = pid,
-            Cwd = a.Cwd,
-            Status = a.State switch
+            SessionId = x.a.SessionId,
+            Backend = x.a.Backend,
+            Pid = x.Pid,
+            Cwd = x.a.Cwd,
+            Status = x.a.State switch
             {
                 HostedState.Working => AgentStatus.Active,
                 HostedState.Waiting => AgentStatus.Waiting,
                 _ => AgentStatus.Idle,
             },
-            WaitingFor = a.WaitingFor,
-            Name = a.Title,
-            StartedAt = a.AddedAt,
-            LastActivity = a.StateSince,
-            StatusSince = a.StateSince,
+            WaitingFor = x.a.WaitingFor,
+            Name = x.a.Title,
+            StartedAt = x.a.AddedAt,
+            LastActivity = x.a.StateSince,
+            StatusSince = x.a.StateSince,
             IsBackground = true,
-            JobId = a.SessionId,
-            ProcessStartedAt = since,
+            JobId = x.a.SessionId,
+            ProcessStartedAt = x.Since,
         }).ToList();
     }
 
@@ -614,8 +662,10 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
         }
         catch (Exception e) when (IsAgentFailure(e))
         {
-            error = Explain(e);
+            error = Explain(e, BackendOf(sessionId));
         }
+
+        Recorder(sessionId)?.EndTurn(sessionId, _clock.Now);
 
         lock (_gate)
         {
@@ -656,7 +706,18 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
     /// <summary>Makes sure the session is live on the current connection, resuming it when it is not.</summary>
     private async Task<AcpClient> AttachAsync(string sessionId, CancellationToken ct)
     {
-        var client = await ConnectAsync(ct).ConfigureAwait(false);
+        string backendId;
+        lock (_gate)
+        {
+            backendId = _entries.TryGetValue(sessionId, out var known)
+                ? known.BackendId
+                : throw new InvalidOperationException("That agent is not here any more.");
+        }
+
+        var backend = Backend(backendId)
+            ?? throw new InvalidOperationException(
+                $"No agent called \"{backendId}\" is set up any more, so this conversation cannot carry on. Turn its adapter back on in Settings, Extensions.");
+        var client = await ConnectAsync(backend, ct).ConfigureAwait(false);
 
         string cwd;
         lock (_gate)
@@ -679,11 +740,11 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
             throw new FolderGoneException(cwd);
         }
 
-        var mcp = _mcpServers?.Grant(cwd, sessionId);
+        var mcp = backend.SessionMeta is null ? null : _mcpServers?.Grant(cwd, sessionId);
         IReadOnlyList<AcpConfigOption> options;
         try
         {
-            options = await client.ResumeSessionAsync(sessionId, cwd, ct, mcp).ConfigureAwait(false);
+            options = await client.ResumeSessionAsync(sessionId, cwd, ct, mcp, Meta(backend, mcp)).ConfigureAwait(false);
         }
         catch
         {
@@ -703,7 +764,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
                 entry.SetState(HostedState.Idle, _clock.Now);
                 if (options.Count > 0)
                 {
-                    _knownOptions = options;
+                    _knownOptions[backendId] = options;
                 }
             }
         }
@@ -711,8 +772,32 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
         // The key the last run of the session had, or the new one when the
         // agent was removed while it resumed.
         Revoke(replaced);
+        if (backend.Transcripts is null)
+        {
+            _recorder?.Begin(backend.Id, sessionId, cwd, _clock.Now);
+        }
+
         Touch();
         return client;
+    }
+
+    /// <summary>The session's environment in the shape its agent takes it, for its MCP key.</summary>
+    private static object? Meta(AgentBackend backend, McpGrant? mcp) =>
+        mcp is { Environment.Count: > 0 } ? backend.SessionMeta?.Invoke(mcp.Environment) : null;
+
+    /// <summary>The recording to write a session's history to, when its agent has no history of its own.</summary>
+    private RecordedTranscripts? Recorder(string sessionId)
+    {
+        var id = BackendOf(sessionId);
+        return id is not null && Backend(id) is { Transcripts: not null } ? null : _recorder;
+    }
+
+    private string? BackendOf(string sessionId)
+    {
+        lock (_gate)
+        {
+            return _entries.GetValueOrDefault(sessionId)?.BackendId;
+        }
     }
 
     private void Revoke(string? mcpKey)
@@ -782,13 +867,13 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
             ?? option.Choices.FirstOrDefault(c => c.Value.Contains(wanted, StringComparison.OrdinalIgnoreCase))?.Value;
     }
 
-    private async Task<AcpClient> ConnectAsync(CancellationToken ct)
+    private async Task<AcpClient> ConnectAsync(AgentBackend backend, CancellationToken ct)
     {
         lock (_gate)
         {
-            if (_client is { Connection.IsClosed: false } live)
+            if (_links.GetValueOrDefault(backend.Id) is { Client.Connection.IsClosed: false } live)
             {
-                return live;
+                return live.Client;
             }
         }
 
@@ -797,20 +882,21 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
         {
             lock (_gate)
             {
-                if (_client is { Connection.IsClosed: false } live)
+                if (_links.GetValueOrDefault(backend.Id) is { Client.Connection.IsClosed: false } live)
                 {
-                    return live;
+                    return live.Client;
                 }
             }
 
             var launchedAt = _clock.Now;
-            var process = _launcher.Launch(_backend);
+            var process = _launcher.Launch(backend);
             var rpc = new JsonRpcConnection(process.Input, process.Output);
             var client = new AcpClient(rpc);
+            var link = new Link(backend, process, client, launchedAt);
 
-            rpc.Notified += (method, parameters) => OnNotified(method, parameters);
+            rpc.Notified += (method, parameters) => OnNotified(link, method, parameters);
             rpc.RequestHandler = OnRequestAsync;
-            rpc.Closed += reason => OnClosed(rpc, process, reason);
+            rpc.Closed += reason => OnClosed(link, reason);
             rpc.Start();
 
             try
@@ -826,9 +912,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
 
             lock (_gate)
             {
-                _process = process;
-                _client = client;
-                _processStartedAt = launchedAt;
+                _links[backend.Id] = link;
             }
 
             return client;
@@ -839,19 +923,18 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
         }
     }
 
-    private void OnClosed(JsonRpcConnection rpc, IAgentProcess process, Exception? reason)
+    private void OnClosed(Link link, Exception? reason)
     {
-        var why = process.RecentErrors.Split('\n').LastOrDefault(l => l.Trim().Length > 0);
+        var why = link.Process.RecentErrors.Split('\n').LastOrDefault(l => l.Trim().Length > 0);
         lock (_gate)
         {
-            if (_client?.Connection != rpc)
+            if (_links.GetValueOrDefault(link.Backend.Id) != link)
             {
                 return;
             }
 
-            _client = null;
-            _process = null;
-            foreach (var entry in _entries.Values.Where(e => e.Attached))
+            _links.Remove(link.Backend.Id);
+            foreach (var entry in _entries.Values.Where(e => e.Attached && e.BackendId == link.Backend.Id))
             {
                 // Whatever the agent started can outlive it and still holds the key.
                 Revoke(entry.McpKey);
@@ -864,18 +947,18 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
                 entry.Turns = 0;
                 if (wasWorking)
                 {
-                    entry.Error = $"{_backend.Name} stopped in the middle of a turn." + (why is null ? "" : $" Its last words: {why}");
+                    entry.Error = $"{link.Backend.Name} stopped in the middle of a turn." + (why is null ? "" : $" Its last words: {why}");
                 }
 
                 entry.SetState(wasWorking ? HostedState.Failed : HostedState.Stopped, _clock.Now);
             }
         }
 
-        _ = process.DisposeAsync().AsTask();
+        _ = link.Process.DisposeAsync().AsTask();
         Touch();
     }
 
-    private void OnNotified(string method, JsonElement parameters)
+    private void OnNotified(Link link, string method, JsonElement parameters)
     {
         if (method != "session/update"
             || AcpClient.Text(parameters, "sessionId") is not { } sessionId
@@ -897,6 +980,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
                     if (update.TryGetProperty("content", out var content) && AcpClient.Text(content, "text") is { } text)
                     {
                         entry.Live.Append(text);
+                        Recording(link)?.Chunk(sessionId, text);
                     }
 
                     break;
@@ -907,6 +991,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
                     // text starts again from here.
                     entry.Live.Clear();
                     entry.CurrentTool = AcpClient.Text(update, "title") ?? entry.CurrentTool;
+                    Recording(link)?.Step(sessionId, AcpClient.Text(update, "kind"), AcpClient.Text(update, "title") ?? "", _clock.Now);
                     break;
 
                 case "tool_call_update":
@@ -951,13 +1036,13 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
                         _recordChanged = true;
                     }
 
-                    // The bridge passes the plan's rate limits along on the same
-                    // update, but only when the SDK reports that they changed.
+                    // An agent can carry its plan's usage limits on the same
+                    // update, in a shape of its own that its adapter reads.
                     if (update.TryGetProperty("_meta", out var meta)
                         && meta.ValueKind == JsonValueKind.Object
-                        && meta.TryGetProperty("_claude/rateLimit", out var rateLimit))
+                        && link.Backend.ReadUsage is { } readUsage)
                     {
-                        foreach (var limit in PlanLimit.Read(rateLimit, _clock.Now))
+                        foreach (var limit in readUsage(meta, _clock.Now))
                         {
                             _plan[limit.Window] = limit.After(_plan.GetValueOrDefault(limit.Window));
                             _planChanged = true;
@@ -987,6 +1072,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
                         // it is kept for the next start as well.
                         entry.Title = named;
                         _recordChanged = true;
+                        Recording(link)?.Title(sessionId, named, _clock.Now);
                     }
 
                     break;
@@ -1181,7 +1267,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
         {
             records = _entries.Values
                 .OrderBy(e => e.AddedAt)
-                .Select(e => new HostedAgentRecord(e.SessionId, e.Cwd, e.Title, e.AddedAt, e.Prompt, e.Context, e.Commands, e.TurnEndedAt))
+                .Select(e => new HostedAgentRecord(e.SessionId, e.Cwd, e.Title, e.AddedAt, e.Prompt, e.Context, e.Commands, e.TurnEndedAt, e.BackendId))
                 .ToList();
         }
 
@@ -1268,12 +1354,22 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
         e is JsonRpcException or IOException or InvalidOperationException
             or OperationCanceledException or System.ComponentModel.Win32Exception;
 
-    private string Explain(Exception e) => e switch
+    private string Explain(Exception e, string? backendId)
     {
-        JsonRpcException rpc => $"{_backend.Name} refused: {rpc.Message}",
-        IOException => $"{_backend.Name} stopped unexpectedly. {(_process?.RecentErrors.Split('\n').LastOrDefault() ?? "")}".Trim(),
-        _ => e.Message,
-    };
+        Link? link;
+        lock (_gate)
+        {
+            link = backendId is null ? null : _links.GetValueOrDefault(backendId);
+        }
+
+        var name = link?.Backend.Name ?? (backendId is null ? null : Backend(backendId)?.Name) ?? "The agent";
+        return e switch
+        {
+            JsonRpcException rpc => $"{name} refused: {rpc.Message}",
+            IOException => $"{name} stopped unexpectedly. {(link?.Process.RecentErrors.Split('\n').LastOrDefault() ?? "")}".Trim(),
+            _ => e.Message,
+        };
+    }
 
     /// <summary>
     /// The prompt as kept in place of a title: long enough that <see cref="IsPromptEcho"/>
@@ -1324,28 +1420,28 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
         // limits arriving just before the app closed, would otherwise be lost.
         Flush();
 
-        AcpClient? client;
-        IAgentProcess? process;
+        List<Link> links;
         lock (_gate)
         {
-            client = _client;
-            process = _process;
-            _client = null;
-            _process = null;
+            links = [.. _links.Values];
+            _links.Clear();
         }
 
-        if (client is not null)
+        foreach (var link in links)
         {
-            await client.Connection.DisposeAsync().ConfigureAwait(false);
-        }
-
-        if (process is not null)
-        {
-            await process.DisposeAsync().ConfigureAwait(false);
+            await link.Client.Connection.DisposeAsync().ConfigureAwait(false);
+            await link.Process.DisposeAsync().ConfigureAwait(false);
         }
 
         _connectGate.Dispose();
     }
+
+    /// <summary>The recording for a session on this process, when its agent has no history of its own.</summary>
+    private RecordedTranscripts? Recording(Link link) => link.Backend.Transcripts is null ? _recorder : null;
+
+    /// <summary>One kind of agent's running process and the connection to it.</summary>
+    /// <param name="StartedAt">Background work begun before this started died with the process before it.</param>
+    private sealed record Link(AgentBackend Backend, IAgentProcess Process, AcpClient Client, DateTimeOffset StartedAt);
 
     private sealed class PendingPermission(PermissionAsk ask)
     {
@@ -1377,9 +1473,10 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
     }
 
     /// <summary>A hosted agent's mutable state, only touched under the host's lock.</summary>
-    private sealed class Entry(string sessionId, string cwd, DateTimeOffset addedAt, DateTimeOffset now)
+    private sealed class Entry(string sessionId, string cwd, DateTimeOffset addedAt, DateTimeOffset now, string backendId)
     {
         public string SessionId { get; } = sessionId;
+        public string BackendId { get; } = backendId;
         public string Cwd { get; } = cwd;
         public DateTimeOffset AddedAt { get; } = addedAt;
         public string? Title { get; set; }
@@ -1433,6 +1530,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
             FolderGone: !Directory.Exists(Cwd),
             Commands: Commands ?? knownCommands,
             Questions: Questions.FirstOrDefault()?.Form,
-            TurnEndedAt: TurnEndedAt);
+            TurnEndedAt: TurnEndedAt,
+            Backend: BackendId);
     }
 }

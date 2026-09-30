@@ -52,7 +52,7 @@ public class ConversationReaderTests
         Assert.Equal([ChatKind.Agent, ChatKind.Activity, ChatKind.Agent], entries.Select(e => e.Kind));
         var steps = entries[1].Steps;
         Assert.Equal(["Run the tests", "/repo/a.cs", "git status"], steps.Select(s => s.Summary));
-        Assert.Equal("Ran 2 commands, read a file", ConversationReader.Describe(steps));
+        Assert.Equal("Ran 2 commands, read a file", ChatSteps.Describe(steps));
     }
 
     [Fact]
