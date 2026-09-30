@@ -2011,6 +2011,16 @@ button.icon-btn:hover:where(:not(:disabled)) { background: var(--surface-2); }
 
 .scm-title { flex: 1; padding-left: 4px; }
 
+/* The commit box above Source control's lists, as VS Code has it: the message,
+   then a full-width Commit button with its other actions behind a chevron. */
+.scm-commit { display: flex; flex-direction: column; gap: 6px; padding: 2px 8px 8px; flex: none; border-bottom: 1px solid var(--border-soft); }
+.scm-message { resize: none; min-height: 30px; max-height: 160px; padding: 5px 8px; font-size: 12px; line-height: 1.45; }
+.scm-commit-row { display: flex; }
+.scm-commit-row button { height: 26px; font-size: 12px; }
+.scm-commit-btn { flex: 1; min-width: 0; border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.scm-commit-more { flex: none; width: 26px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: 1px solid color-mix(in srgb, currentColor 30%, transparent); }
+.scm-error { white-space: pre-wrap; max-height: 160px; overflow-y: auto; }
+
 /* ---------- agent picker ---------- */
 
 /* The agent in view, in the title bar; a click lists them all. */
