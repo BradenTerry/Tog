@@ -300,7 +300,7 @@
 
     /// <summary>
     /// What the bar says about the file. A save is worth confirming for a few
-    /// seconds, after which the counts are more useful.
+    /// seconds, after which the line count is more useful.
     /// </summary>
     private string Status
     {
@@ -318,10 +318,10 @@
 
             if (_file is null || _file.Error is not null || _file.IsBinary)
             {
-                return _file is null ? "" : Fmt.Bytes(_file.Bytes);
+                return "";
             }
 
-            return $"{Fmt.Count(LineCount, "line")}, {Fmt.Bytes(_file.Bytes)}";
+            return Fmt.Count(LineCount, "line");
         }
     }
 

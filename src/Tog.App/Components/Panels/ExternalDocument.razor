@@ -53,7 +53,6 @@ else
                             @onclick="() => SetPreview(true)" title="Show the file as it reads">Preview</button>
                 </div>
             }
-            <span class="faint nums">@(_file is { Bytes: > 0 } f ? Fmt.Bytes(f.Bytes) : "")</span>
         </div>
 
         @if (_conflict)
@@ -305,10 +304,6 @@ else
         {
             _stamp = result.Stamp ?? _stamp;
             _text = _text with { Text = text, Stamp = _stamp };
-            if (_file is not null)
-            {
-                _file = _file with { Bytes = System.Text.Encoding.UTF8.GetByteCount(text) };
-            }
             _conflict = false;
             SetUnsaved(false);
             return;

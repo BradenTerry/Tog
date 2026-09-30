@@ -17,7 +17,6 @@
             <button class="small @(_actual ? "on" : "")" aria-pressed="@(_actual.ToString().ToLowerInvariant())"
                     @onclick="() => _actual = true" title="Show the image at its own size">Actual size</button>
         </div>
-        <span class="faint nums">@_size</span>
     </div>
 
     @if (_url is null)
@@ -49,7 +48,6 @@
     public int Version { get; set; }
 
     private string? _url;
-    private string _size = "";
     private bool _actual;
     private string? _shownPath;
     private int _shownVersion = -1;
@@ -70,7 +68,6 @@
     {
         var info = new FileInfo(AbsolutePath);
         _url = info.Exists ? Images.UrlFor(AbsolutePath) : null;
-        _size = info.Exists ? Fmt.Bytes(info.Length) : "";
     }
 
     private void OnFilesChanged(string worktreePath, IReadOnlySet<string> paths)
