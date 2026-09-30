@@ -2,7 +2,6 @@
 @inject AgentHost Host
 @inject MonitorService Monitor
 @inject SettingsStore Settings
-@inject PastSessionReader PastSessions
 @inject WorktreeCreator Creator
 @inject Workbench Bench
 
@@ -147,6 +146,18 @@
 
     <section class="start-section">
         <h3 class="start-section-title">Options</h3>
+        @if (Host.Backends.Count > 1)
+        {
+            @* Only once there is a choice to make: with one agent the picker
+               would be a label. *@
+            <div class="form-grid three">
+                <div class="field">
+                    <label class="field-label" for="start-agent">Agent</label>
+                    <Picker Id="start-agent" Value="@(Chosen?.Id ?? "")" Options="@AgentOptions"
+                            ValueChanged="v => { _backend = v; _pastFor = null; Touch(); }" />
+                </div>
+            </div>
+        }
         <div class="form-grid three">
             @foreach (var (id, label, choice) in Settings3)
             {
@@ -160,15 +171,20 @@
         </div>
     </section>
 
+    @if (Chosen?.Problem is { } problem)
+    {
+        <div class="banner info">@problem</div>
+    }
+
     @if (_confirmTrust is { } trustRoot)
     {
         @* Starting an agent hands it the whole repository. Asked once per
            repository, inline rather than with a browser confirm(), which would
            hold the circuit for as long as the dialog is open. *@
         <div class="trust-card" role="alertdialog" aria-labelledby="trust-title">
-            <strong id="trust-title">Let Claude work in @(State.Repo(trustRoot)?.Name ?? Fmt.Leaf(trustRoot))?</strong>
+            <strong id="trust-title">Let @AgentName work in @(State.Repo(trustRoot)?.Name ?? Fmt.Leaf(trustRoot))?</strong>
             <span>
-                Claude will be able to read and change every file in
+                @AgentName will be able to read and change every file in
                 <span class="mono">@trustRoot</span>, and run commands there, within the permission mode you choose.
                 Tog remembers your answer for this repository.
             </span>
@@ -181,7 +197,7 @@
 
     <footer class="start-foot">
         <span class="faint">
-            @(string.IsNullOrWhiteSpace(_prompt) ? "With no prompt it starts idle." : "Runs Claude in Tog.")
+            @(string.IsNullOrWhiteSpace(_prompt) ? "With no prompt it starts idle." : $"Runs {AgentName} in Tog.")
             <kbd>@(OperatingSystem.IsMacOS() ? "Cmd" : "Ctrl")</kbd>+<kbd>Enter</kbd> to start.
         </span>
         <button class="primary spacer" @onclick="Start" disabled="@(_busy || Where is null || _confirmTrust is not null)">
@@ -239,8 +255,21 @@
     private IReadOnlyList<PickerOption> ChoiceOptions(string id) =>
     [
         new("", "Agent default"),
-        .. StartChoices.For(id, Host.KnownOptions).Select(c => new PickerOption(c.Value, c.Name)),
+        .. StartChoices.For(id, Chosen is { } agent ? Host.KnownOptions(agent.Id) : [], Chosen?.Defaults ?? StartDefaults.None)
+            .Select(c => new PickerOption(c.Value, c.Name)),
     ];
+
+    /// <summary>The agent picked, by id; empty for the first there is.</summary>
+    private string _backend = "";
+
+    /// <summary>The agent a start would run, or null when none is set up.</summary>
+    private AgentBackend? Chosen =>
+        Host.Backends.FirstOrDefault(b => b.Id == _backend) ?? Host.Backends.FirstOrDefault();
+
+    private string AgentName => Chosen?.Name ?? "the agent";
+
+    private IReadOnlyList<PickerOption> AgentOptions =>
+        Host.Backends.Select(b => new PickerOption(b.Id, b.Name, b.Problem is null ? null : "Not set up on this machine")).ToList();
 
     private IReadOnlyList<PickerOption> RepoOptions =>
         Repos.Select(root => new PickerOption(root, RepoName(root), root)).ToList();
@@ -453,10 +482,11 @@
         get
         {
             var where = NewWorktree ? null : Where;
-            if (where != _pastFor)
+            var key = where is null ? null : Chosen?.Id + "\n" + where;
+            if (key != _pastFor)
             {
-                _pastFor = where;
-                _past = where is null ? [] : PastSessions.For(where);
+                _pastFor = key;
+                _past = where is null || Chosen is not { } agent ? [] : Host.Transcripts(agent.Id)?.PastSessions(where) ?? [];
             }
 
             return _past;
@@ -530,7 +560,8 @@
             Blank(_model),
             Blank(_effort),
             Blank(_permissionMode),
-            resumed is null ? null : Past.FirstOrDefault(p => p.SessionId == resumed)?.Title);
+            resumed is null ? null : Past.FirstOrDefault(p => p.SessionId == resumed)?.Title,
+            Chosen?.Id);
 
         result = resumed is null
             ? await Host.StartAsync(start)

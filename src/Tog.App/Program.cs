@@ -113,8 +113,11 @@ builder.Services.AddScoped<Toasts>();
 // Agents
 // Run over the Agent Client Protocol, inside this process. Claude is one agent
 // backend, launched through the official ACP bridge that tools/vendor-acp.mjs
-// installs next to the project; another agent is another AgentBackend.
-builder.Services.AddSingleton(_ => AgentBackends.Claude(builder.Environment.ContentRootPath));
+// installs next to the project; another agent is another AgentBackend here.
+builder.Services.AddSingleton<ClaudeTranscripts>();
+builder.Services.AddSingleton<RecordedTranscripts>();
+builder.Services.AddSingleton<IAgentBackends>(sp => new FixedAgentBackends(
+    AgentBackends.Claude(builder.Environment.ContentRootPath, sp.GetRequiredService<ClaudeTranscripts>())));
 builder.Services.AddSingleton<IAgentLauncher, ProcessAgentLauncher>();
 builder.Services.AddSingleton<HostedAgentStore>();
 builder.Services.AddSingleton<PlanUsageStore>();

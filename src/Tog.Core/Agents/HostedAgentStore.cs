@@ -8,6 +8,7 @@ namespace Tog.Core.Agents;
 /// <param name="Context">How full its context window was last reported, so a stopped agent still shows it.</param>
 /// <param name="Commands">The slash commands it last listed, so a stopped agent still offers them after a restart.</param>
 /// <param name="TurnEndedAt">When its last turn ended, so one finished while you were away is still unread after a restart.</param>
+/// <param name="Backend">The id of the agent it runs on. Missing from lists saved before there was a choice, all of which were Claude.</param>
 public sealed record HostedAgentRecord(
     string SessionId,
     string Cwd,
@@ -16,14 +17,15 @@ public sealed record HostedAgentRecord(
     string? Prompt = null,
     ContextUsage? Context = null,
     IReadOnlyList<AcpCommand>? Commands = null,
-    DateTimeOffset? TurnEndedAt = null);
+    DateTimeOffset? TurnEndedAt = null,
+    string? Backend = null);
 
 /// <summary>
 /// The agents in the agent list, kept across restarts.
 /// </summary>
 /// <remarks>
 /// Tog hosts its agents, so closing it ends their processes. Their
-/// conversations are saved by Claude either way; this list is what lets them
+/// conversations are saved by the agent either way; this list is what lets them
 /// come back as stopped agents you can pick up again, rather than vanishing from
 /// the agent list until you go looking for them under Resume.
 /// </remarks>

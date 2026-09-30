@@ -1,13 +1,8 @@
 using System.Text;
 using System.Text.Json;
+using Tog.Core.Model;
 
 namespace Tog.Core.Claude;
-
-/// <summary>A conversation that once ran in a folder, which can be resumed.</summary>
-/// <param name="Title">The name you gave it, or the one Claude generated, as the CLI's /resume shows.</param>
-/// <param name="LastPrompt">The last thing you asked it, as Claude recorded it.</param>
-/// <param name="UpdatedAt">When its transcript was last written.</param>
-public sealed record PastSession(string SessionId, string? Title, string? LastPrompt, DateTimeOffset UpdatedAt);
 
 /// <summary>
 /// Lists the conversations Claude has kept for a folder, newest first.

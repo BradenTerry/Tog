@@ -49,9 +49,9 @@ it fills with those paths and the API version. It reaches the agent two ways:
 ```mermaid
 flowchart TD
     S["templates/skill/SKILL.md<br/>shipped in the app"] --> R["ExtensionSkill.Text()<br/>paths and API filled in"]
-    R -->|"Settings, Extensions, Add skill<br/>(the user's click)"| K["~/.claude/skills/tog-extension"]
+    R -->|"Settings, Extensions, Copy skill"| K["the user's clipboard"]
     R -->|"MCP: tog_extension_guide"| M["an agent Tog runs"]
-    K --> T["an agent in a terminal"]
+    K -->|"saved as a skill or rules file,<br/>or pasted into the chat"| T["any other agent"]
     M --> B["scaffold, dotnet build"]
     T --> B
     B -->|"MCP: tog_extension_add"| Q["ExtensionRequests"]
@@ -60,12 +60,11 @@ flowchart TD
     P -->|"Not now"| X["nothing changes"]
 ```
 
-- **The skill.** Settings, Extensions, General, *Write one with an agent* writes it for
-  each agent that has a skills folder (`ExtensionSkill.Targets`: Claude Code
-  today, when its config folder exists; another agent is another target). It
-  is the one file the app writes into `~/.claude`, and only from that button.
-  The installed copy names absolute paths and an API version, so any
-  difference from this build's text shows as *out of date*, with Update.
+- **The skill.** Settings, Extensions, General, *Write one with an agent* shows
+  it with *Copy skill*. The app writes it nowhere: every agent keeps skills and
+  rules somewhere different, so the user puts it wherever theirs reads them,
+  or pastes it into the conversation. It names absolute paths and an API
+  version, so it has to be copied again after the app updates.
 - **The guide tool.** Agents Tog runs need no skill: the MCP tool
   `tog_extension_guide` returns the same text.
 - **The add tool.** `tog_extension_add` never links anything. It checks

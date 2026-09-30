@@ -33,7 +33,8 @@ file per subsystem that is easy to get wrong twice:
 - `docs/agents.md` - work summaries from transcripts, subagents, notification rules
 - `docs/syntax.md` - VS Code's TextMate grammars in Monaco, loaded through
   `textmate.js`
-- `docs/agent-control.md` - ACP, the host, a turn, permissions, the bridge
+- `docs/agent-control.md` - ACP, the host, a turn, permissions, the bridge,
+  adding another agent
 - `docs/staging.md` - the two-character status field, unstaging with no HEAD
 - `docs/editor.md` - Monaco in the editor, vendoring it, stamp-based saves,
   images, opening a file from outside the app
@@ -73,7 +74,11 @@ handshake. They are pinned level in `Directory.Packages.props`.
 
 **Agents run over ACP, inside this process.** `AgentHost` launches the Claude
 ACP bridge (`node acp/.../claude-agent-acp/dist/index.js`, installed by
-`tools/vendor-acp.mjs`) and every agent is a session on that one process. Closing
+`tools/vendor-acp.mjs`) and every agent is a session on that one process: one
+process per kind of agent, and Claude is the only kind today. Another agent is
+an `AgentBackend` whose hooks say what it does its own way (its MCP key, its
+transcripts, its usage); without a transcript reader the host records its
+history in `~/.tog/history`. Closing
 the app ends the agents; `agents.json` brings them back as stopped, and a message
 resumes them. The bridge logs to stderr constantly, so its error stream must
 always be drained, or the pipe fills and it blocks. See `docs/agent-control.md`.
@@ -182,8 +187,9 @@ services are registered there. An extension's own services come from
   decision over a line-by-line narration.
 - Nothing Tog or an agent does on its own writes into `~/.claude`;
   the app only reads it. You can still open and edit a file there yourself,
-  and it is saved when you press Save, like any file. The only changes the app
-  makes to Claude's config are the extension skill and the MCP server entry
-  (through `claude mcp`), each from its button in Settings.
+  and it is saved when you press Save, like any file. The only change the app
+  makes to Claude's config is the MCP server entry (through `claude mcp`),
+  from its button in Settings. The extension skill is shown there to copy into
+  whatever agent you use, never written.
 - Anything that edits the user's repository is offered, never done on its own.
 - Don't commit unless asked.

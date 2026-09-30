@@ -30,15 +30,17 @@ flowchart LR
   CR["ConversationReader"] --> T
 ```
 
-- **`AgentBackend`** describes an agent: a name and the command that starts it.
-  Claude is one (`AgentBackends.Claude`). Another agent that speaks ACP is
-  another definition; nothing above it changes.
-- **`AgentHost`** owns the agent process and every session on it. One process
-  hosts all sessions: ACP is built for many sessions per connection, and a Node
-  process per agent would cost memory for nothing. It is started on first use and
-  again after it dies.
+- **`AgentBackend`** describes a kind of agent: a name, the command that starts
+  it, and the few things it does its own way (see
+  [Adding another agent](#adding-another-agent)). Claude is the only one today
+  (`AgentBackends.Claude`), listed by `IAgentBackends`.
+- **`AgentHost`** owns one process per kind of agent and every session on it.
+  One process hosts all sessions of its kind: ACP is built for many sessions per
+  connection, and a Node process per agent would cost memory for nothing. Each
+  is started on first use and again after it dies.
 - **`HostedAgentStore`** is the list of agents in the agent list, kept in
-  `~/.tog/agents.json` so they come back after a restart.
+  `~/.tog/agents.json` so they come back after a restart. Each record names the
+  kind of agent it runs on; one saved before there was a choice is Claude.
 
 ## The app is the host
 
@@ -312,6 +314,52 @@ something you said, or a notice when they were skipped.
 
 ## When the agent process dies
 
-Every session it held stops. One that was mid-turn is marked failed, with the last
+Every session it held stops, and only those: another kind of agent's process
+is left alone. One that was mid-turn is marked failed, with the last
 line the bridge wrote to its error stream; the others become stopped. The next
 message starts the process again and resumes the session.
+
+## Adding another agent
+
+Tog runs any agent that speaks ACP on its standard input and output, natively
+or through an adapter such as Zed's `codex-acp`. Adding one is a pull request:
+a method in `AgentBackends` that returns its `AgentBackend`, and a line in
+`Program.cs` that lists it beside Claude. New agent shows an Agent picker once
+there are two. Everything the protocol covers (turns, streaming, permissions,
+questions, models and modes) works without anything more. What an agent does
+its own way is a hook on its definition, each with a default that works:
+
+```mermaid
+flowchart LR
+  B["AgentBackend<br/>name + command"] --> H["AgentHost<br/>a process per kind"]
+  B -. SessionMeta .-> K["Tog's MCP tools<br/>(none without it)"]
+  B -. Transcripts .-> C["Chat, agent list,<br/>Resume"]
+  B -. ReadUsage .-> U["Plan usage<br/>in the status bar"]
+  R["RecordedTranscripts<br/>~/.tog/history"] -. when Transcripts is null .-> C
+```
+
+- **`SessionMeta`** puts a session's environment in the `_meta` of
+  `session/new` and `session/resume`. It is how the session gets its MCP key:
+  the server entry only names `${TOG_MCP_KEY}`, since the entry can end up on
+  a command line, so the value has to reach the session's process some other
+  way. Claude's bridge takes `claudeCode.options.env`
+  (`ClaudeAgent.SessionMeta`). An agent without one is given no MCP servers at
+  all rather than an entry it cannot authenticate to.
+- **`Transcripts`** reads the agent's own record of its conversations for the
+  chat, the agent list's summary, subagents and New agent's Resume list.
+  Claude's (`ClaudeTranscripts`) reads `~/.claude/projects`, so a conversation
+  started in a terminal comes with its history. Without one, the host records
+  what the agent streamed to `~/.tog/history/<session>.jsonl`
+  (`RecordedTranscripts`): what you sent, what it said, each tool call's kind
+  and title, and the name it gave the conversation. That has only what ran in
+  Tog, and no diffs or subagents, but the chat survives a restart. Its words
+  are written when it moves on to a tool call or ends the turn, as a transcript
+  records them, so the live text hands over to the recorded message at the same
+  point for every agent.
+- **`ReadUsage`** reads usage limits from a `usage_update`'s `_meta`. Claude's
+  reads `_claude/rateLimit`.
+- **`Defaults`** are the models, efforts and modes New agent lists before the
+  agent has run a session and reported its own.
+
+Resuming a stopped agent needs the agent to offer `session/resume`; one that
+does not can still be started, but a message to it after a restart fails.

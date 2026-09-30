@@ -1,15 +1,6 @@
-using Tog.Core.Claude;
 using Tog.Core.Repos;
 
 namespace Tog.Core.Extensions;
-
-/// <summary>An agent's skills folder, where the extension skill can be added.</summary>
-/// <param name="AgentName">The agent as Settings names it.</param>
-/// <param name="SkillsDir">The agent's user-wide skills folder.</param>
-/// <param name="Available">Whether the agent looks installed: its config folder exists.</param>
-public sealed record SkillTarget(string AgentName, string SkillsDir, bool Available);
-
-public enum SkillState { Missing, Current, Outdated }
 
 /// <summary>
 /// The skill that teaches an agent to write a Tog extension, and the
@@ -24,9 +15,11 @@ public enum SkillState { Missing, Current, Outdated }
 /// follow it without looking anything up.
 /// </para>
 /// <para>
-/// Writing the skill into an agent's config folder is the one write the app
-/// makes there, and only when the user presses the button for it. Agents the
-/// app runs get the same text from its MCP server without it.
+/// The app never writes it anywhere itself. Settings shows it with a button to
+/// copy it, and the user gives it to whichever agent they use, as a skill, a
+/// rules file or a message: every agent keeps these somewhere different, and
+/// the app only reads their config. Agents the app runs get the same text from
+/// its MCP server.
 /// </para>
 /// </remarks>
 public sealed class ExtensionSkill
@@ -35,14 +28,12 @@ public sealed class ExtensionSkill
     public const string Name = "tog-extension";
 
     private readonly AppPaths _paths;
-    private readonly ClaudePaths _claude;
     private readonly string _bundle;
 
     /// <param name="bundle">The folder the app runs from, holding <c>skill/</c> and <c>sdk-template/</c>.</param>
-    public ExtensionSkill(AppPaths paths, ClaudePaths claude, string? bundle = null)
+    public ExtensionSkill(AppPaths paths, string? bundle = null)
     {
         _paths = paths;
-        _claude = claude;
         _bundle = bundle ?? AppContext.BaseDirectory;
     }
 
@@ -52,14 +43,7 @@ public sealed class ExtensionSkill
     /// <summary>Where the template is published for <c>dotnet new install</c>.</summary>
     public string TemplateDir => Path.Combine(SdkDir, "template");
 
-    /// <summary>
-    /// Every agent the skill can be added for. Only Claude Code today; another
-    /// agent with a skills folder is another entry.
-    /// </summary>
-    public IReadOnlyList<SkillTarget> Targets =>
-        [new("Claude Code", Path.Combine(_claude.Root, "skills"), Directory.Exists(_claude.Root))];
-
-    /// <summary>The skill as it would be written on this machine, or null when this build does not carry it.</summary>
+    /// <summary>The skill with this machine's paths filled in, or null when this build does not carry it.</summary>
     public string? Text()
     {
         var source = Path.Combine(_bundle, "skill", "SKILL.md");
@@ -72,76 +56,6 @@ public sealed class ExtensionSkill
             .Replace("{{api}}", $"{ExtensionManifests.Api.Major}.{ExtensionManifests.Api.Minor}", StringComparison.Ordinal)
             .Replace("{{sdk}}", SdkDir, StringComparison.Ordinal)
             .Replace("{{template}}", TemplateDir, StringComparison.Ordinal);
-    }
-
-    public string FileFor(SkillTarget target) => Path.Combine(target.SkillsDir, Name, "SKILL.md");
-
-    /// <summary>
-    /// Whether the skill there is this build's. Any difference counts as
-    /// outdated, including an edit of the user's: the paths and the API version
-    /// in it are what go stale, and an update puts them right.
-    /// </summary>
-    public SkillState State(SkillTarget target)
-    {
-        var file = FileFor(target);
-        if (!File.Exists(file))
-        {
-            return SkillState.Missing;
-        }
-
-        try
-        {
-            return File.ReadAllText(file) == Text() ? SkillState.Current : SkillState.Outdated;
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        {
-            return SkillState.Outdated;
-        }
-    }
-
-    /// <summary>Writes the skill for an agent. Returns why not, or null.</summary>
-    public string? Install(SkillTarget target)
-    {
-        if (Text() is not { } text)
-        {
-            return "This build of the app does not include the skill.";
-        }
-
-        try
-        {
-            var file = FileFor(target);
-            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
-            File.WriteAllText(file, text);
-            return null;
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        {
-            return e.Message;
-        }
-    }
-
-    /// <summary>
-    /// Removes the skill file, and its folder if that leaves it empty: anything
-    /// else the user put there is theirs.
-    /// </summary>
-    public string? Remove(SkillTarget target)
-    {
-        try
-        {
-            var file = FileFor(target);
-            File.Delete(file);
-            var folder = Path.GetDirectoryName(file)!;
-            if (Directory.Exists(folder) && !Directory.EnumerateFileSystemEntries(folder).Any())
-            {
-                Directory.Delete(folder);
-            }
-
-            return null;
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        {
-            return e.Message;
-        }
     }
 
     /// <summary>

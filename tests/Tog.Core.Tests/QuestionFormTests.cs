@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Tog.Core.Agents;
+using Tog.Core.Claude;
 using Tog.Core.Model;
 using Tog.Core.Repos;
 using Tog.Core.Tests.Support;
@@ -8,7 +9,7 @@ namespace Tog.Core.Tests;
 
 public class QuestionFormTests
 {
-    private static readonly AgentBackend Backend = new("claude", "Claude", "fake", []);
+    private static readonly AgentBackend Backend = new AgentBackend("claude", "Claude", "fake", []).Hooked();
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 

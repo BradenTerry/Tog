@@ -410,7 +410,7 @@ public sealed class ConversationReader
     }
 
     /// <summary>The most lines one edit shows. A Write of a generated file can be thousands.</summary>
-    public const int MaxEditLines = 400;
+    public const int MaxEditLines = ChatSteps.MaxEditLines;
 
     /// <summary>
     /// An Edit, MultiEdit or Write call as a change, with a first diff made from
@@ -574,34 +574,6 @@ public sealed class ConversationReader
 
         return new ChatStep(name, OneLine(summary ?? ""));
     }
-
-    /// <summary>How a run of steps reads folded: "ran 3 commands, edited 2 files".</summary>
-    public static string Describe(IReadOnlyList<ChatStep> steps)
-    {
-        var parts = steps
-            .GroupBy(s => Verb(s.Tool))
-            .Select(g => g.Key.Count(g.Count()))
-            .ToList();
-        return parts.Count == 0 ? "" : char.ToUpperInvariant(parts[0][0]) + string.Join(", ", parts)[1..];
-    }
-
-    private sealed record VerbPhrase(string Verb, string One, string Many)
-    {
-        public string Count(int n) => n == 1 ? $"{Verb} {One}" : $"{Verb} {n} {Many}";
-    }
-
-    private static VerbPhrase Verb(string tool) => tool switch
-    {
-        "Bash" => new("ran", "a command", "commands"),
-        "Read" => new("read", "a file", "files"),
-        "Edit" or "MultiEdit" or "Write" or "NotebookEdit" => new("edited", "a file", "files"),
-        "Grep" or "Glob" => new("searched", "once", "times"),
-        "Skill" => new("used", "a skill", "skills"),
-        "Agent" or "Task" => new("started", "a subagent", "subagents"),
-        "WebFetch" or "WebSearch" => new("looked up", "a page", "pages"),
-        "TodoWrite" => new("updated", "its todo list", "its todo list"),
-        _ => new("used", tool, tool),
-    };
 
     private static string OneLine(string text)
     {

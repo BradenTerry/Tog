@@ -18,6 +18,7 @@ public enum ChatState { Waiting, Active, Idle, Parked, Failed }
 /// <param name="Subagents">Subagents running under it right now.</param>
 /// <param name="BackgroundCommands">Shell commands it started in the background that are still running.</param>
 /// <param name="TurnEndedAt">When its last turn ended.</param>
+/// <param name="Backend">The id of the agent it runs on, such as "claude".</param>
 public sealed record ChatTarget(
     string SessionId,
     string Label,
@@ -44,7 +45,8 @@ public sealed record ChatTarget(
     bool FolderGone = false,
     IReadOnlyList<AcpCommand>? Commands = null,
     QuestionForm? Questions = null,
-    DateTimeOffset? TurnEndedAt = null)
+    DateTimeOffset? TurnEndedAt = null,
+    string Backend = "")
 {
     /// <summary>Subagents and background commands still running.</summary>
     public int BackgroundCount => (Subagents?.Count ?? 0) + (BackgroundCommands?.Count ?? 0);
@@ -119,7 +121,8 @@ public sealed class AgentDirectory(AgentHost host)
                     agent.FolderGone,
                     agent.Commands,
                     agent.Questions,
-                    agent.TurnEndedAt);
+                    agent.TurnEndedAt,
+                    agent.Backend);
             })
             .OrderBy(t => t.State)
             // Waiting: blocked longest first, since that one costs the most.

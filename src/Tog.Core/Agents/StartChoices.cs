@@ -4,7 +4,7 @@ namespace Tog.Core.Agents;
 public sealed record StartChoice(string Value, string Name);
 
 /// <summary>
-/// What the start form and Settings offer before any agent has run.
+/// What the start form and Settings offer for Claude before any agent has run.
 /// </summary>
 /// <remarks>
 /// The real lists come from the agent: every session it starts reports the
@@ -44,9 +44,9 @@ public static class StartChoices
 
     /// <summary>
     /// The choices for one setting: the agent's own when it has reported them,
-    /// these otherwise.
+    /// its defaults otherwise.
     /// </summary>
-    public static IReadOnlyList<StartChoice> For(string id, IReadOnlyList<AcpConfigOption> known)
+    public static IReadOnlyList<StartChoice> For(string id, IReadOnlyList<AcpConfigOption> known, StartDefaults defaults)
     {
         if (known.FirstOrDefault(o => o.Id == id) is { Choices.Count: > 0 } option)
         {
@@ -58,9 +58,9 @@ public static class StartChoices
 
         return id switch
         {
-            "model" => Models,
-            "effort" => Efforts,
-            "mode" => Modes,
+            "model" => defaults.Models,
+            "effort" => defaults.Efforts,
+            "mode" => defaults.Modes,
             _ => [],
         };
     }

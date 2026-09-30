@@ -1,18 +1,21 @@
 using System.Diagnostics;
+using System.Text.Json;
+using Tog.Core.Model;
 using System.Text;
 
 namespace Tog.Core.Agents;
 
 /// <summary>
 /// An agent Tog can run: a program that speaks the Agent Client
-/// Protocol on its standard input and output.
+/// Protocol on its standard input and output, and what the app needs to know
+/// about it beyond the protocol.
 /// </summary>
 /// <remarks>
-/// This is the extension point for other agents. Claude is one definition,
-/// launching the official ACP bridge; another agent is another definition with
-/// its own command, and everything above the protocol stays the same.
+/// Every agent comes from an adapter: an extension that adds one, or a command
+/// typed in Settings. The app has none of its own, Claude included, so what
+/// one agent needs never has to wait for an app release.
 /// </remarks>
-/// <param name="Id">A stable key, such as "claude".</param>
+/// <param name="Id">A stable key, such as "claude", saved with every agent started on it.</param>
 /// <param name="Name">What the UI calls it.</param>
 /// <param name="Command">The program to run.</param>
 /// <param name="Arguments">Its arguments.</param>
@@ -22,7 +25,82 @@ public sealed record AgentBackend(
     string Name,
     string Command,
     IReadOnlyList<string> Arguments,
-    string? Problem = null);
+    string? Problem = null)
+{
+    /// <summary>
+    /// The <c>_meta</c> that carries a session's environment to its process, or
+    /// null when the agent cannot take one. Such an agent is given no MCP
+    /// servers: their key only reaches a session this way.
+    /// </summary>
+    public Func<IReadOnlyDictionary<string, string>, object?>? SessionMeta { get; init; }
+
+    /// <summary>The agent's own transcripts, or null for the app's recording of what it streamed.</summary>
+    public IAgentTranscripts? Transcripts { get; init; }
+
+    /// <summary>Usage limits from a <c>usage_update</c>'s <c>_meta</c>, when the agent reports them.</summary>
+    public Func<JsonElement, DateTimeOffset, IReadOnlyList<PlanLimit>>? ReadUsage { get; init; }
+
+    /// <summary>What the start form offers before the agent has reported its own lists.</summary>
+    public StartDefaults Defaults { get; init; } = StartDefaults.None;
+}
+
+/// <summary>What the start form offers for one agent before it has reported its own lists.</summary>
+public sealed record StartDefaults(
+    IReadOnlyList<StartChoice> Models,
+    IReadOnlyList<StartChoice> Efforts,
+    IReadOnlyList<StartChoice> Modes)
+{
+    public static StartDefaults None { get; } = new([], [], []);
+}
+
+/// <summary>The agents this app can run right now.</summary>
+/// <remarks>
+/// Adapters come and go as extensions load, reload and are turned off, so the
+/// list is asked for each time rather than kept. An agent whose adapter has gone
+/// stays on the agent list and says so when it is sent a message.
+/// </remarks>
+public interface IAgentBackends
+{
+    /// <summary>Every agent that can be started, in the order New agent lists them.</summary>
+    IReadOnlyList<AgentBackend> All { get; }
+
+    /// <summary>Raised when an adapter is added, changed or removed.</summary>
+    event Action? Changed;
+}
+
+/// <summary>A fixed list of agents, for tests and for a host with one.</summary>
+public sealed class FixedAgentBackends(params AgentBackend[] backends) : IAgentBackends
+{
+    public IReadOnlyList<AgentBackend> All { get; } = backends;
+
+    public event Action? Changed
+    {
+        add { }
+        remove { }
+    }
+}
+
+/// <summary>
+/// An agent's own record of its conversations, read for the chat, the agent
+/// list and the start form's list of conversations to resume.
+/// </summary>
+public interface IAgentTranscripts
+{
+    /// <summary>The conversation so far, oldest first, or null when there is no record of it.</summary>
+    IReadOnlyList<ChatEntry>? Conversation(string sessionId, string cwd);
+
+    /// <summary>A subagent's own conversation, or null when there is none.</summary>
+    IReadOnlyList<ChatEntry>? SubagentConversation(string sessionId, string cwd, string subagentId);
+
+    /// <summary>What the session is doing, or null when there is no record of it.</summary>
+    SessionActivity? Activity(string sessionId, string cwd);
+
+    /// <summary>Conversations that once ran in a folder, newest first.</summary>
+    IReadOnlyList<PastSession> PastSessions(string cwd);
+
+    /// <summary>Drops what is kept for sessions no longer running.</summary>
+    void Forget(IReadOnlySet<string> liveSessionIds);
+}
 
 /// <summary>A running agent process: its protocol streams, and a way to end it.</summary>
 public interface IAgentProcess : IAsyncDisposable

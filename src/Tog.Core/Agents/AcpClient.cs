@@ -14,7 +14,7 @@ public sealed record AcpConfigOption(string Id, string Name, string? Current, IR
 public sealed record AcpCommand(string Name, string Description, string? Hint);
 
 /// <summary>An MCP server handed to an agent's sessions, reached over HTTP.</summary>
-/// <param name="Headers">Sent with every request. A value may name an environment variable as <c>${NAME}</c>, which the Claude CLI expands.</param>
+/// <param name="Headers">Sent with every request. A value may name an environment variable as <c>${NAME}</c>, which the agent expands from the session's environment.</param>
 public sealed record McpServer(string Name, string Url, IReadOnlyList<KeyValuePair<string, string>>? Headers = null);
 
 /// <summary>What one agent session is handed to reach the app's MCP servers.</summary>
@@ -121,21 +121,13 @@ public sealed class AcpClient(JsonRpcConnection rpc)
             })]
             : [];
 
-    /// <summary>
-    /// The variables a session's CLI needs, where the Claude bridge takes them
-    /// for one session rather than the whole process: every session shares the
-    /// bridge, so its own environment cannot hold anything one session's alone.
-    /// An agent that is not Claude ignores it.
-    /// </summary>
-    private static object? Meta(McpGrant? grant) =>
-        grant is { Environment.Count: > 0 } ? new { claudeCode = new { options = new { env = grant.Environment } } } : null;
-
     public async Task<(string SessionId, IReadOnlyList<AcpConfigOption> Options)> NewSessionAsync(
         string cwd,
         CancellationToken ct = default,
-        McpGrant? mcp = null)
+        McpGrant? mcp = null,
+        object? meta = null)
     {
-        var result = await rpc.RequestAsync("session/new", new { cwd, mcpServers = Servers(mcp?.Servers), _meta = Meta(mcp) }, ct)
+        var result = await rpc.RequestAsync("session/new", new { cwd, mcpServers = Servers(mcp?.Servers), _meta = meta }, ct)
             .ConfigureAwait(false);
 
         return (result.GetProperty("sessionId").GetString()!, ReadOptions(result));
@@ -149,11 +141,12 @@ public sealed class AcpClient(JsonRpcConnection rpc)
         string sessionId,
         string cwd,
         CancellationToken ct = default,
-        McpGrant? mcp = null)
+        McpGrant? mcp = null,
+        object? meta = null)
     {
         var result = await rpc.RequestAsync(
             "session/resume",
-            new { sessionId, cwd, mcpServers = Servers(mcp?.Servers), _meta = Meta(mcp) },
+            new { sessionId, cwd, mcpServers = Servers(mcp?.Servers), _meta = meta },
             ct).ConfigureAwait(false);
 
         return ReadOptions(result);

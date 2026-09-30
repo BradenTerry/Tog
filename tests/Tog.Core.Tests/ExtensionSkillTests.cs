@@ -1,4 +1,3 @@
-using Tog.Core.Claude;
 using Tog.Core.Extensions;
 using Tog.Core.Repos;
 using Tog.Core.Tests.Support;
@@ -12,17 +11,13 @@ public class ExtensionSkillTests
     private static ExtensionSkill Make(TempDir dir, string? bundle = null)
     {
         bundle ??= dir.Dir("bundle");
-        return new ExtensionSkill(
-            new AppPaths(Path.Combine(dir.Path, "data")),
-            new ClaudePaths(new Dictionary<string, string?> { ["CLAUDE_CONFIG_DIR"] = Path.Combine(dir.Path, "claude") }),
-            bundle);
+        return new ExtensionSkill(new AppPaths(Path.Combine(dir.Path, "data")), bundle);
     }
 
     private static TempDir WithSkill(string text = "api {{api}} sdk {{sdk}} template {{template}}")
     {
         var dir = new TempDir();
         dir.File("bundle/skill/SKILL.md", text);
-        dir.Dir("claude");
         return dir;
     }
 
@@ -50,66 +45,11 @@ public class ExtensionSkillTests
     }
 
     [Fact]
-    public void A_build_without_the_skill_offers_nothing_to_write()
+    public void A_build_without_the_skill_has_nothing_to_copy()
     {
         using var dir = new TempDir();
-        dir.Dir("claude");
-        var skill = Make(dir);
-        var target = skill.Targets[0];
 
-        Assert.Null(skill.Text());
-        Assert.NotNull(skill.Install(target));
-        Assert.Equal(SkillState.Missing, skill.State(target));
-    }
-
-    [Fact]
-    public void Claude_is_only_offered_where_its_config_folder_exists()
-    {
-        using var dir = new TempDir();
-        var skill = Make(dir);
-
-        Assert.False(skill.Targets.Single().Available);
-        dir.Dir("claude");
-        Assert.True(skill.Targets.Single().Available);
-        Assert.Equal(Path.Combine(dir.Path, "claude", "skills"), skill.Targets.Single().SkillsDir);
-    }
-
-    [Fact]
-    public void Installed_is_current_until_it_differs_from_this_build()
-    {
-        using var dir = WithSkill();
-        var skill = Make(dir);
-        var target = skill.Targets[0];
-
-        Assert.Equal(SkillState.Missing, skill.State(target));
-        Assert.Null(skill.Install(target));
-        Assert.Equal(Path.Combine(dir.Path, "claude", "skills", ExtensionSkill.Name, "SKILL.md"), skill.FileFor(target));
-        Assert.Equal(SkillState.Current, skill.State(target));
-
-        File.AppendAllText(skill.FileFor(target), "\nedited");
-        Assert.Equal(SkillState.Outdated, skill.State(target));
-
-        Assert.Null(skill.Install(target));
-        Assert.Equal(SkillState.Current, skill.State(target));
-    }
-
-    [Fact]
-    public void Removing_keeps_anything_else_the_user_put_in_the_folder()
-    {
-        using var dir = WithSkill();
-        var skill = Make(dir);
-        var target = skill.Targets[0];
-        var folder = Path.GetDirectoryName(skill.FileFor(target))!;
-
-        skill.Install(target);
-        Assert.Null(skill.Remove(target));
-        Assert.False(Directory.Exists(folder));
-
-        skill.Install(target);
-        File.WriteAllText(Path.Combine(folder, "notes.md"), "mine");
-        Assert.Null(skill.Remove(target));
-        Assert.Equal(SkillState.Missing, skill.State(target));
-        Assert.True(File.Exists(Path.Combine(folder, "notes.md")));
+        Assert.Null(Make(dir).Text());
     }
 
     [Fact]

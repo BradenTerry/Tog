@@ -1,4 +1,5 @@
 using Tog.Core.Agents;
+using Tog.Core.Claude;
 using Tog.Core.Model;
 using Tog.Core.Repos;
 using Tog.Core.Tests.Support;
@@ -7,7 +8,7 @@ namespace Tog.Core.Tests;
 
 public class AgentHostTests
 {
-    private static readonly AgentBackend Backend = new("claude", "Claude", "fake", []);
+    private static readonly AgentBackend Backend = new AgentBackend("claude", "Claude", "fake", []).Hooked();
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -520,6 +521,158 @@ public class AgentHostTests
         Assert.False(result.Ok);
         Assert.Equal("Node is not installed.", result.Message);
     }
+
+    /// <summary>Hands each kind of agent its own fake, as each would be its own program.</summary>
+    private sealed class ByBackend(Dictionary<string, FakeAcpAgent> agents) : IAgentLauncher
+    {
+        public IAgentProcess Launch(AgentBackend backend) => agents[backend.Id].Launch(backend);
+    }
+
+    [Fact]
+    public async Task Runs_each_kind_of_agent_on_its_own_process_and_a_crash_only_stops_its_own()
+    {
+        var dir = new TempDir();
+        using var _ = dir;
+        var claude = new FakeAcpAgent();
+        var other = new FakeAcpAgent { SessionPrefix = "o" };
+        var backends = new FixedAgentBackends(Backend, new AgentBackend("other", "Other", "fake", []));
+        await using var host = new AgentHost(
+            backends,
+            new ByBackend(new() { ["claude"] = claude, ["other"] = other }),
+            new HostedAgentStore(new AppPaths(dir.Path)));
+
+        var first = (await host.StartAsync(new AgentStart(dir.Path), Ct)).SessionId!;
+        var second = (await host.StartAsync(new AgentStart(dir.Path, Backend: "other"), Ct)).SessionId!;
+
+        Assert.Equal((1, 1), (claude.Launches, other.Launches));
+        Assert.Equal("claude", host.Find(first)!.Backend);
+        Assert.Equal("other", host.Find(second)!.Backend);
+
+        await other.CrashAsync();
+        await Until(host, second, a => a.State == HostedState.Stopped);
+        Assert.Equal(HostedState.Idle, host.Find(first)!.State);
+
+        // A message picks the crashed one up again on a process of its own kind.
+        await host.SendAsync(second, "carry on", Ct);
+        await Until(host, second, a => a.State == HostedState.Idle);
+        Assert.Equal((1, 2), (claude.Launches, other.Launches));
+        Assert.Contains($"session/resume:{second}", other.Calls);
+    }
+
+    [Fact]
+    public async Task Says_so_when_no_agent_or_not_that_one_is_set_up()
+    {
+        var dir = new TempDir();
+        using var _ = dir;
+        await using var none = new AgentHost(new FixedAgentBackends(), new FakeAcpAgent(), new HostedAgentStore(new AppPaths(dir.Path)));
+
+        Assert.Contains("No agent is set up", (await none.StartAsync(new AgentStart(dir.Path), Ct)).Message);
+        Assert.Contains("\"codex\"", (await none.StartAsync(new AgentStart(dir.Path, Backend: "codex"), Ct)).Message);
+    }
+
+    [Fact]
+    public async Task Agents_saved_before_there_was_a_choice_come_back_as_claude_and_keep_their_kind()
+    {
+        var dir = new TempDir();
+        using var _ = dir;
+        var store = new HostedAgentStore(new AppPaths(dir.Path));
+        store.Save([new HostedAgentRecord("old", dir.Path, "Old work", DateTimeOffset.UnixEpoch)]);
+
+        await using (var host = new AgentHost(Backend, new FakeAcpAgent(), store))
+        {
+            Assert.Equal("claude", host.Find("old")!.Backend);
+            await host.StartAsync(new AgentStart(dir.Path), Ct);
+        }
+
+        Assert.All(store.Load(), r => Assert.Equal("claude", r.Backend));
+    }
+
+    [Fact]
+    public async Task Gives_no_mcp_server_to_an_agent_that_has_no_way_to_take_its_key()
+    {
+        var dir = new TempDir();
+        using var _ = dir;
+        var agent = new FakeAcpAgent();
+        var servers = new Servers();
+        await using var host = new AgentHost(
+            new AgentBackend("plain", "Plain", "fake", []), agent, new HostedAgentStore(new AppPaths(dir.Path)), mcpServers: servers);
+
+        await host.StartAsync(new AgentStart(dir.Path), Ct);
+
+        Assert.Equal("[]", agent.McpServers);
+        Assert.Null(agent.SessionMeta);
+        Assert.Empty(servers.Log);
+    }
+
+    [Fact]
+    public async Task Records_the_conversation_of_an_agent_with_no_history_of_its_own()
+    {
+        var dir = new TempDir();
+        using var _ = dir;
+        var agent = new FakeAcpAgent
+        {
+            OnPrompt = async script =>
+            {
+                await script.Say("Looking");
+                await script.Say(" first.");
+                await script.Tool("ls -la");
+                await script.Say("Done.");
+                await script.Title("Tidy the parser");
+                return "end_turn";
+            },
+        };
+        var paths = new AppPaths(dir.Path);
+        var recorder = new RecordedTranscripts(paths);
+        await using var host = new AgentHost(
+            new AgentBackend("plain", "Plain", "fake", []), agent, new HostedAgentStore(paths), recorder: recorder);
+
+        var id = (await host.StartAsync(new AgentStart(dir.Path, Prompt: "tidy the parser"), Ct)).SessionId!;
+        await Until(host, id, a => a.State == HostedState.Idle);
+
+        var history = host.Transcripts("plain")!;
+        var thread = history.Conversation(id, dir.Path)!;
+        Assert.Equal(
+            [(ChatKind.You, "tidy the parser"), (ChatKind.Agent, "Looking first."), (ChatKind.Activity, ""), (ChatKind.Agent, "Done.")],
+            thread.Select(e => (e.Kind, e.Text)));
+        Assert.Equal(new ChatStep("other", "ls -la"), Assert.Single(thread[2].Steps));
+
+        var activity = history.Activity(id, dir.Path)!;
+        Assert.Equal(("Tidy the parser", "tidy the parser", "Done."), (activity.Title, activity.LastPrompt, activity.LastReply));
+
+        var past = Assert.Single(history.PastSessions(dir.Path));
+        Assert.Equal((id, "Tidy the parser"), (past.SessionId, past.Title));
+        Assert.Empty(recorder.For("claude").PastSessions(dir.Path));
+        Assert.Empty(history.PastSessions("/elsewhere"));
+    }
+
+    [Fact]
+    public async Task Does_not_record_an_agent_that_has_its_own_history()
+    {
+        var dir = new TempDir();
+        using var _ = dir;
+        var paths = new AppPaths(dir.Path);
+        var own = Backend with { Transcripts = new RecordedTranscripts(paths).For("elsewhere") };
+        await using var host = new AgentHost(own, new FakeAcpAgent(), new HostedAgentStore(paths), recorder: new RecordedTranscripts(paths));
+
+        var id = (await host.StartAsync(new AgentStart(dir.Path, Prompt: "go"), Ct)).SessionId!;
+        await Until(host, id, a => a.State == HostedState.Idle);
+
+        Assert.False(Directory.Exists(Path.Combine(dir.Path, "history")));
+    }
+
+    [Fact]
+    public void A_recording_refuses_a_session_id_that_would_name_a_path()
+    {
+        var dir = new TempDir();
+        using var _ = dir;
+        var recorder = new RecordedTranscripts(new AppPaths(dir.Path));
+
+        recorder.Begin("plain", "../escape", dir.Path, DateTimeOffset.UnixEpoch);
+        recorder.You("../escape", "hi", DateTimeOffset.UnixEpoch);
+
+        Assert.False(File.Exists(Path.Combine(dir.Path, "escape.jsonl")));
+        Assert.Null(recorder.For("plain").Conversation("../escape", dir.Path));
+    }
 }
 
 public class JsonRpcConnectionTests
@@ -552,4 +705,5 @@ public class JsonRpcConnectionTests
 
         await Assert.ThrowsAsync<IOException>(() => waiting);
     }
+
 }

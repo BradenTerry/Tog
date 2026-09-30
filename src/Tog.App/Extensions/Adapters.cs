@@ -51,7 +51,7 @@ public static class ApiModel
     }
 
     private static AgentContext Agent(ChatTarget agent, WorktreeContext? worktree) =>
-        new(agent.SessionId, agent.Label, "claude", State(agent.State), worktree) { TurnEndedAt = agent.TurnEndedAt };
+        new(agent.SessionId, agent.Label, agent.Backend, State(agent.State), worktree) { TurnEndedAt = agent.TurnEndedAt };
 
     private static AgentState State(ChatState state) => state switch
     {
