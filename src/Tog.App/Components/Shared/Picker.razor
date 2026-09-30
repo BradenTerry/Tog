@@ -41,8 +41,10 @@
 
     @if (_open)
     {
-        @* Catches the click that closes it, so that click does nothing else. *@
-        <div class="picker-scrim" @onclick="Close"></div>
+        @* Catches the click that closes it, so that click does nothing else.
+           Cancelled too: inside a label, the click would otherwise go on to the
+           trigger as the label's own, and open the list again at once. *@
+        <div class="picker-scrim" @onclick="Close" @onclick:preventDefault></div>
         <div class="picker-list" id="@_listId" role="listbox" aria-label="@AriaLabel" @ref="_list">
             @{ string? group = null; }
             @for (var i = 0; i < Options.Count; i++)
