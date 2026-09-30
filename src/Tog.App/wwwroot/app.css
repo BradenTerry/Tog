@@ -2325,8 +2325,10 @@ button.icon-btn:hover:where(:not(:disabled)) { background: var(--surface-2); }
 /* ---------- settings ---------- */
 
 /* Settings is a dialog: a fixed height, so switching sections does not make
-   it jump, with its body scrolling under the header. */
-.modal.settings-dialog {
+   it jump, with its body scrolling under the header. Worktrees is built the
+   same way, wider for its table. */
+.modal.settings-dialog,
+.modal.worktrees-dialog {
     width: min(1040px, 100%);
     height: min(760px, calc(100vh - 48px));
     padding: 0;
@@ -2335,12 +2337,14 @@ button.icon-btn:hover:where(:not(:disabled)) { background: var(--surface-2); }
     overflow: hidden;
     animation: modal-in 0.16s ease-out;
 }
-.settings-dialog .modal-head {
+.settings-dialog .modal-head,
+.worktrees-dialog .modal-head {
     margin: 0;
     padding: 14px 20px;
     border-bottom: 1px solid var(--border-soft);
 }
-.settings-dialog-body {
+.settings-dialog-body,
+.worktrees-dialog-body {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
@@ -2505,7 +2509,7 @@ label.setting-row { cursor: pointer; }
 /* ---------- worktrees ---------- */
 
 /* Wider than a settings page: a row carries seven columns. */
-.wt-page { max-width: 1320px; }
+.modal.worktrees-dialog { width: min(1240px, 100%); }
 
 .wt-page .page-sub { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 

@@ -31,7 +31,7 @@
                 }
                 <div class="etab @(active ? "active" : "") @(doc.Pinned ? "pinned" : "") @(doc.Preview ? "preview" : "") @(doc.Dirty ? "dirty" : "")"
                      role="tab" aria-selected="@(active ? "true" : "false")" tabindex="0"
-                     title="@(doc.Kind switch { DocKind.Diff => doc.Path + ", the working tree against the index", DocKind.StagedDiff => doc.Path + ", the index against HEAD", DocKind.Worktrees => "Every worktree, and cleaning them up", DocKind.ExtensionView => doc.Title + ", from " + doc.View!.ExtensionId, _ => doc.Path })"
+                     title="@(doc.Kind switch { DocKind.Diff => doc.Path + ", the working tree against the index", DocKind.StagedDiff => doc.Path + ", the index against HEAD", DocKind.ExtensionView => doc.Title + ", from " + doc.View!.ExtensionId, _ => doc.Path })"
                      @key="doc.Key"
                      @onclick="() => Bench.Activate(WorktreePath, doc.Key)"
                      @ondblclick="() => Bench.Keep(WorktreePath, doc.Key)"
@@ -39,11 +39,7 @@
                      @oncontextmenu="e => OpenMenu(e, doc)" @oncontextmenu:preventDefault="true"
                      draggable="true" @ondragstart="() => _dragging = doc.Key" @ondragend="EndDrag"
                      @onkeydown="e => OnKey(e, doc)">
-                    @if (doc.Kind == DocKind.Worktrees)
-                    {
-                        <span class="file-icon" aria-hidden="true"><WorktreesGlyph Size="14" /></span>
-                    }
-                    else if (doc.Kind == DocKind.ExtensionView)
+                    @if (doc.Kind == DocKind.ExtensionView)
                     {
                         @* A puzzle piece: the tab is an extension's, not a file. *@
                         <span class="file-icon" aria-hidden="true">
@@ -143,13 +139,7 @@
         {
             <div class="doc-layer pane-@doc.Pane @(doc.Key == Group.ActiveIn(doc.Pane) ? "" : "hidden")" @key="doc.Key"
                  @onmousedown="() => Bench.FocusPane(WorktreePath, doc.Pane)" @onfocusin="() => Bench.FocusPane(WorktreePath, doc.Pane)">
-                @if (doc.Kind == DocKind.Worktrees)
-                {
-                    <div class="doc-scroll">
-                        <WorktreesDocument />
-                    </div>
-                }
-                else if (doc.Kind == DocKind.ExtensionView)
+                @if (doc.Kind == DocKind.ExtensionView)
                 {
                     <div class="doc-scroll ext-editor-view">
                         <ExtensionEditorView Tab="doc.View!" WorktreePath="@WorktreePath" IsVisible="@(doc.Key == Group.ActiveIn(doc.Pane))" />

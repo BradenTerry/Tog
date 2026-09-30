@@ -14,8 +14,7 @@
    is cleaned up. Nothing here removes anything on its own: every action is a
    button, and every button opens a dialog that says what will happen first. *@
 
-<div class="page wt-page">
-    <div class="page-head"><h1>Worktrees</h1></div>
+<div class="wt-page">
     <p class="page-sub">
         Every worktree of every repository, whether or not an agent is in it.
         @if (MeasuringNow is { } measuring)
@@ -156,7 +155,7 @@
 {
     <div class="modal-backdrop" @onclick="CloseDialog">
         <div class="modal" role="dialog" aria-modal="true" aria-labelledby="wt-dialog-title" tabindex="-1"
-             @ref="_dialogRef" @onclick:stopPropagation @onkeydown="OnDialogKey">
+             @ref="_dialogRef" @onclick:stopPropagation @onkeydown="OnDialogKey" @onkeydown:stopPropagation>
             @switch (dialog.Kind)
             {
                 case DialogKind.Bulk:
@@ -476,7 +475,7 @@
                         <button class="small" @onclick="() => Show(new Dialog(DialogKind.Agents) { Target = row })"
                                 title="The agents in this worktree">Agents (@agents.Count)</button>
                     }
-                    <button class="small" @onclick="() => Bench.OpenNewAgent(row.Repo.Root, wt.Path)"
+                    <button class="small" @onclick="() => NewAgentFrom(row)"
                             title="Start a new agent in this worktree">New agent</button>
                     @if (!wt.IsPrimary && row.State != CleanupState.Tog)
                     {
@@ -854,12 +853,14 @@
     private void NewAgentFrom(Row row)
     {
         _dialog = null;
+        Bench.CloseWorktrees();
         Bench.OpenNewAgent(row.Repo.Root, row.View.Worktree.Path);
     }
 
     private void GoTo(ChatTarget agent)
     {
         _dialog = null;
+        Bench.CloseWorktrees();
         Nav.NavigateTo(Urls.Chat(agent.SessionId));
     }
 

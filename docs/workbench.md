@@ -36,6 +36,11 @@ to open:
   from the gear or Cmd+, and closed with Escape, its close button or a click
   outside. It belongs to no worktree, so it is not a tab, and the agent and its
   files stay as they were under it.
+- **Worktrees** is a dialog the same way (`WorktreesDialog`), opened from its
+  title bar button or `/worktrees`. It is every worktree of every repo, so it
+  belongs to no agent's tabs. Remove opens its confirmation over it and
+  leaves it open; New agent and going to an agent close it first. Its own
+  confirmations stop their Escape at themselves, or one press would close both.
 - **The theme** is chosen under Settings, Appearance: System, which follows the
   OS between Dark and Light, or a named theme. The server writes the choice on
   `<html>` as `data-theme-choice`, and `theme.js`, a blocking script in the head
@@ -258,10 +263,10 @@ defaults, and a key bound twice is marked.
   walk it and Enter picks: every `ContextMenu` takes the arrows, from
   `bindMenuKeys` in `app.js`, starting at its checked item. Delete (Backspace
   on a Mac) on an agent opens the remove dialog for its worktree over whatever
-  is on screen, the same one the list's Remove offer and the Worktrees view's
+  is on screen, the same one the list's Remove offer and the Worktrees dialog's
   Remove button open (`RemoveWorktreeDialog`, asked for through
   `Workbench.AskRemoveWorktree`): sizes, what would be lost, the branch, and a
-  confirmation. It does not switch the editor to the Worktrees view. A
+  confirmation. It does not open the Worktrees dialog. A
   worktree not measured yet is measured then, and the dialog waits on it.
   Once the removal goes through the dialog closes and a toast in the bottom
   right says what was removed (`Toasts`, one per window, drawn by

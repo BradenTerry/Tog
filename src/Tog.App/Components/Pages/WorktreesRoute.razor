@@ -3,17 +3,15 @@
 @inject Workbench Bench
 @inject NavigationManager Nav
 
-@* An address for the Worktrees tab, as /settings is for Settings: it opens the
-   tab over the agent that was on screen and goes back to it. *@
+@* An address for the Worktrees dialog, as /settings is for Settings: it opens
+   the dialog over the agent that was on screen and goes back to it. *@
 
 @code {
     protected override void OnAfterRender(bool firstRender)
     {
         if (firstRender && RendererInfo.IsInteractive)
         {
-            var worktree = Bench.WorktreeInView(Snapshot.Value);
-
-            Bench.OpenWorktrees(worktree);
+            Bench.OpenWorktrees();
             Nav.NavigateTo(Urls.Chat(Bench.SessionId), replace: true);
         }
     }
