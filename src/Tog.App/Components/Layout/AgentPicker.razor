@@ -12,7 +12,8 @@
    top; picking one moves every panel to it. It used to be a column down the
    right of the bottom panel, which cost the conversation a third of its width
    to show a list you look at only when switching. Delete on an agent in the
-   list asks to remove its worktree, through the same dialog as Remove. Left
+   list, or the bin that shows on the row under the pointer, asks to remove its
+   worktree, through the same dialog as Remove. Left
    and Right step through the status filters above the list, so with a dozen
    agents the waiting or stopped ones are one key away. An agent that finished
    a turn you have not had on screen carries a blue dot, like an unread message:
@@ -75,6 +76,7 @@
                 var current = target.SessionId == Bench.SessionId && IsAtAgent;
                 var open = target.WorktreePath is { } home && home == inView;
                 var unread = Bench.IsUnread(target);
+                <div class="agent-menu-row">
                 <button type="button" class="context-item agent-menu-item @(current ? "current" : "") @(unread ? "unread" : "")" role="menuitemradio"
                         aria-checked="@(current ? "true" : "false")" @onclick="() => GoTo(target)"
                         @onkeydown="e => OnItemKey(e, target)"
@@ -125,6 +127,19 @@
                         }
                     </span>
                 </button>
+                @* Beside the row rather than in it, since a button cannot hold
+                   another, and without context-item so the arrows skip it. *@
+                @if (target.WorktreePath is not null)
+                {
+                    <button type="button" class="icon-btn agent-menu-remove" tabindex="-1" @onclick="() => AskRemove(target)"
+                            title="Remove its worktree and branch (Delete)" aria-label="Remove @target.Label">
+                        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3"
+                             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M2.5 4h11M6 4V2.5h4V4M4 4l.7 9.5h6.6L12 4M6.8 6.5v4.5M9.2 6.5v4.5" />
+                        </svg>
+                    </button>
+                }
+                </div>
                 @if (Offer(target) is { } offer)
                 {
                     <div class="cleanup-offer" role="note">

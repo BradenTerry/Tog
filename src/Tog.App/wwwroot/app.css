@@ -2040,6 +2040,13 @@ button.icon-btn:hover:where(:not(:disabled)) { background: var(--surface-2); }
 /* A finished turn not read yet, marked the way a messaging app marks an unread conversation. */
 .agent-menu-item .unread-dot { width: 8px; height: 8px; flex: none; align-self: center; border-radius: 99px; background: var(--accent); }
 .agent-menu-item.unread .chat-item-name { font-weight: 650; color: var(--text); }
+/* The remove button sits in the row's bottom right corner, under the time, so the
+   lines below the name keep room for it rather than shifting when it appears. */
+.agent-menu-row { position: relative; }
+.agent-menu-row .chat-item-where, .agent-menu-row .chat-item-snippet, .agent-menu-row .chat-item-bg { padding-right: 22px; }
+.agent-menu-remove { position: absolute; right: 6px; bottom: 6px; width: 22px; height: 22px; opacity: 0; }
+.agent-menu-row:hover .agent-menu-remove, .agent-menu-row:focus-within .agent-menu-remove { opacity: 1; }
+button.icon-btn.agent-menu-remove:hover { color: var(--danger); background: var(--danger-bg); }
 .agent-menu .cleanup-offer { margin: 0 4px 6px 26px; }
 .agent-menu-filters { display: flex; margin: 2px 4px 6px; }
 .agent-menu-filters button { flex: 1; justify-content: center; gap: 5px; font-size: 11.5px; padding: 3px 4px; }
