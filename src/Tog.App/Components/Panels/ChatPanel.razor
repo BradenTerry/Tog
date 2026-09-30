@@ -5,6 +5,7 @@
 @inject IJSRuntime Js
 @inject ChatDrafts Drafts
 @inject Workbench Bench
+@inject NavigationManager Nav
 
 @* The conversation with one agent, in the bottom panel. It reads like every
    messaging app, newest at the bottom with the box to type in under it. Keyed
@@ -75,6 +76,9 @@ else
                             @onclick="() => MoreAct(() => Host.StopAsync(agent.SessionId))"
                             title="Its conversation is kept, and a message picks it up again.">End session</button>
                 }
+                <button type="button" class="context-item" role="menuitem"
+                        @onclick="AskClear"
+                        title="Start over with a new conversation in the same folder, as /clear would.">Clear conversation...</button>
                 <button type="button" class="context-item destructive" role="menuitem"
                         @onclick="() => MoreAct(() => Host.RemoveAsync(agent.SessionId))"
                         title="The conversation stays saved and can be resumed from New agent.">Remove from list</button>
@@ -98,6 +102,19 @@ else
             <div class="banner danger chat-notice">
                 <span>The folder this agent worked in is gone: <code>@agent.Cwd</code>. Its conversation is saved, but Claude can only resume it there. Recreate the worktree at that path to carry on, or remove the agent.</span>
                 <button class="ghost small spacer" @onclick="() => Act(() => Host.RemoveAsync(agent.SessionId))" disabled="@_busy">Remove</button>
+            </div>
+        }
+
+        @if (_confirmingClear)
+        {
+            <div class="banner danger chat-notice" role="alertdialog" aria-label="Clear conversation">
+                <span>
+                    <strong>Clear this conversation?</strong>
+                    The agent starts over in the same folder with the same settings and none of what was said. The old
+                    conversation leaves the list, but stays saved and can be resumed from New agent.
+                </span>
+                <button class="danger small spacer" @onclick="() => ClearConversation(agent)" disabled="@_busy">@(_busy ? "Clearing..." : "Clear")</button>
+                <button class="ghost small" @onclick="() => { _confirmingClear = false; }" disabled="@_busy">Cancel</button>
             </div>
         }
 
@@ -493,6 +510,9 @@ else
 
     /// <summary>The command list last handed to the box, to hand it over again only when the agent lists a new one.</summary>
     private IReadOnlyList<AcpCommand>? _commandsSent;
+
+    /// <summary>Offered beside the agent's own commands, since the app answers it: see <see cref="AgentHost.ClearAsync"/>.</summary>
+    private static readonly AcpCommand Clear = new("clear", "Start a fresh conversation in this folder", null);
     private int _shownCount = -1;
     private bool _forceScroll = true;
     private bool _wasVisible;
@@ -535,7 +555,7 @@ else
 
     private static string Hint(ChatTarget target)
     {
-        var Keys = "Enter to send, Shift+Enter for a new line." + (target.Commands is { Count: > 0 } ? " / for commands." : "");
+        var Keys = "Enter to send, Shift+Enter for a new line. / for commands.";
         if (!CanSend(target))
         {
             return "Its folder is gone, so it cannot be resumed.";
@@ -739,6 +759,16 @@ else
             return;
         }
 
+        // Typed /clear asks first, like the menu's Clear conversation.
+        if (AgentHost.IsClear(text))
+        {
+            _draft = "";
+            Drafts.Set(target.SessionId, "");
+            await ResetBox();
+            _confirmingClear = true;
+            return;
+        }
+
         var pending = new Pending(text);
         _pending.Add(pending);
         _draft = "";
@@ -798,6 +828,38 @@ else
         return Act(action);
     }
 
+    /// <summary>Whether the Clear conversation confirmation is up.</summary>
+    private bool _confirmingClear;
+
+    private void AskClear()
+    {
+        _more = null;
+        _confirmingClear = true;
+    }
+
+    /// <summary>Swaps the agent for a fresh session, and the chat follows it there.</summary>
+    private async Task ClearConversation(ChatTarget target)
+    {
+        _busy = true;
+        _notice = null;
+        StateHasChanged();
+
+        var result = await Host.ClearAsync(target.SessionId);
+
+        _busy = false;
+        _confirmingClear = false;
+        Monitor.InvalidateWorktrees();
+        if (result.Ok && result.SessionId is { } fresh)
+        {
+            Nav.NavigateTo(Urls.Chat(fresh));
+        }
+        else
+        {
+            _noticeFailed = true;
+            _notice = result.Message;
+        }
+    }
+
     private async Task Act(Func<Task<HostResult>> action)
     {
         _busy = true;
@@ -838,7 +900,7 @@ else
             if (!ReferenceEquals(agent.Commands, _commandsSent))
             {
                 _commandsSent = agent.Commands;
-                await Js.InvokeVoidAsync("tog.setComposerCommands", _box, _menu, agent.Commands ?? []);
+                await Js.InvokeVoidAsync("tog.setComposerCommands", _box, _menu, (IReadOnlyList<AcpCommand>)[Clear, .. agent.Commands ?? []]);
             }
 
             if (_putInBox is { } text)
