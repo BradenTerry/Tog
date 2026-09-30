@@ -509,6 +509,28 @@ public class AgentHostTests
     }
 
     [Fact]
+    public async Task Clearing_starts_a_new_conversation_in_its_place_with_the_same_settings()
+    {
+        var dir = new TempDir();
+        using var _ = dir;
+        var store = new HostedAgentStore(new AppPaths(dir.Path));
+        var agent = new FakeAcpAgent();
+        await using var host = new AgentHost(Backend, agent, store);
+        var old = (await host.StartAsync(new AgentStart(dir.Path, Model: "haiku"), Ct)).SessionId!;
+
+        var result = await host.ClearAsync(old, Ct);
+
+        Assert.True(result.Ok, result.Message);
+        Assert.NotEqual(old, result.SessionId);
+        var fresh = Assert.Single(host.Agents);
+        Assert.Equal(result.SessionId, fresh.SessionId);
+        Assert.Equal(dir.Path, fresh.Cwd);
+        Assert.Equal(2, agent.Calls.Count(c => c == "session/set_config_option:model=haiku"));
+        Assert.Contains("session/close:" + old, agent.Calls);
+        Assert.Equal(result.SessionId, Assert.Single(store.Load()).SessionId);
+    }
+
+    [Fact]
     public async Task An_agent_that_cannot_start_says_why()
     {
         var dir = new TempDir();

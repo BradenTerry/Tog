@@ -311,6 +311,12 @@ something you said, or a notice when they were skipped.
   saved in `agents.json` with it; kept only in memory, every agent came back
   from a restart with none, since no session has run yet to list them.
   The menu lives in `app.js`, not on the circuit, so it keeps up with typing.
+- **`/clear`** is Tog's, not the bridge's. The bridge leaves it off its list and
+  does not run it, since over ACP clearing a session is the client starting a
+  new one. So the composer offers it first for a hosted agent, and a message of
+  just `/clear` never reaches the agent: `AgentHost.ClearAsync` starts a new
+  session in the same folder on the same model, effort and mode, removes the old
+  one (still resumable under New agent, Resume), and the chat follows the new id.
 
 ## When the agent process dies
 

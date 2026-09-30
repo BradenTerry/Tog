@@ -583,6 +583,45 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
         return new HostResult(true, "Removed. The conversation is still there under New agent, Resume.");
     }
 
+    /// <summary>
+    /// What <c>/clear</c> does in a terminal: a new conversation in the same
+    /// folder, on the same model, effort and mode, in place of this one. The old
+    /// one leaves the list but stays saved, so New agent, Resume still finds it.
+    /// </summary>
+    /// <remarks>
+    /// The Claude bridge turns <c>/clear</c> down, since clearing a session over
+    /// ACP is the client starting a new one. The new session has a new id, so
+    /// the caller moves whatever follows the old id over to the one returned.
+    /// </remarks>
+    public async Task<HostResult> ClearAsync(string sessionId, CancellationToken ct = default)
+    {
+        AgentStart start;
+        lock (_gate)
+        {
+            if (!_entries.TryGetValue(sessionId, out var entry))
+            {
+                return HostResult.Failed("That agent is not here any more.");
+            }
+
+            string? Current(string id) => entry.Options.FirstOrDefault(o => o.Id == id)?.Current;
+            start = new AgentStart(entry.Cwd, Model: Current("model"), Effort: Current("effort"), Mode: Current("mode"), Backend: entry.BackendId);
+        }
+
+        if (!Directory.Exists(start.Cwd))
+        {
+            return HostResult.Failed(new FolderGoneException(start.Cwd).Message);
+        }
+
+        var started = await StartAsync(start, ct).ConfigureAwait(false);
+        if (!started.Ok)
+        {
+            return started;
+        }
+
+        await RemoveAsync(sessionId, ct).ConfigureAwait(false);
+        return new HostResult(true, "Cleared. The earlier conversation is still there under New agent, Resume.", started.SessionId);
+    }
+
     /// <summary>Answers the agent's permission prompt. A null option declines without choosing.</summary>
     public void Answer(string sessionId, string key, string? optionId)
     {

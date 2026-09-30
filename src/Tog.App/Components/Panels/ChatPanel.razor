@@ -739,6 +739,12 @@ else
             return;
         }
 
+        if (text == "/" + Clear.Name && Host.Find(target.SessionId) is not null)
+        {
+            await ClearConversation(target);
+            return;
+        }
+
         var pending = new Pending(text);
         _pending.Add(pending);
         _draft = "";
@@ -762,6 +768,33 @@ else
         }
 
         Monitor.InvalidateWorktrees();
+    }
+
+    /// <summary>
+    /// Tog's own <c>/clear</c>. The Claude bridge neither lists nor runs it, since
+    /// over ACP clearing is the client starting a new session, so the host does
+    /// that and the chat follows the new session in place of the old one.
+    /// </summary>
+    private static readonly AcpCommand Clear = new("clear", "Start a new conversation in this folder, with the same settings", null);
+
+    private async Task ClearConversation(ChatTarget target)
+    {
+        _draft = "";
+        Drafts.Set(target.SessionId, "");
+        _sending = true;
+        StateHasChanged();
+        await ResetBox();
+
+        var result = await Host.ClearAsync(target.SessionId);
+
+        _sending = false;
+        _noticeFailed = !result.Ok;
+        _notice = result.Ok ? null : result.Message;
+        Monitor.InvalidateWorktrees();
+        if (result.Ok && result.SessionId is { } fresh)
+        {
+            Bench.Select(fresh);
+        }
     }
 
     private void Retry(Pending pending)
@@ -838,7 +871,10 @@ else
             if (!ReferenceEquals(agent.Commands, _commandsSent))
             {
                 _commandsSent = agent.Commands;
-                await Js.InvokeVoidAsync("tog.setComposerCommands", _box, _menu, agent.Commands ?? []);
+                IReadOnlyList<AcpCommand> commands = agent.Commands is { } listed && Host.Find(agent.SessionId) is not null
+                    ? [Clear, .. listed.Where(c => c.Name != Clear.Name)]
+                    : agent.Commands ?? [];
+                await Js.InvokeVoidAsync("tog.setComposerCommands", _box, _menu, commands);
             }
 
             if (_putInBox is { } text)
