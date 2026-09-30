@@ -311,6 +311,16 @@ something you said, or a notice when they were skipped.
   saved in `agents.json` with it; kept only in memory, every agent came back
   from a restart with none, since no session has run yet to list them.
   The menu lives in `app.js`, not on the circuit, so it keeps up with typing.
+- **`/clear` never reaches the agent.** Sent through, Claude moves the
+  conversation to a new session id behind the bridge: every update after it
+  arrives under an id no agent here has, and the transcript goes to a new file,
+  so the chat shows Working and never a reply. The bridge lists `clear` as
+  unsupported for that reason. `AgentHost.ClearAsync` does it the ACP way
+  instead: a new session in the same folder with the same model, effort and
+  mode, the old agent taken off the list (still resumable from New agent), and
+  the chat moved to the new one. It is also Clear conversation in the chat's
+  session menu, and both ask first, since what was said leaves the chat. The
+  composer offers `/clear` beside the agent's own commands.
 
 ## When the agent process dies
 

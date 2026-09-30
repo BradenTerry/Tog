@@ -180,6 +180,27 @@ public class AgentHostTests
     }
 
     [Fact]
+    public async Task Clear_starts_a_new_session_in_the_same_folder_and_never_reaches_the_agent()
+    {
+        var (host, agent, dir) = Build();
+        await using var _ = host;
+        using var __ = dir;
+        var id = (await host.StartAsync(new AgentStart(dir.Path, Model: "haiku"), Ct)).SessionId!;
+
+        var result = await host.SendAsync(id, " /clear ", Ct);
+
+        Assert.True(result.Ok, result.Message);
+        Assert.NotEqual(id, result.SessionId);
+        Assert.Null(host.Find(id));
+        var fresh = host.Find(result.SessionId!)!;
+        Assert.Equal(dir.Path, fresh.Cwd);
+        Assert.Equal(HostedState.Idle, fresh.State);
+        Assert.Contains("session/close:" + id, agent.Calls);
+        Assert.Equal(2, agent.Calls.Count(c => c == "session/set_config_option:model=haiku"));
+        Assert.DoesNotContain(agent.Calls, c => c.StartsWith("session/prompt:", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task A_stopped_agent_can_be_resumed_without_sending_it_anything()
     {
         var (host, agent, dir) = Build();

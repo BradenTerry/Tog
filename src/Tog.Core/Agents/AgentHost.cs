@@ -449,6 +449,11 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
             return HostResult.Failed("Nothing to send.");
         }
 
+        if (IsClear(text))
+        {
+            return await ClearAsync(sessionId, ct).ConfigureAwait(false);
+        }
+
         AcpClient client;
         try
         {
@@ -489,6 +494,47 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
         Touch();
         _ = RunTurnAsync(client, sessionId, text);
         return new HostResult(true, "Sent.", sessionId);
+    }
+
+    /// <summary>Whether a message is <c>/clear</c>, which the app answers itself rather than sending.</summary>
+    public static bool IsClear(string text) => text.Trim().Equals("/clear", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Swaps the agent for a fresh conversation in the same folder, on the same
+    /// agent and settings, and takes the old one off the list. The result's
+    /// session is the new one.
+    /// </summary>
+    /// <remarks>
+    /// Sent through, Claude's <c>/clear</c> moves the conversation to a new
+    /// session id behind the bridge's back: the bridge sends everything after it
+    /// under that id, which no agent here has, and the transcript goes to a new
+    /// file. The chat then shows Working and never a reply. The bridge lists
+    /// clear as a command it does not support, so the app does it the ACP way,
+    /// with a new session. The old conversation stays resumable from New agent.
+    /// </remarks>
+    public async Task<HostResult> ClearAsync(string sessionId, CancellationToken ct = default)
+    {
+        AgentStart start;
+        lock (_gate)
+        {
+            if (!_entries.TryGetValue(sessionId, out var entry))
+            {
+                return HostResult.Failed("That agent is not here any more.");
+            }
+
+            string? Current(string id) => entry.Options.FirstOrDefault(o => o.Id == id)?.Current;
+            start = new AgentStart(entry.Cwd, Model: Current("model"), Effort: Current("effort"), Mode: Current("mode"), Backend: entry.BackendId);
+        }
+
+        // Started before the old one goes, so a failure leaves you where you were.
+        var fresh = await StartAsync(start, ct).ConfigureAwait(false);
+        if (!fresh.Ok)
+        {
+            return fresh;
+        }
+
+        await RemoveAsync(sessionId, ct).ConfigureAwait(false);
+        return new HostResult(true, "Cleared. This is a new conversation in the same folder.", fresh.SessionId);
     }
 
     /// <summary>Stops the turn in progress. The agent stays, idle, with everything so far kept.</summary>
