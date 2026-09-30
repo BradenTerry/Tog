@@ -148,6 +148,15 @@ so starting one is always the user's press. A second offer replaces the first,
 even with the dialog open. Relative folders are dropped, since they would
 resolve against the app's working directory.
 
+API 1.13 adds `AgentOffer.Branch`, an existing branch for the new worktree to
+check out, such as a pull request's head: the dialog picks the local branch of
+that name, or the remote one, which gets a local branch tracking it. Until the
+branch has been fetched the dialog says so and picks it after Fetch. Git puts a
+branch in one worktree at a time, so for a branch already checked out the
+extension offers that worktree instead. The same version adds
+`INavigation.AgentHref(agentId)`, a link that brings an agent's chat up, for a
+view that lists work and the agent on it.
+
 `OfferAsync` (API 1.7) does the same and says how it ended: the started
 agent's session id once the user presses Start, or null when the dialog is
 closed, another offer replaces it, or the window goes away. The Ideas extension

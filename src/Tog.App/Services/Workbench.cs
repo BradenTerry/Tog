@@ -1272,4 +1272,5 @@ public sealed record NewAgentPreset(
     string? RepoRoot,
     string? WorktreePath = null,
     string? WorktreeName = null,
-    string? Prompt = null);
+    string? Prompt = null,
+    string? Branch = null);

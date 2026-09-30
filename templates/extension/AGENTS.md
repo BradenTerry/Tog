@@ -62,7 +62,7 @@ and `Context`; pass `<LinkedText Text="..." Worktree="Worktree" />` there.
 Services available to `@inject` and to your own services' constructors:
 `ITogView` (every worktree, with git counts only for the one on screen, every agent as `Current.Agents` (API 1.10), and a `Changed` event about once a second, on
 a background thread: use `InvokeAsync`), `INavigation` (a link that opens a file in the
-agent's editor), `ITextLinker` and the `<LinkedText Text="..." Agent="Agent" />`
+agent's editor, and since API 1.13 `AgentHref`, one that brings an agent's chat up), `ITextLinker` and the `<LinkedText Text="..." Agent="Agent" />`
 component (paths in text become links), `IExtensionStorage` (a data folder of
 your own), and `ILogger<T>`. In a view only, `IEditorTabs` (API 1.3) opens a
 file as a tab in that window's editor, such as a long report you wrote to your
@@ -70,7 +70,8 @@ data folder, and `IAgentOffers` (API 1.5) opens the New agent dialog filled
 in with an `AgentOffer` (repository, worktree or new worktree name, prompt).
 It never starts the agent: the user presses Start. Call it from a click.
 `OfferAsync` (API 1.7) also returns the started session id, or null if none
-was started.
+was started. `AgentOffer.Branch` (API 1.13, an init property) names an existing
+branch for the new worktree to check out, such as a pull request's head.
 
 `ISecrets` (API 1.8) is only in your own container: a service's constructor
 or `Context.Get<ISecrets>()` in a view, never `@inject`. Since API 1.12 every

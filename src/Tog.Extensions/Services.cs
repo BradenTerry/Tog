@@ -84,6 +84,9 @@ public interface INavigation
 {
     /// <summary>The address of a file in an agent's editor, at a line.</summary>
     string FileHref(string agentId, string relativePath, int? line = null);
+
+    /// <summary>The address of an agent's chat, for a link that brings that agent up. Since API 1.13.</summary>
+    string AgentHref(string agentId);
 }
 
 /// <summary>
@@ -153,7 +156,19 @@ public sealed record AgentOffer(
     string? Repository = null,
     string? Worktree = null,
     string? WorktreeName = null,
-    string? Prompt = null);
+    string? Prompt = null)
+{
+    /// <summary>
+    /// An existing branch for a new worktree to check out, such as a pull
+    /// request's head: by its name (<c>fix-parser</c>), without the remote. The
+    /// dialog picks the local branch of that name, or failing that the remote
+    /// one, which gets a local branch tracking it. Ignored with
+    /// <see cref="Worktree"/>, and when no worktree can take it, since git puts
+    /// a branch in one worktree at a time: offer that worktree instead. Since
+    /// API 1.13.
+    /// </summary>
+    public string? Branch { get; init; }
+}
 
 /// <summary>
 /// Dialogs over the window. Since API 1.10. Scoped to the window, like
