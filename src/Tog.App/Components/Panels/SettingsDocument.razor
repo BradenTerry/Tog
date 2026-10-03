@@ -707,6 +707,19 @@
         TakeSection();
         Bench.Changed += OnBenchChanged;
         Extensions.Changed += OnExtensionsChanged;
+        Store.Saved += OnSettingsSaved;
+    }
+
+    /// <summary>
+    /// Another writer saved, an agent adding a repository say. Taken up at once,
+    /// since the next change made here saves this page's copy whole and would
+    /// otherwise put back what that writer changed.
+    /// </summary>
+    private void OnSettingsSaved()
+    {
+        _settings = Store.Load();
+        _expanded = RepoDiscovery.Expand(_settings.RepoRoots);
+        _ = InvokeAsync(StateHasChanged);
     }
 
     private void OnExtensionsChanged() => _ = InvokeAsync(StateHasChanged);
@@ -751,6 +764,7 @@
         {
             Bench.Changed -= OnBenchChanged;
             Extensions.Changed -= OnExtensionsChanged;
+            Store.Saved -= OnSettingsSaved;
             _recorderSelf?.Dispose();
         }
 
@@ -913,49 +927,20 @@
             return;
         }
 
-        if (RepoDiscovery.WildcardFolder(root) is { } folder)
+        var check = RepoList.Check(root);
+        _error = check.Note;
+        if (!check.Added)
         {
-            if (!Directory.Exists(folder))
-            {
-                _error = "There is no directory at that path.";
-                return;
-            }
-
-            if (RepoDiscovery.ReposIn(folder).Count == 0)
-            {
-                // Kept anyway: the point of a wildcard is the repositories cloned
-                // into it later.
-                _error = "There are no repositories directly inside that folder yet.";
-            }
-        }
-        else if (!Directory.Exists(root))
-        {
-            _error = "There is no directory at that path.";
             return;
-        }
-        else if (!Directory.Exists(Path.Combine(root, ".git")) && !File.Exists(Path.Combine(root, ".git")))
-        {
-            // Not fatal: discovery resolves any directory inside a repo up to its
-            // root. Worth saying so rather than silently accepting nothing.
-            _error = "That is not a repository root, but it will be resolved to one if it is inside a repository.";
         }
 
         AddRoot(root);
         _newRoot = "";
     }
 
-    private void AddRoot(string root) => Set(_settings with
-    {
-        RepoRoots = [.. _settings.RepoRoots.Where(r => r != root), root],
-        HiddenRoots = _settings.HiddenRoots.Where(r => r != root).ToArray(),
-    });
+    private void AddRoot(string root) => Set(RepoList.Add(_settings, root));
 
-    /// <summary>
-    /// Takes a repository off the list. It is not hidden: while Claude runs in
-    /// it, it still shows up under Running elsewhere.
-    /// </summary>
-    private void Remove(string root) =>
-        Set(_settings with { RepoRoots = _settings.RepoRoots.Where(r => r != root).ToArray() });
+    private void Remove(string root) => Set(RepoList.Remove(_settings, root));
 
     /// <summary>
     /// A list in name order. The settings file keeps repositories in the order they

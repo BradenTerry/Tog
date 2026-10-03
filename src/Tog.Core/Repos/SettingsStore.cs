@@ -18,6 +18,12 @@ public sealed class SettingsStore(AppPaths paths)
 
     private readonly Lock _gate = new();
 
+    /// <summary>
+    /// Raised after every save. Settings keeps a copy it saves whole, so it has
+    /// to hear about one made elsewhere or its next save undoes it.
+    /// </summary>
+    public event Action? Saved;
+
     public Settings Load()
     {
         lock (_gate)
@@ -49,5 +55,7 @@ public sealed class SettingsStore(AppPaths paths)
             File.WriteAllText(temp, json);
             File.Move(temp, paths.SettingsFile, overwrite: true);
         }
+
+        Saved?.Invoke();
     }
 }

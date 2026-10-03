@@ -432,6 +432,10 @@ sequenceDiagram
 - **The app's own tools** are served beside them, prefixed `tog_`
   (`tog_open_file`, see `docs/editor.md`). An extension tool with the
   same name as one of the app's is dropped and logged.
+  `tog_add_repository` lists a repository or a `folder/*` as Settings'
+  Add does (`RepoList`), straight away rather than offered, since listing
+  grants nothing: it never touches `TrustedRoots`, so the first agent
+  started there still asks, and it refuses a repository the user hid.
 - **Names** are lower case, prefixed with what the extension is about
   (`tests_run`), and unique across extensions; a clash keeps the one loaded
   first and logs the other.

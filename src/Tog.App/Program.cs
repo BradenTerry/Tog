@@ -125,6 +125,7 @@ builder.Services.AddSingleton<PlanUsageStore>();
 // The app's and the extensions' agent tools, served as an MCP server on this
 // host and handed to every session the agent host starts or resumes.
 builder.Services.AddSingleton<IAgentTool, OpenFileTool>();
+builder.Services.AddSingleton<IAgentTool, AddRepositoryTool>();
 builder.Services.AddSingleton<IAgentTool, ExtensionGuideTool>();
 builder.Services.AddSingleton<IAgentTool, ExtensionAddTool>();
 builder.Services.AddSingleton(new AgentToolServer.Endpoint(port));

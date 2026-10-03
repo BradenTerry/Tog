@@ -126,6 +126,21 @@ public class RepoDiscoveryTests
 public class SettingsStoreTests
 {
     [Fact]
+    public void Tells_listeners_after_a_save()
+    {
+        // Settings saves its own copy whole; it has to hear about a save made
+        // elsewhere, an agent listing a repository, or its next save undoes it.
+        using var dir = new TempDir();
+        var store = new SettingsStore(new AppPaths(dir.Path));
+        Settings? seen = null;
+        store.Saved += () => seen = store.Load();
+
+        store.Save(new Settings { RepoRoots = ["/a"] });
+
+        Assert.Equal(["/a"], seen?.RepoRoots);
+    }
+
+    [Fact]
     public void Round_trips_settings()
     {
         using var dir = new TempDir();
