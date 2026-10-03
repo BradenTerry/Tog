@@ -86,6 +86,13 @@ public sealed class MonitorService : IAsyncDisposable
         _status = status;
         _notifier = notifier;
         _clock = clock ?? new SystemClock();
+
+        // The repo list lives in settings, and whatever saved it (the Settings
+        // page, an agent's tog_add_repository) expects the change to show now
+        // rather than on the slow timer. Hearing it here, rather than having the
+        // agent tool call the monitor, keeps the monitor out of the tools' graph:
+        // the monitor already depends on them through the agent host.
+        _settings.Saved += InvalidateWorktrees;
     }
 
     /// <summary>Set when the last pass threw, so the UI can say the loop is unhealthy.</summary>
@@ -398,6 +405,8 @@ public sealed class MonitorService : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        _settings.Saved -= InvalidateWorktrees;
+
         if (_cts is not null)
         {
             await _cts.CancelAsync().ConfigureAwait(false);

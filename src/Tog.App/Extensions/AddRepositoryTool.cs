@@ -1,4 +1,3 @@
-using Tog.Core.Monitoring;
 using Tog.Core.Repos;
 using Tog.Extensions;
 
@@ -14,7 +13,7 @@ namespace Tog.App.Extensions;
 /// first agent started there still asks you, and taking it off is one click in
 /// Settings.
 /// </remarks>
-public sealed class AddRepositoryTool(SettingsStore store, MonitorService monitor) : IAgentTool
+public sealed class AddRepositoryTool(SettingsStore store) : IAgentTool
 {
     public string Name => "tog_add_repository";
 
@@ -73,11 +72,8 @@ public sealed class AddRepositoryTool(SettingsStore store, MonitorService monito
             return Task.FromResult(new AgentToolResult($"{root} is already listed in Tog."));
         }
 
+        // The monitor hears the save and re-lists worktrees on its next pass.
         store.Save(RepoList.Add(settings, root));
-
-        // The repo list is read on the monitor's slow timer; without this it
-        // would take up to twenty seconds to appear.
-        monitor.InvalidateWorktrees();
 
         var added = $"Listed {root} in Tog; New agent now offers it.";
         return Task.FromResult(new AgentToolResult(check.Note is { } note ? $"{added} {note}" : added));
