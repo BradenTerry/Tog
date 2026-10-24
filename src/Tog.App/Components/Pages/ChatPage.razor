@@ -12,39 +12,62 @@
    its diff. Everything else about the agent is in the panels around it, which
    follow the agent this page names. The URL can also carry an instruction, a
    file to open or a panel tab to bring up, which is carried out once and then
-   dropped from the address so the same link works again. *@
+   dropped from the address so the same link works again. In the chat view
+   the page is the conversation instead, and nothing about the worktree is
+   read. *@
 
 <PageTitle>@(Current?.Label ?? "Agents") - Tog</PageTitle>
 
-@* Always the editor, so a tab that belongs to no file, Settings, has somewhere
-   to open even with no agent picked. Without a worktree its tabs are kept
-   under the empty one, and what would be the "nothing open" hint says why
-   there are no files. *@
-@{
-    var worktree = Bench.WorktreeInView(Snapshot.Value) ?? "";
+@if (Bench.ChatView)
+{
+    if (Current is { } agent)
+    {
+        <div class="cv-chat">
+            <ChatPanel SessionId="@agent.SessionId" IsVisible="true" @key="agent.SessionId" />
+        </div>
+    }
+    else
+    {
+        <div class="empty editor-empty">
+            <h2>@(SessionId is null ? "Pick an agent" : "Agent not found")</h2>
+            <p>
+                @(SessionId is null
+                    ? "Choose an agent in the list to read its conversation and answer it."
+                    : "It may have been removed, or it has not reached the registry yet.")
+            </p>
+        </div>
+    }
 }
-<EditorArea WorktreePath="@worktree" @key="worktree">
-    <Empty>
-        @if (Current is null)
-        {
-            <div class="empty editor-empty">
-                <h2>@(SessionId is null ? "Pick an agent" : "Agent not found")</h2>
-                <p>
-                    @(SessionId is null
-                        ? "Choose an agent in the list at the bottom right to read its conversation, its files and its changes."
-                        : "It may have been removed, or it has not reached the registry yet.")
-                </p>
-            </div>
-        }
-        else if (worktree.Length == 0)
-        {
-            <div class="empty editor-empty">
-                <h2>No worktree</h2>
-                <p>This agent is not working in a git worktree, so there are no files or changes to show. Its conversation is below.</p>
-            </div>
-        }
-    </Empty>
-</EditorArea>
+else
+{
+    @* In the workbench always the editor, so a tab that belongs to no file
+       has somewhere to open even with no agent picked. Without a worktree its
+       tabs are kept under the empty one, and what would be the "nothing open"
+       hint says why there are no files. *@
+    var worktree = Bench.WorktreeInView(Snapshot.Value) ?? "";
+    <EditorArea WorktreePath="@worktree" @key="worktree">
+        <Empty>
+            @if (Current is null)
+            {
+                <div class="empty editor-empty">
+                    <h2>@(SessionId is null ? "Pick an agent" : "Agent not found")</h2>
+                    <p>
+                        @(SessionId is null
+                            ? "Choose an agent in the list at the bottom right to read its conversation, its files and its changes."
+                            : "It may have been removed, or it has not reached the registry yet.")
+                    </p>
+                </div>
+            }
+            else if (worktree.Length == 0)
+            {
+                <div class="empty editor-empty">
+                    <h2>No worktree</h2>
+                    <p>This agent is not working in a git worktree, so there are no files or changes to show. Its conversation is below.</p>
+                </div>
+            }
+        </Empty>
+    </EditorArea>
+}
 
 @code {
     [Parameter]
@@ -87,7 +110,11 @@
         // An agent's worktree is only known once it is placed, so an instruction
         // that needs it waits for the snapshot that brings it.
         State.Changed += OnSnapshot;
+        Bench.Changed += OnBenchChanged;
     }
+
+    /// <summary>Switching between the chat view and the workbench redraws the page as the other.</summary>
+    private void OnBenchChanged() => _ = InvokeAsync(StateHasChanged);
 
     private void OnSnapshot() => _ = InvokeAsync(Apply);
 
@@ -150,6 +177,7 @@
         if (disposing)
         {
             State.Changed -= OnSnapshot;
+            Bench.Changed -= OnBenchChanged;
         }
 
         base.Dispose(disposing);

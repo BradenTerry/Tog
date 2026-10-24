@@ -33,6 +33,7 @@ public static class Commands
     public const string NewAgent = "tog.newAgent";
     public const string SelectAgent = "tog.selectAgent";
     public const string FocusChat = "tog.focusChat";
+    public const string ToggleChatView = "tog.toggleChatView";
 
     public static IReadOnlyList<Command> All { get; } =
     [
@@ -47,6 +48,7 @@ public static class Commands
         new(OpenKeybindings, "Open Keyboard Shortcuts", "Preferences", [], []),
         new(SelectAgent, "Select Agent...", "Agents", ["shift+cmd+a"], ["ctrl+shift+a"]),
         new(FocusChat, "Focus Chat", "Agents", ["shift+cmd+c"], ["ctrl+shift+c"]),
+        new(ToggleChatView, "Toggle Chat View", "View", ["alt+cmd+c"], ["ctrl+alt+c"]),
         new(NewAgent, "New Agent", "Agents", [], []),
     ];
 

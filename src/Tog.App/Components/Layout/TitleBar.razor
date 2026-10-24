@@ -18,6 +18,19 @@
             <span class="brand-name">Tog</span>
         </span>
 
+        @* Which way the window is laid out: the chat view, every agent and one
+           conversation and nothing else, or the workbench with the files, the
+           changes and the editor around it. Opening a file from the chat view
+           comes here by itself. *@
+        <div class="segmented view-switch" role="group" aria-label="View">
+            <button type="button" class="small @(Bench.ChatView ? "on" : "")" aria-pressed="@(Bench.ChatView ? "true" : "false")"
+                    @onclick="() => Bench.SetChatView(true)"
+                    title="@Keys.Title("Chat: your agents and their conversations, without the files", Commands.ToggleChatView)">Chat</button>
+            <button type="button" class="small @(Bench.ChatView ? "" : "on")" aria-pressed="@(Bench.ChatView ? "false" : "true")"
+                    @onclick="() => Bench.SetChatView(false)"
+                    title="@Keys.Title("Code: the files, source control and the editor", Commands.ToggleChatView)">Code</button>
+        </div>
+
         @* The repository and branch whose files are open, which is the agent's
            until one is picked here. The worktree's name is left to the list a
            click opens, which names every worktree of every repo; the branch
@@ -174,11 +187,15 @@
             </ContextMenu>
         }
 
-        <div class="layout-toggles" role="group" aria-label="Panels">
-            @LayoutButton((PanelSide.Left, "Left panel", "M2.5 3.5h4v9h-4z", "M6.5 2.5v11"))
-            @LayoutButton((PanelSide.Bottom, "Bottom panel", "M2.5 9.5h11v3h-11z", "M1.5 9.5h13"))
-            @LayoutButton((PanelSide.Right, "Right panel", "M9.5 3.5h4v9h-4z", "M9.5 2.5v11"))
-        </div>
+        @* The chat view has no panels to fold. *@
+        @if (!Bench.ChatView)
+        {
+            <div class="layout-toggles" role="group" aria-label="Panels">
+                @LayoutButton((PanelSide.Left, "Left panel", "M2.5 3.5h4v9h-4z", "M6.5 2.5v11"))
+                @LayoutButton((PanelSide.Bottom, "Bottom panel", "M2.5 9.5h11v3h-11z", "M1.5 9.5h13"))
+                @LayoutButton((PanelSide.Right, "Right panel", "M9.5 3.5h4v9h-4z", "M9.5 2.5v11"))
+            </div>
+        }
 
         <button type="button" class="icon-btn @(Bench.WorktreesOpen ? "active" : "")" @onclick="Bench.OpenWorktrees"
                 title="Worktrees: every worktree, what it takes on disk, and cleaning up" aria-label="Worktrees">
@@ -219,6 +236,9 @@
     {
         _picker = null;
         Bench.PinWorktree(worktree.Worktree.Path, worktree.RepoRoot);
+
+        // A worktree is picked to look at its files, which only the workbench shows.
+        Bench.SetChatView(false);
         BackToEditor();
     }
 

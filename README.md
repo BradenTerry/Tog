@@ -79,6 +79,9 @@ picked.
 - **Editor** in the middle: Monaco with VS Code's own TextMate grammars, a tab
   per file, and diffs side by side or inline.
 - **Files** on the left: the agent's worktree as a tree.
+- **A chat view** for when you only want to talk: every agent down the left and
+  one conversation, with no files loaded, so switching agents is instant. The
+  Chat and Code switch in the title bar moves between the two.
 - **Go to File** with Cmd+P or Ctrl+P, and every shortcut can be rebound.
 - **Links everywhere.** A file path an agent mentions in a reply opens that line
   in the editor, or in VS Code.

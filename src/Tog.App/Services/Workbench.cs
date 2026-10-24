@@ -60,6 +60,23 @@ public sealed class Workbench : IDisposable
         }
 
         _reopen = _lastView?.SessionId;
+        ChatView = _lastView?.ChatView ?? false;
+    }
+
+    /// <summary>
+    /// Whether the window shows the chat view, every agent and one conversation,
+    /// in place of the workbench. Nothing in it reads a worktree, so switching
+    /// agents only swaps the conversation: no file walk, no diff, no editor.
+    /// </summary>
+    public bool ChatView { get; private set; }
+
+    public void SetChatView(bool on)
+    {
+        if (ChatView != on)
+        {
+            ChatView = on;
+            Raise();
+        }
     }
 
     public const string FilesTab = "files";
@@ -483,9 +500,15 @@ public sealed class Workbench : IDisposable
     }
 
     /// <summary>Brings a view up wherever it is: its panel open, its section unfolded, it in front.</summary>
+    /// <remarks>
+    /// Any view but the conversation lives only in the workbench, so asking for
+    /// one from the chat view goes there.
+    /// </remarks>
     public void Show(string view)
     {
-        if (Layout.Show(view, DefaultSide(view)))
+        var leave = ChatView && view != ChatTab;
+        ChatView &= !leave;
+        if (Layout.Show(view, DefaultSide(view)) || leave)
         {
             RaiseLayout();
         }
@@ -676,6 +699,9 @@ public sealed class Workbench : IDisposable
             doc.Reveal++;
         }
 
+        // A document needs the editor, which only the workbench has: a file
+        // link in the chat view, or Go to File, opens it there.
+        ChatView = false;
         group.ActiveKey = key;
         Touch(worktreePath, doc);
         Raise();
@@ -716,6 +742,7 @@ public sealed class Workbench : IDisposable
 
         doc.Line = line;
         doc.Reveal++;
+        ChatView = false;
         group.ActiveKey = key;
         Raise();
     }
@@ -738,6 +765,7 @@ public sealed class Workbench : IDisposable
             group.Add(new EditorDoc(key, DocKind.ExtensionView, null) { View = tab });
         }
 
+        ChatView = false;
         group.ActiveKey = key;
         Raise();
     }
@@ -1010,7 +1038,8 @@ public sealed class Workbench : IDisposable
             SessionId ?? _reopen ?? _lastView?.SessionId,
             worktree?.Path,
             worktree?.RepoRoot,
-            _pinned is not null);
+            _pinned is not null,
+            ChatView);
 
         if (view != _lastView)
         {

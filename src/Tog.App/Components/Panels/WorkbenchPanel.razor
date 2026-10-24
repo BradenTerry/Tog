@@ -9,9 +9,10 @@
    section of its own, stays there across restarts. A section folds down to its
    strip when the panel has more than one. A tab you have opened stays built
    while another is in front, hidden rather than thrown away, so it keeps its
-   scroll and what it had read. The app's own tabs are rebuilt when the panel
-   moves to another agent or worktree; an extension's is parked instead, so
-   switching back does not load it again. *@
+   scroll and what it had read. Nothing is built until it can be seen: a tab
+   in a closed panel or a folded section waits until it is opened. The app's
+   own tabs are rebuilt when the panel moves to another agent or worktree; an
+   extension's is parked instead, so switching back does not load it again. *@
 
 <section class="wb-panel" aria-label="@Label" data-panel="@Side">
     @{
@@ -380,7 +381,11 @@
     /// <summary>
     /// Keeps the set of built tabs. Moving to another agent parks the extension
     /// views built for the one leaving, clears the rest, and takes back what was
-    /// parked for the one arriving. The tab in front of each section is always added.
+    /// parked for the one arriving. The tab in front of each section is added
+    /// once it can be seen: a closed panel or a folded section builds nothing,
+    /// so the file walk and the diff behind Files and Source control are only
+    /// paid for when someone opens them, and again on each agent switch only
+    /// while they are on screen.
     /// </summary>
     private void Track()
     {
@@ -403,9 +408,13 @@
             }
         }
 
-        foreach (var section in Sections)
+        var sections = Sections;
+        if (Bench.Panel(Side).Open)
         {
-            _visited.Add(section.Active);
+            foreach (var section in sections.Where(x => sections.Count == 1 || !x.Section.Collapsed))
+            {
+                _visited.Add(section.Active);
+            }
         }
 
         _drawn = Tabs;

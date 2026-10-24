@@ -36,8 +36,9 @@ else
             </span>
             <span class="spacer"></span>
             @* With another worktree picked in the title bar, the files on screen are
-               not this agent's. One click brings its own up, and keeps them. *@
-            @if (agent.WorktreePath is { } home && Workbench.Find(Snapshot.Value, home) is { } place)
+               not this agent's. One click brings its own up, and keeps them. The
+               chat view has no files on screen to say this about. *@
+            @if (!Bench.ChatView && agent.WorktreePath is { } home && Workbench.Find(Snapshot.Value, home) is { } place)
             {
                 if (Bench.WorktreeInView(Snapshot.Value) == home)
                 {

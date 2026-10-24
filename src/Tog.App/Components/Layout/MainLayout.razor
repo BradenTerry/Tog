@@ -12,7 +12,12 @@
    right, the editor in the middle with the conversation under it. The agents
    are listed from the title bar. The page is what the editor
    shows: an agent's documents; Settings is a dialog over it. The borders between the parts are
-   dragged in app.js; their sizes are CSS variables it sets on the root. *@
+   dragged in app.js; their sizes are CSS variables it sets on the root.
+
+   The chat view is the other way to see the window: every agent down the
+   left and the conversation with the one picked. It draws none of the panels
+   or the editor, so moving between agents only swaps the conversation; the
+   page knows which it is and draws the chat in place of the editor. *@
 
 <ExtensionStyles />
 <ExtensionOverlays />
@@ -20,30 +25,46 @@
 <div class="wb-shell">
     <TitleBar />
 
-    <div class="workbench @(Bench.Left.Open ? "" : "no-left") @(Bench.Right.Open ? "" : "no-right") @(Bench.Bottom.Open ? "" : "no-bottom")">
-        <aside class="wb-side wb-left" aria-hidden="@(!Bench.Left.Open ? "true" : null)">
-            <WorkbenchPanel Side="PanelSide.Left" />
-        </aside>
-        <div class="sash sash-v" data-sash="left" role="separator" aria-orientation="vertical"
-             aria-label="Resize the left panel" tabindex="0" title="Drag to resize. Double-click to reset."></div>
-
-        <div class="wb-center">
-            <main class="main">
+    @if (Bench.ChatView)
+    {
+        <div class="chatview">
+            <aside class="cv-list" aria-label="Agents">
+                <AgentList />
+            </aside>
+            <div class="sash sash-v" data-sash="list" role="separator" aria-orientation="vertical"
+                 aria-label="Resize the list of agents" tabindex="0" title="Drag to resize. Double-click to reset."></div>
+            <main class="main cv-main">
                 @Body
             </main>
-            <div class="sash sash-h" data-sash="bottom" role="separator" aria-orientation="horizontal"
-                 aria-label="Resize the bottom panel" tabindex="0" title="Drag to resize. Double-click to reset."></div>
-            <section class="wb-bottom" aria-hidden="@(!Bench.Bottom.Open ? "true" : null)">
-                <WorkbenchPanel Side="PanelSide.Bottom" />
-            </section>
         </div>
+    }
+    else
+    {
+        <div class="workbench @(Bench.Left.Open ? "" : "no-left") @(Bench.Right.Open ? "" : "no-right") @(Bench.Bottom.Open ? "" : "no-bottom")">
+            <aside class="wb-side wb-left" aria-hidden="@(!Bench.Left.Open ? "true" : null)">
+                <WorkbenchPanel Side="PanelSide.Left" />
+            </aside>
+            <div class="sash sash-v" data-sash="left" role="separator" aria-orientation="vertical"
+                 aria-label="Resize the left panel" tabindex="0" title="Drag to resize. Double-click to reset."></div>
 
-        <div class="sash sash-v" data-sash="right" role="separator" aria-orientation="vertical"
-             aria-label="Resize the right panel" tabindex="0" title="Drag to resize. Double-click to reset."></div>
-        <aside class="wb-side wb-right" aria-hidden="@(!Bench.Right.Open ? "true" : null)">
-            <WorkbenchPanel Side="PanelSide.Right" />
-        </aside>
-    </div>
+            <div class="wb-center">
+                <main class="main">
+                    @Body
+                </main>
+                <div class="sash sash-h" data-sash="bottom" role="separator" aria-orientation="horizontal"
+                     aria-label="Resize the bottom panel" tabindex="0" title="Drag to resize. Double-click to reset."></div>
+                <section class="wb-bottom" aria-hidden="@(!Bench.Bottom.Open ? "true" : null)">
+                    <WorkbenchPanel Side="PanelSide.Bottom" />
+                </section>
+            </div>
+
+            <div class="sash sash-v" data-sash="right" role="separator" aria-orientation="vertical"
+                 aria-label="Resize the right panel" tabindex="0" title="Drag to resize. Double-click to reset."></div>
+            <aside class="wb-side wb-right" aria-hidden="@(!Bench.Right.Open ? "true" : null)">
+                <WorkbenchPanel Side="PanelSide.Right" />
+            </aside>
+        </div>
+    }
 
     <StatusBar />
 </div>
@@ -165,6 +186,9 @@
                 Bench.FocusChat();
                 BackToEditor();
                 break;
+            case Commands.ToggleChatView:
+                Bench.SetChatView(!Bench.ChatView);
+                break;
         }
     }
 
@@ -201,11 +225,13 @@
     /// Asks the monitor to keep git status for the worktree of the agent in view,
     /// which is the only status anything shows, and watches its files so the diff
     /// and the editor follow the agent's edits. Re-checked on every snapshot
-    /// because an agent's worktree is only known once it is placed.
+    /// because an agent's worktree is only known once it is placed. The chat
+    /// view shows none of that, so it watches nothing; its list asks for the
+    /// status it shows itself.
     /// </summary>
     private void WatchWorktree()
     {
-        var path = Bench.WorktreeInView(State.Snapshot);
+        var path = Bench.ChatView ? null : Bench.WorktreeInView(State.Snapshot);
 
         if (path == _watchedPath)
         {
