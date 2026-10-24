@@ -262,8 +262,16 @@ as a note when something was.
 The chat redraws every second, so the card keeps nothing in its markup: picks
 and typed text go into a `QuestionDraft` held in `ChatDrafts`, one per agent,
 and a text box's value is only written when the card is built. A half-answered
-form survives switching agents. Enter in a text box moves to the next question
-and Ctrl or Cmd+Enter submits.
+form survives switching agents, and so does which question was showing.
+
+Several questions are shown one at a time behind a row of tabs, numbered, with
+the number filled in once a question has an answer; stacked, they filled the
+chat. Picking an answer to a pick-one question moves on to the next after a
+moment, Back and Next move by hand, and Left and Right move between the tabs.
+The other questions stay in the markup, only hidden, so a text box keeps what
+was typed. Enter in a text box presses Next, and submits from the last
+question; Ctrl or Cmd+Enter submits from anywhere. A Submit that a question
+stops goes to the first such question.
 
 Afterwards the transcript has the call and its result. `ConversationReader`
 shows the questions as something the agent said and the answers, by header, as

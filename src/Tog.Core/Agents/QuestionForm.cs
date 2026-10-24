@@ -356,6 +356,33 @@ public sealed class QuestionDraft
 
     public QuestionForm Form { get; }
 
+    /// <summary>
+    /// The question on screen when a form of several is shown one at a time.
+    /// Kept here rather than by the card so it survives switching agents.
+    /// </summary>
+    public int Current { get; set; }
+
+    /// <summary>Whether the question has an answer that would go back: a pick, a valid number, text, or its Other box.</summary>
+    public bool IsAnswered(Question question) =>
+        (Value(question, out var bad) is not null && !bad)
+        || (question.OtherKey is { } other && Text(other).Trim().Length > 0);
+
+    /// <summary>The first question that stops the answers going back, or -1. See <see cref="Problems"/>.</summary>
+    public int FirstProblem()
+    {
+        for (var i = 0; i < Form.Questions.Count; i++)
+        {
+            var question = Form.Questions[i];
+            var answered = Value(question, out var bad);
+            if (bad || (question.Required && answered is null))
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
     public bool IsPicked(Question question, string value) =>
         _picks.TryGetValue(question.Key, out var picked) && picked.Contains(value);
 
