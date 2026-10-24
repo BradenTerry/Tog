@@ -426,12 +426,13 @@ function commandKey(box, event) {
     }
 }
 
-// A form of questions from the agent. Enter in a text box would submit the whole
-// form, which with three questions is rarely what was meant after answering the
-// first, so it moves on to the next question instead and only submits from the
-// last; Ctrl or Cmd+Enter submits from anywhere. The form takes the focus when it
-// appears, unless you are typing somewhere else, so it can be answered without
-// reaching for the mouse.
+// A form of questions from the agent, several shown one at a time behind tabs.
+// Enter in a text box would submit the whole form, which with three questions is
+// rarely what was meant after answering the first, so it presses Next instead and
+// only submits from the last; Ctrl or Cmd+Enter submits from anywhere. Left and
+// Right move between the tabs. The form takes the focus when it appears, unless
+// you are typing somewhere else, so it can be answered without reaching for the
+// mouse.
 function bindQuestions(form) {
     if (!form || form.dataset.bound) {
         return;
@@ -439,6 +440,17 @@ function bindQuestions(form) {
 
     form.dataset.bound = '1';
     form.addEventListener('keydown', (event) => {
+        if (event.target.getAttribute('role') === 'tab' && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+            const tabs = [...form.querySelectorAll('[role="tab"]')];
+            const here = tabs.indexOf(event.target);
+            const to = tabs[here + (event.key === 'ArrowLeft' ? -1 : 1)];
+            if (to) {
+                event.preventDefault();
+                to.click();
+            }
+            return;
+        }
+
         if (event.key !== 'Enter' || event.isComposing || event.shiftKey) {
             return;
         }
@@ -453,23 +465,28 @@ function bindQuestions(form) {
             return;
         }
 
-        const sets = [...form.querySelectorAll('fieldset')];
-        const here = sets.findIndex(set => set.contains(event.target));
-        const next = here >= 0 ? sets[here + 1] : null;
+        const next = form.querySelector('[data-question-next]');
         if (next) {
             event.preventDefault();
-            next.querySelector('input, select, textarea')?.focus();
+            next.click();
         }
     });
 
     const active = document.activeElement;
     if (!active || active === document.body || !active.matches('input, textarea, select, [contenteditable="true"]')) {
-        form.querySelector('fieldset input, fieldset select')?.focus({ preventScroll: true });
+        focusQuestion(form);
     }
+}
+
+// The shown question's picked option, or its first control.
+function focusQuestion(form) {
+    const shown = form?.querySelector('fieldset:not([hidden])');
+    (shown?.querySelector('input:checked') ?? shown?.querySelector('input, select, textarea'))?.focus({ preventScroll: true });
 }
 
 window.tog = {
     bindQuestions: (form) => bindQuestions(form),
+    focusQuestion: (form) => focusQuestion(form),
     bindComposer: (box) => {
         if (!box || box.dataset.bound) {
             return;

@@ -147,13 +147,21 @@ public class QuestionFormTests
 
         var draft = new QuestionDraft(form);
         Assert.Single(draft.Problems());
+        Assert.Equal(0, draft.FirstProblem());
+        Assert.False(draft.IsAnswered(form.Questions[0]));
+        Assert.True(draft.IsAnswered(form.Questions[1]));
+        Assert.False(draft.IsAnswered(form.Questions[3]));
 
         draft.SetText("name", " api ");
         draft.SetText("port", "80x");
         Assert.Single(draft.Problems());
+        Assert.Equal(1, draft.FirstProblem());
+        Assert.True(draft.IsAnswered(form.Questions[0]));
+        Assert.False(draft.IsAnswered(form.Questions[1]));
 
         draft.SetText("port", "443");
         Assert.Empty(draft.Problems());
+        Assert.Equal(-1, draft.FirstProblem());
         var content = draft.Content();
         Assert.Equal("api", content["name"]);
         Assert.Equal(443L, content["port"]);
