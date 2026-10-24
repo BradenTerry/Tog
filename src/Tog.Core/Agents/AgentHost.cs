@@ -47,6 +47,7 @@ public sealed record PermissionAsk(string Key, string Title, string? Detail, IRe
 /// <param name="Questions">A form of questions it is waiting on you to answer, the oldest when there are several.</param>
 /// <param name="TurnEndedAt">When its last turn ended, kept across restarts, for telling a finished turn you have read from one you have not.</param>
 /// <param name="Backend">The id of the agent it runs on, such as "claude".</param>
+/// <param name="NeedsLogin">Its last turn was refused because its agent is signed out. Signing in sends the refused message again.</param>
 public sealed record HostedAgent(
     string SessionId,
     string Cwd,
@@ -65,7 +66,8 @@ public sealed record HostedAgent(
     IReadOnlyList<AcpCommand>? Commands = null,
     QuestionForm? Questions = null,
     DateTimeOffset? TurnEndedAt = null,
-    string Backend = "")
+    string Backend = "",
+    bool NeedsLogin = false)
 {
     /// <summary>What it is waiting on you for, in a few words, when it is.</summary>
     /// <remarks>An MCP server's form is named as one, never by its own message, which is the server's to write.</remarks>
@@ -154,6 +156,9 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
 
     /// <summary>The running process of each kind of agent, by backend id.</summary>
     private readonly Dictionary<string, Link> _links = new(StringComparer.Ordinal);
+
+    /// <summary>The sign-in running for each kind of agent, or the last one, by backend id.</summary>
+    private readonly Dictionary<string, AgentLogin> _logins = new(StringComparer.Ordinal);
     private bool _dirty;
     private bool _recordChanged;
     private bool _planChanged;
@@ -465,7 +470,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
             // chat already says why it cannot continue.
             if (e is not FolderGoneException)
             {
-                Fail(sessionId, Explain(e, BackendOf(sessionId)));
+                Fail(sessionId, Explain(e, BackendOf(sessionId)), AcpClient.IsAuthRequired(e) ? text : null);
             }
 
             return HostResult.Failed(Explain(e, BackendOf(sessionId)));
@@ -480,6 +485,8 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
 
             entry.Turns++;
             entry.Error = null;
+            entry.NeedsLogin = false;
+            entry.RefusedPrompt = null;
             if (entry.State is not (HostedState.Working or HostedState.Waiting))
             {
                 entry.Live.Clear();
@@ -494,6 +501,113 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
         Touch();
         _ = RunTurnAsync(client, sessionId, text);
         return new HostResult(true, "Sent.", sessionId);
+    }
+
+    /// <summary>
+    /// The ways an agent can be signed in, as its running process offered them.
+    /// Empty when it is not running or offers none Tog can run.
+    /// </summary>
+    public IReadOnlyList<LoginMethod> LoginMethods(string backendId)
+    {
+        lock (_gate)
+        {
+            return _links.GetValueOrDefault(backendId)?.Client.LoginMethods ?? [];
+        }
+    }
+
+    /// <summary>The sign-in running for an agent, or the last one, until another starts.</summary>
+    public AgentLogin? Login(string backendId)
+    {
+        lock (_gate)
+        {
+            return _logins.GetValueOrDefault(backendId);
+        }
+    }
+
+    /// <summary>
+    /// Runs one of the agent's sign-in commands, which opens the browser. When
+    /// it succeeds, every agent of that kind a login stopped is unblocked and
+    /// the message that was refused goes again.
+    /// </summary>
+    /// <remarks>
+    /// The command signs in the agent's own account store, the same one a
+    /// terminal uses, so a login here is a login everywhere. It runs from the
+    /// temporary folder: it has no business in a repository, and starting in
+    /// the home folder is what has macOS ask about Documents and the like.
+    /// </remarks>
+    public HostResult LogIn(string backendId, string methodId)
+    {
+        if (LoginMethods(backendId).FirstOrDefault(m => m.Id == methodId) is not { } method)
+        {
+            return HostResult.Failed("That way of signing in is not on offer any more. Send the message again to see the current ones.");
+        }
+
+        lock (_gate)
+        {
+            if (_logins.GetValueOrDefault(backendId) is { State: LoginState.Running } running)
+            {
+                return running.Method.Id == methodId
+                    ? new HostResult(true, "Signing in.")
+                    : HostResult.Failed("A sign-in is already running. Finish or cancel it first.");
+            }
+        }
+
+        AgentLogin login;
+        try
+        {
+            login = AgentLogin.Start(backendId, method, Path.GetTempPath());
+        }
+        catch (InvalidOperationException e)
+        {
+            return HostResult.Failed(e.Message);
+        }
+
+        lock (_gate)
+        {
+            _logins[backendId] = login;
+        }
+
+        login.Changed += Touch;
+        _ = AfterLoginAsync(login);
+        Touch();
+        return new HostResult(true, "Signing in.");
+    }
+
+    private async Task AfterLoginAsync(AgentLogin login)
+    {
+        await login.Completion.ConfigureAwait(false);
+        if (login.State != LoginState.Succeeded)
+        {
+            return;
+        }
+
+        List<(string SessionId, string? Prompt)> refused;
+        lock (_gate)
+        {
+            refused = _entries.Values
+                .Where(e => e.BackendId == login.BackendId && e.NeedsLogin)
+                .Select(e => (e.SessionId, e.RefusedPrompt))
+                .ToList();
+            foreach (var entry in _entries.Values.Where(e => e.BackendId == login.BackendId && e.NeedsLogin))
+            {
+                entry.NeedsLogin = false;
+                entry.RefusedPrompt = null;
+                entry.Error = null;
+                if (entry.State == HostedState.Failed)
+                {
+                    entry.SetState(entry.Attached ? HostedState.Idle : HostedState.Stopped, _clock.Now);
+                }
+            }
+        }
+
+        Touch();
+
+        // The agent checks its login again at the start of every prompt, so the
+        // message goes through on the session as it is.
+        foreach (var (sessionId, prompt) in refused.Where(r => !string.IsNullOrWhiteSpace(r.Prompt)))
+        {
+            await SendAsync(sessionId, prompt!).ConfigureAwait(false);
+        }
     }
 
     /// <summary>Whether a message is <c>/clear</c>, which the app answers itself rather than sending.</summary>
@@ -695,6 +809,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
     private async Task RunTurnAsync(AcpClient client, string sessionId, string text)
     {
         string? error = null;
+        var refused = false;
         var ended = false;
         try
         {
@@ -709,6 +824,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
         catch (Exception e) when (IsAgentFailure(e))
         {
             error = Explain(e, BackendOf(sessionId));
+            refused = AcpClient.IsAuthRequired(e);
         }
 
         Recorder(sessionId)?.EndTurn(sessionId, _clock.Now);
@@ -724,6 +840,12 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
             if (error is not null)
             {
                 entry.Error = error;
+            }
+
+            if (refused)
+            {
+                entry.NeedsLogin = true;
+                entry.RefusedPrompt = text;
             }
 
             if (entry.Turns == 0 && entry.Attached)
@@ -1292,13 +1414,16 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
         return null;
     }
 
-    private void Fail(string sessionId, string error)
+    /// <param name="refusedPrompt">The message that was refused for want of a login, to send again once signed in.</param>
+    private void Fail(string sessionId, string error, string? refusedPrompt = null)
     {
         lock (_gate)
         {
             if (_entries.TryGetValue(sessionId, out var entry))
             {
                 entry.Error = error;
+                entry.NeedsLogin = refusedPrompt is not null;
+                entry.RefusedPrompt = refusedPrompt;
                 entry.SetState(HostedState.Failed, _clock.Now);
             }
         }
@@ -1411,6 +1536,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
         var name = link?.Backend.Name ?? (backendId is null ? null : Backend(backendId)?.Name) ?? "The agent";
         return e switch
         {
+            JsonRpcException rpc when AcpClient.IsAuthRequired(rpc) => $"{name} is signed out, so it could not carry on. Log in to send your message again.",
             JsonRpcException rpc => $"{name} refused: {rpc.Message}",
             IOException => $"{name} stopped unexpectedly. {(link?.Process.RecentErrors.Split('\n').LastOrDefault() ?? "")}".Trim(),
             _ => e.Message,
@@ -1479,6 +1605,18 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
             await link.Process.DisposeAsync().ConfigureAwait(false);
         }
 
+        List<AgentLogin> logins;
+        lock (_gate)
+        {
+            logins = [.. _logins.Values];
+            _logins.Clear();
+        }
+
+        foreach (var login in logins)
+        {
+            await login.DisposeAsync().ConfigureAwait(false);
+        }
+
         _connectGate.Dispose();
     }
 
@@ -1543,6 +1681,12 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
         public List<PendingQuestions> Questions { get; } = [];
         public string? Error { get; set; }
 
+        /// <summary>The last turn was refused because the agent is signed out.</summary>
+        public bool NeedsLogin { get; set; }
+
+        /// <summary>The message refused for want of a login, sent again once signed in.</summary>
+        public string? RefusedPrompt { get; set; }
+
         /// <summary>When the last turn ended, whether in a reply or an error.</summary>
         public DateTimeOffset? TurnEndedAt { get; set; }
         public IReadOnlyList<AcpConfigOption> Options { get; set; } = [];
@@ -1577,6 +1721,7 @@ public sealed class AgentHost : IAgentSessionSource, IAsyncDisposable
             Commands: Commands ?? knownCommands,
             Questions: Questions.FirstOrDefault()?.Form,
             TurnEndedAt: TurnEndedAt,
-            Backend: BackendId);
+            Backend: BackendId,
+            NeedsLogin: NeedsLogin);
     }
 }
