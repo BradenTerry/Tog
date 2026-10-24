@@ -1073,6 +1073,23 @@ input[type="checkbox"].switch:checked::after { transform: translateX(14px); back
 }
 
 .chat-title { font-size: 13px; min-width: 0; }
+/* The title is the agent switcher: plain until the pointer is on it. */
+.chat-switch {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    flex: 0 1 auto;
+    margin-left: -6px;
+    padding: 2px 6px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: none;
+    color: var(--text);
+}
+.chat-switch:hover, .chat-switch.open { background: var(--surface-2); border-color: var(--border); }
+.chat-switch .dot, .chat-switch .where-caret { flex: none; }
+.chat-switch .where-caret { color: var(--text-dim); }
 .chat-state { font-size: 12px; flex: 0 1 auto; }
 .chip.worktree-open { flex: none; color: var(--accent); }
 button.chat-more {

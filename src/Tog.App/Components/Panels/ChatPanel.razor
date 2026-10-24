@@ -22,9 +22,12 @@ else
 {
     <div class="chat-panel">
         <header class="chat-head">
-            <span class="dot @AgentDirectory.DotClass(agent.State)" aria-hidden="true"></span>
-            <strong class="truncate chat-title @(agent.LabelIsPrompt ? "untitled" : "")"
-                    title="@(agent.LabelIsPrompt ? "Your prompt. The agent names the conversation when its first turn ends." : agent.Label)">@agent.Label</strong>
+            @* The title opens the agent list, the same one as the title bar's,
+               so switching conversations happens where you are reading them. *@
+            <AgentPicker Class="chat-switch" AnswersShortcut="false">
+                <span class="dot @AgentDirectory.DotClass(agent.State)" aria-hidden="true"></span>
+                <strong class="truncate chat-title @(agent.LabelIsPrompt ? "untitled" : "")">@agent.Label</strong>
+            </AgentPicker>
             <span class="faint truncate chat-state" title="@(agent.State == ChatState.Active ? agent.CurrentTool : null)">
                 @AgentDirectory.StateWord(agent)@if (agent.State == ChatState.Active)
                 {

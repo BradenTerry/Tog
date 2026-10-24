@@ -17,16 +17,23 @@
    and Right step through the status filters above the list, so with a dozen
    agents the waiting or stopped ones are one key away. An agent that finished
    a turn you have not had on screen carries a blue dot, like an unread message:
-   waiting agents need an answer, these need a look. *@
+   waiting agents need an answer, these need a look. The chat panel's title
+   is a second copy of it, with the title as the button, so switching does
+   not mean a trip to the top of the window; only the title bar's answers
+   Select Agent's key, or one key would open two lists. *@
 
 @{
     var targets = Targets;
     var agent = IsAtAgent ? targets.FirstOrDefault(t => t.SessionId == Bench.SessionId) : null;
 }
-<button type="button" class="agent-pick @(_menu is not null ? "open" : "")" @onclick="Toggle" @ref="_button"
+<button type="button" class="@(Class ?? "agent-pick") @(_menu is not null ? "open" : "")" @onclick="Toggle" @ref="_button"
         aria-haspopup="menu" aria-expanded="@(_menu is not null ? "true" : "false")"
         title="@(agent is null ? Keys.Title("Pick an agent, or start one", Commands.SelectAgent) : $"{agent.Label} ({agent.Where}, {AgentDirectory.StateWord(agent)})\n{Keys.Title("Click to switch agents or start one", Commands.SelectAgent)}")">
-    @if (agent is not null)
+    @if (ChildContent is not null)
+    {
+        @ChildContent
+    }
+    else if (agent is not null)
     {
         <span class="dot @AgentDirectory.DotClass(agent.State)" aria-hidden="true"></span>
         <span class="agent-pick-name @(agent.LabelIsPrompt ? "untitled" : "")">@agent.Label</span>
@@ -157,6 +164,18 @@
 }
 
 @code {
+    /// <summary>What the button shows in place of the agent in view's dot and name.</summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>The button's class, in place of the title bar's look.</summary>
+    [Parameter]
+    public string? Class { get; set; }
+
+    /// <summary>Whether Select Agent's key opens this copy's list.</summary>
+    [Parameter]
+    public bool AnswersShortcut { get; set; } = true;
+
     private IReadOnlyList<ChatTarget> Targets => Directory.Targets(Snapshot.Value);
 
     private string Relative => Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0];
@@ -243,24 +262,20 @@
         }
     }
 
-    private void Toggle(MouseEventArgs e) => _menu = _menu is null ? (e.ClientX, e.ClientY) : null;
-
-    private ElementReference _button;
-
     /// <summary>
-    /// Select Agent's key: the list opens under the button rather than at a
-    /// pointer, and the menu puts focus on the agent in view, so the arrows
-    /// start from there and Enter on it changes nothing.
+    /// Opens under the button rather than at the pointer, which in the chat
+    /// header put the list over the title it was opened from.
     /// </summary>
-    private void OnPickerRequested() => _ = InvokeAsync(async () =>
-    {
-        if (_menu is not null)
-        {
-            _menu = null;
-            StateHasChanged();
-            return;
-        }
+    private Task Toggle() => _menu is null ? OpenBelow() : Close();
 
+    private Task Close()
+    {
+        _menu = null;
+        return Task.CompletedTask;
+    }
+
+    private async Task OpenBelow()
+    {
         try
         {
             var at = await Js.InvokeAsync<double[]>("tog.anchorBelow", _button);
@@ -268,9 +283,24 @@
         }
         catch (Exception e) when (e is JSException or JSDisconnectedException or TaskCanceledException or InvalidOperationException)
         {
+            // The window went before the button could be measured.
+        }
+    }
+
+    private ElementReference _button;
+
+    /// <summary>
+    /// Select Agent's key: the menu puts focus on the agent in view, so the
+    /// arrows start from there and Enter on it changes nothing.
+    /// </summary>
+    private void OnPickerRequested() => _ = InvokeAsync(async () =>
+    {
+        if (!AnswersShortcut)
+        {
             return;
         }
 
+        await Toggle();
         StateHasChanged();
     });
 

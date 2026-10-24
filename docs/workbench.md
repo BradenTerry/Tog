@@ -55,7 +55,10 @@ to open:
   agents too) narrows it, and Left and Right step through them; the filter is
   kept while the app is open. It was once a column down
   the right of the bottom panel; that cost the conversation a third of its width
-  for a list you only look at when switching.
+  for a list you only look at when switching. The chat's title is a second copy
+  of it, opening the same list from where you are reading, so switching does
+  not need a trip to the top of the window. Only the title bar's copy answers
+  Select Agent's key, or one key would open two lists.
 - **New agent** is a modal dialog over the window, opened from the agent picker. Escape, its close button or a click outside close it, and so does
   going to a page that is not an agent's.
 - `/settings` and `/new` still work as addresses: each opens its dialog
