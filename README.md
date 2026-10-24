@@ -113,8 +113,9 @@ how; for any other, **Settings** has a skill to copy and give it. Either can
 ask you to add what it built.
 Nothing loads until you accept. Or start from the template with
 `dotnet new tog-extension`, or from the example in
-[examples/NodeTests](examples/NodeTests). See
-[docs/extensions.md](docs/extensions.md).
+[examples/NodeTests](examples/NodeTests).
+[docs/writing-extensions.md](docs/writing-extensions.md) walks through
+building one; [docs/extensions.md](docs/extensions.md) is the reference.
 
 <p align="center">
   <picture>
@@ -140,7 +141,8 @@ while you are looking at another one. Its sign takes you to the agent.
 - [docs/agent-control.md](docs/agent-control.md) how agents run over ACP
 - [docs/review.md](docs/review.md) and [docs/staging.md](docs/staging.md)
   reviewing and staging changes
-- [docs/extensions.md](docs/extensions.md) writing and loading extensions
+- [docs/writing-extensions.md](docs/writing-extensions.md) building your own extension
+- [docs/extensions.md](docs/extensions.md) how extensions are loaded, the full API
 - [docs/release.md](docs/release.md) versions and building from source
 
 ## Contributing

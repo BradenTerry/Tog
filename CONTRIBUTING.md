@@ -197,6 +197,7 @@ One file per subsystem that is easy to get wrong twice:
 | [docs/editor.md](docs/editor.md) | Monaco in the editor, vendoring it, stamp-based saves, images, opening a file from outside the app |
 | [docs/syntax.md](docs/syntax.md) | VS Code's TextMate grammars in Monaco, loaded through `textmate.js` |
 | [docs/code-intelligence.md](docs/code-intelligence.md) | The `ICodeIntelligence` extension point, the C# extension's Roslyn load, MSBuild in a load context |
+| [docs/writing-extensions.md](docs/writing-extensions.md) | Building an extension step by step: scaffold, build, turn on, what to register |
 | [docs/extensions.md](docs/extensions.md) | Loading, the shared assemblies, reload, consent, secrets, the skill and the MCP tools that let an agent write one |
 | [docs/release.md](docs/release.md) | Build from source, no binaries: the version from git tags, the lock files, the pinned actions, what a security review asks |
 
@@ -210,7 +211,8 @@ work. A feature that is not about agents, such as a tab for one language, a
 test runner or a build status, belongs in an extension, which lives outside
 this repository. If the extension API cannot express it, the API grows by a
 minor version (1.x only adds). Start one with `dotnet new
-tog-extension` from [`templates/extension`](templates/extension),
+tog-extension` from [`templates/extension`](templates/extension)
+(walked through in [docs/writing-extensions.md](docs/writing-extensions.md)),
 or ask an agent, giving it the skill Settings has to copy.
 
 ## Conventions

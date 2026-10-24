@@ -12,4 +12,4 @@ one, and none is shipped with the app.
 
 To start your own, use the template (`dotnet new install templates/extension`,
 then `dotnet new tog-extension`) or ask an agent; see
-[docs/extensions.md](../docs/extensions.md).
+[docs/writing-extensions.md](../docs/writing-extensions.md).
