@@ -2,6 +2,6 @@
   "name": "tog-vendor-mermaid",
   "private": true,
   "dependencies": {
-    "mermaid": "12.0.0"
+    "mermaid": "12.2.0"
   }
 }
