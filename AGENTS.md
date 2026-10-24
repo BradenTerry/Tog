@@ -90,7 +90,9 @@ always be drained, or the pipe fills and it blocks. See `docs/agent-control.md`.
 advertises no `fs` or `terminal` capability, so the agent uses its own tools. It
 answers `session/request_permission` and, since it advertises form elicitation,
 `elicitation/create`: Claude's AskUserQuestion, an MCP server's form, and the
-bridge's model-retry prompt, told apart on the card. Do not add client
+bridge's model-retry prompt, told apart on the card. It also sets
+`_meta["terminal-auth"]`, only so the bridge names its sign-in commands, which
+Tog runs when a turn is refused for want of a login. Do not add client
 capabilities without reading what the agent will then route through us.
 
 **Agents get Tog's own MCP server.** Every session is handed

@@ -1,0 +1,104 @@
+@using Tog.Core.Platform
+@inject AgentHost Host
+
+@* Shown in place of the error when a turn was refused because the agent is
+   signed out. The host re-renders the chat as the sign-in prints, so this
+   reads the run's state on every render rather than holding its own. *@
+
+<div class="login-card" role="alert">
+    @if (_login is { State: LoginState.Running } running)
+    {
+        <div class="stack" style="gap: 3px; min-width: 0;">
+            <strong>Finish signing in in your browser</strong>
+            <span class="faint">
+                @running.Method.Name. Your message is sent again once you are signed in.
+            </span>
+        </div>
+        <div class="inline login-actions">
+            @if (running.Url is { } url)
+            {
+                <button class="small" @onclick="() => _openFailed = !WebBrowser.TryOpen(url)"
+                        title="@url">@(_openFailed ? "Could not open the browser" : "Open the sign-in page again")</button>
+            }
+            <button class="ghost small" @onclick="running.Cancel">Cancel</button>
+        </div>
+        @* The page hands back a code to paste when it cannot reach this
+           machine. The command asks for it without ending the line, so there
+           is nothing to wait for before offering the field. *@
+        <form class="inline login-code" @onsubmit="() => SendCode(running)">
+            <input class="mono" placeholder="Or paste the code the page shows" @bind="_code" @bind:event="oninput" aria-label="Sign-in code" />
+            <button type="submit" class="small" disabled="@string.IsNullOrWhiteSpace(_code)">Send code</button>
+        </form>
+    }
+    else
+    {
+        <div class="stack" style="gap: 3px; min-width: 0;">
+            <strong>@Name is signed out</strong>
+            @if (_login is { State: LoginState.Failed } failed)
+            {
+                <span class="faint">The sign-in did not finish@(LastWords(failed) is { } why ? $": {why}" : ".")</span>
+            }
+            else if (_methods.Count == 0)
+            {
+                <span class="faint">
+                    It did not offer a way to sign in from here. Run <span class="mono">claude auth login</span>
+                    in a terminal, then send your message again.
+                </span>
+            }
+            else
+            {
+                <span class="faint">Log in to send your message again. It opens your browser.</span>
+            }
+        </div>
+        @if (_methods.Count > 0)
+        {
+            <div class="inline login-actions">
+                @for (var i = 0; i < _methods.Count; i++)
+                {
+                    var method = _methods[i];
+                    <button class="small @(i == 0 ? "primary" : "")" title="@method.Description"
+                            @onclick="() => Start(method)">@(i == 0 ? $"Log in with {method.Name}" : method.Name)</button>
+                }
+            </div>
+        }
+    }
+    @if (_problem is { } problem)
+    {
+        <span class="login-problem">@problem</span>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public ChatTarget Agent { get; set; } = default!;
+
+    private AgentLogin? _login;
+    private IReadOnlyList<LoginMethod> _methods = [];
+    private string? _code;
+    private string? _problem;
+    private bool _openFailed;
+
+    private string Name => Host.Backend(Agent.Backend)?.Name ?? "The agent";
+
+    protected override void OnParametersSet()
+    {
+        _login = Host.Login(Agent.Backend);
+        _methods = Host.LoginMethods(Agent.Backend);
+    }
+
+    private void Start(LoginMethod method)
+    {
+        var result = Host.LogIn(Agent.Backend, method.Id);
+        _problem = result.Ok ? null : result.Message;
+        _openFailed = false;
+        _login = Host.Login(Agent.Backend);
+    }
+
+    private async Task SendCode(AgentLogin login)
+    {
+        await login.SendCodeAsync(_code ?? "");
+        _code = null;
+    }
+
+    private static string? LastWords(AgentLogin login) =>
+        login.Output.LastOrDefault(l => !l.Contains("http", StringComparison.OrdinalIgnoreCase))?.Trim();
+}

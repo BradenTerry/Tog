@@ -335,7 +335,11 @@ else
                 </div>
             }
 
-            @if (agent.State == ChatState.Failed && agent.Error is { Length: > 0 } error)
+            @if (agent.State == ChatState.Failed && agent.NeedsLogin)
+            {
+                <LoginCard Agent="agent" />
+            }
+            else if (agent.State == ChatState.Failed && agent.Error is { Length: > 0 } error)
             {
                 <div class="banner danger">@error</div>
             }

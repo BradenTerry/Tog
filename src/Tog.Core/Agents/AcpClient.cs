@@ -66,10 +66,19 @@ public sealed class AcpClient(JsonRpcConnection rpc)
 {
     public const int ProtocolVersion = 1;
 
+    /// <summary>The error ACP answers with when the agent is not signed in.</summary>
+    public const int AuthRequired = -32000;
+
+    /// <summary>Whether a refusal means the agent has to be signed in again.</summary>
+    public static bool IsAuthRequired(Exception e) => e is JsonRpcException { Code: AuthRequired };
+
     public JsonRpcConnection Connection => rpc;
 
     /// <summary>What the agent said it supports, from <c>initialize</c>.</summary>
     public JsonElement AgentCapabilities { get; private set; }
+
+    /// <summary>The sign-in commands the agent offered in <c>initialize</c>.</summary>
+    public IReadOnlyList<LoginMethod> LoginMethods { get; private set; } = [];
 
     public async Task InitializeAsync(CancellationToken ct = default)
     {
@@ -87,11 +96,17 @@ public sealed class AcpClient(JsonRpcConnection rpc)
                 // "retry on another model?" prompt here. URL mode is left out: it
                 // would send MCP OAuth sign-ins through Tog to open.
                 elicitation = new { form = new { } },
+
+                // Only so the agent names its sign-in commands, which Tog runs
+                // itself when a turn is refused for want of a login. It routes
+                // nothing else through the client.
+                _meta = new Dictionary<string, object> { ["terminal-auth"] = true },
             },
             clientInfo = new { name = "tog", title = "Tog", version = "1" },
         }, ct).ConfigureAwait(false);
 
         AgentCapabilities = result.TryGetProperty("agentCapabilities", out var caps) ? caps.Clone() : default;
+        LoginMethods = LoginMethod.Read(result);
     }
 
     /// <summary>Whether the agent offers a session capability, such as <c>resume</c> or <c>list</c>.</summary>
