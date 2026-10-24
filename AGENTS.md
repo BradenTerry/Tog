@@ -25,6 +25,8 @@ GIFs' agent is `replay-agent.mjs`, a scripted stand-in for Claude). `CONTRIBUTIN
 building, testing and the architecture. The long rationale lives in `docs/`, one
 file per subsystem that is easy to get wrong twice:
 
+- `docs/writing-extensions.md` - the walk-through for someone outside the
+  project: scaffold, build, turn on, the pieces to register, the rules
 - `docs/extensions.md` - loading, the shared assemblies, reload, consent,
   the skill and the MCP tools that let an agent write one
 - `docs/review.md` - Source control and diffs: always uncommitted, which sides
@@ -193,4 +195,11 @@ services are registered there. An extension's own services come from
   from its button in Settings. The extension skill is shown there to copy into
   whatever agent you use, never written.
 - Anything that edits the user's repository is offered, never done on its own.
+- The extension API is described in four places, and a change to it (a new
+  member, a new minor version, a new rule) updates all of them in the same
+  change: `docs/extensions.md` (the reference), `docs/writing-extensions.md`
+  (the walk-through), `templates/extension/AGENTS.md` (the API on one page,
+  what an agent reads inside an extension) and `templates/skill/SKILL.md` (its
+  list of which version added what). A minor bump also moves the version in
+  the walk-through's paths and the README badge.
 - Don't commit unless asked.

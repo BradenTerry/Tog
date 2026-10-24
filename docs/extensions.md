@@ -15,7 +15,8 @@ an overlay that walks a small Tog out with a sign when an agent is waiting on
 you. The README's GIFs show both; NodeTests' README says how they are recorded.
 
 The design and its rationale are in [design/extensions.md](design/extensions.md).
-This file is what exists and what is easy to get wrong.
+This file is what exists and what is easy to get wrong. To build one, start
+with [writing-extensions.md](writing-extensions.md), the walk-through.
 
 ## Writing one
 
