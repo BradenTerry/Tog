@@ -24,6 +24,9 @@ public sealed class FakeAcpAgent : IAgentLauncher
 
     public int Launches { get; private set; }
 
+    /// <summary>The <c>authMethods</c> its <c>initialize</c> answers with.</summary>
+    public object[] AuthMethods { get; set; } = [];
+
     /// <summary>What its session ids start with, so two fakes side by side hand out different ones.</summary>
     public string SessionPrefix { get; init; } = "s";
 
@@ -211,7 +214,14 @@ public sealed class FakeAcpAgent : IAgentLauncher
                         owner.Calls.Enqueue("initialize:elicitation.form");
                     }
 
-                    return new { protocolVersion = 1, agentCapabilities = new { loadSession = true, mcpCapabilities = new { http = true }, sessionCapabilities = new { resume = new { }, close = new { } } } };
+                    if (caps.TryGetProperty("_meta", out var clientMeta)
+                        && clientMeta.TryGetProperty("terminal-auth", out var terminalAuth)
+                        && terminalAuth.ValueKind == JsonValueKind.True)
+                    {
+                        owner.Calls.Enqueue("initialize:terminal-auth");
+                    }
+
+                    return new { protocolVersion = 1, authMethods = owner.AuthMethods, agentCapabilities = new { loadSession = true, mcpCapabilities = new { http = true }, sessionCapabilities = new { resume = new { }, close = new { } } } };
 
                 case "session/new":
                     owner.Calls.Enqueue(method);

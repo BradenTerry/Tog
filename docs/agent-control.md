@@ -329,6 +329,51 @@ is left alone. One that was mid-turn is marked failed, with the last
 line the bridge wrote to its error stream; the others become stopped. The next
 message starts the process again and resumes the session.
 
+## Signing in again
+
+When the agent's login expires or is gone, the bridge refuses the turn with
+ACP's `authRequired` error (`-32000`). `AgentHost` marks that agent
+`NeedsLogin`, keeps the refused message, and the chat shows a sign-in card in
+place of the error.
+
+Tog does not know how any agent signs in. `initialize` advertises
+`_meta["terminal-auth"]`, which only makes the bridge list its sign-in commands
+in `authMethods`, each with the exact command and arguments to run (for Claude,
+`node <bridge> --cli auth login --claudeai` or `--console`). It routes nothing
+else through the client. A method without that meta form is ignored: the plain
+form means "run the agent again with these arguments", and an agent started
+through a wrapper would not be that.
+
+`AgentLogin` runs the chosen command from the temporary folder, not a
+repository and not the home folder. It opens the browser itself and prints the
+page's address and `Paste code here if prompted >`, so the card offers the
+address again and a field for the code, which goes to the command's input. The
+prompt for the code never ends its line, so the field is shown for the whole
+run rather than after the prompt appears.
+
+When the command exits 0, every agent of that kind waiting on a login is
+unblocked and its refused message sent again. The bridge reads the login at
+the start of every prompt, so the session itself needs nothing. The command
+signs in to the agent's own store, the one a terminal uses, so a login here is
+a login everywhere.
+
+```mermaid
+sequenceDiagram
+  participant C as Chat
+  participant H as AgentHost
+  participant B as Bridge
+  participant L as auth login
+  C->>H: send message
+  H->>B: session/prompt
+  B-->>H: error -32000 authRequired
+  H-->>C: NeedsLogin, sign-in card
+  C->>H: LogIn(method)
+  H->>L: start (from authMethods)
+  L-->>C: opens browser, prints URL
+  L-->>H: exit 0
+  H->>B: session/prompt (the refused message)
+```
+
 ## Adding another agent
 
 Tog runs any agent that speaks ACP on its standard input and output, natively
