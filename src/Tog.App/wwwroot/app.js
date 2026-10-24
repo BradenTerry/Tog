@@ -917,6 +917,8 @@ window.agentsLayout = (() => {
         left: { name: '--wb-left', axis: 'x', min: 160, max: () => window.innerWidth * 0.4 },
         right: { name: '--wb-right', axis: 'x', min: 200, max: () => window.innerWidth * 0.45 },
         bottom: { name: '--wb-bottom', axis: 'y', min: 120, max: () => window.innerHeight - 180 },
+        // The chat view's list of agents, beside the conversation.
+        list: { name: '--cv-list', axis: 'x', min: 220, max: () => window.innerWidth * 0.45 },
     };
 
     const storageKey = (sash) => 'tog.' + sash.name.slice(2);
@@ -943,6 +945,7 @@ window.agentsLayout = (() => {
             left: '.wb-left',
             right: '.wb-right',
             bottom: '.wb-bottom',
+            list: '.cv-list',
         }[which]);
     }
 
@@ -989,12 +992,14 @@ window.agentsLayout = (() => {
     }
 
     // How far the pointer has moved, turned into the panel's new size. The left
-    // panel grows as the pointer goes right; the right panel and the bottom panel
+    // panel, and the chat view's list, grow as the pointer goes right; the right panel and the bottom panel
     // grow as it goes left or up, since they sit on the far side of their border.
+    const onLeft = (which) => which === 'left' || which === 'list';
+
     function sizeFrom(which, start, startSize, event) {
         const sash = sashes[which];
         const delta = sash.axis === 'x' ? event.clientX - start : event.clientY - start;
-        return which === 'left' ? startSize + delta : startSize - delta;
+        return onLeft(which) ? startSize + delta : startSize - delta;
     }
 
     document.addEventListener('pointerdown', (event) => {
@@ -1049,8 +1054,8 @@ window.agentsLayout = (() => {
         }
 
         const step = event.shiftKey ? 64 : 16;
-        const grow = which === 'left' ? 'ArrowRight' : sash.axis === 'x' ? 'ArrowLeft' : 'ArrowUp';
-        const shrink = which === 'left' ? 'ArrowLeft' : sash.axis === 'x' ? 'ArrowRight' : 'ArrowDown';
+        const grow = onLeft(which) ? 'ArrowRight' : sash.axis === 'x' ? 'ArrowLeft' : 'ArrowUp';
+        const shrink = onLeft(which) ? 'ArrowLeft' : sash.axis === 'x' ? 'ArrowRight' : 'ArrowDown';
         if (event.key === grow || event.key === shrink) {
             event.preventDefault();
             apply(which, current(which) + (event.key === grow ? step : -step), true);

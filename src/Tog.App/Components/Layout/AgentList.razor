@@ -1,0 +1,165 @@
+@inherits StateComponent
+@inject AgentDirectory Directory
+@inject Workbench Bench
+@inject MonitorService Monitor
+@inject NavigationManager Nav
+
+@* The chat view's column of agents, like a messaging app's conversations,
+   grouped by what each needs from you: an answer first, then the ones at
+   work, then the rest. Each row says what its worktree holds uncommitted,
+   from git status alone, so you can see which agent has something to review
+   without opening the workbench. That status is only kept for worktrees
+   someone watches, so the list watches every agent's while it is up. *@
+
+@{
+    var targets = Directory.Targets(Snapshot.Value);
+    var at = Snapshot.Value.TakenAt;
+}
+<div class="cv-list-inner">
+    <div class="cv-list-head">
+        <span class="cv-list-title">Agents</span>
+        <button type="button" class="ghost small cv-new" @onclick="Bench.OpenNewAgent" title="Start an agent">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"
+                 stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+            New
+        </button>
+    </div>
+
+    @if (targets.Count == 0)
+    {
+        <div class="panel-note faint">No agents yet. Start one to talk to it here.</div>
+    }
+
+    <div class="cv-groups">
+        @foreach (var (name, states) in Groups)
+        {
+            var group = targets.Where(t => states.Contains(t.State)).ToList();
+            if (group.Count == 0)
+            {
+                continue;
+            }
+
+            <section class="cv-group" aria-label="@name">
+                <div class="cv-group-head">@name <span class="nums">@group.Count</span></div>
+                @foreach (var target in group)
+                {
+                    var current = target.SessionId == Bench.SessionId;
+                    var unread = Bench.IsUnread(target);
+                    <button type="button" class="cv-item @(current ? "current" : "") @(unread ? "unread" : "")" @key="target.SessionId"
+                            aria-current="@(current ? "true" : null)" @onclick="() => GoTo(target)"
+                            title="@($"{target.Label} ({target.Where}, {AgentDirectory.StateWord(target)}{(unread ? ", finished and not read yet" : "")})")">
+                        <span class="dot @AgentDirectory.DotClass(target.State)" aria-hidden="true"></span>
+                        <AgentSummary Target="target" Now="at" Unread="unread">
+                            @if (Changes(target) is { } changes)
+                            {
+                                <span class="cv-changes">@changes</span>
+                            }
+                        </AgentSummary>
+                    </button>
+                }
+            </section>
+        }
+    </div>
+</div>
+
+@code {
+    /// <summary>A failed agent goes in with the stopped: either way a message is what brings it back.</summary>
+    private static readonly (string Name, ChatState[] States)[] Groups =
+    [
+        ("Needs you", [ChatState.Waiting]),
+        ("Working", [ChatState.Active]),
+        ("Idle", [ChatState.Idle]),
+        ("Stopped", [ChatState.Parked, ChatState.Failed]),
+    ];
+
+    /// <summary>The status watches held, by worktree, for the agents in the list.</summary>
+    private readonly Dictionary<string, IDisposable> _watches = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// What the agent's worktree holds that is not committed or not pushed,
+    /// or null when there is nothing, or no status yet. Files rather than
+    /// lines: line counts need the diff, which is what this view avoids.
+    /// </summary>
+    private string? Changes(ChatTarget target)
+    {
+        if (target.WorktreePath is not { } path || State.Worktree(path)?.Status is not { } status)
+        {
+            return null;
+        }
+
+        var files = status.Changed + status.Staged + status.Untracked;
+        var parts = new List<string>(2);
+        if (files > 0)
+        {
+            parts.Add($"{Fmt.Count(files, "file")} changed");
+        }
+
+        if (status.Ahead > 0)
+        {
+            parts.Add($"{Fmt.Count(status.Ahead, "commit")} to push");
+        }
+
+        return parts.Count == 0 ? null : string.Join(", ", parts);
+    }
+
+    private void GoTo(ChatTarget target) => Nav.NavigateTo(Urls.Chat(target.SessionId));
+
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+        Bench.Changed += OnChanged;
+        Directory.Changed += OnChanged;
+        State.Changed += WatchAll;
+        WatchAll();
+    }
+
+    private void OnChanged() => _ = InvokeAsync(StateHasChanged);
+
+    /// <summary>
+    /// Watches the worktree of every agent in the list and lets go of the ones
+    /// no agent works in any more. The monitor reads each watched worktree's
+    /// status on its timer, which is a git status per worktree, not a diff.
+    /// </summary>
+    private void WatchAll()
+    {
+        var paths = Directory.Targets(State.Snapshot)
+            .Select(t => t.WorktreePath)
+            .OfType<string>()
+            .ToHashSet(StringComparer.Ordinal);
+
+        lock (_watches)
+        {
+            foreach (var path in paths.Where(p => !_watches.ContainsKey(p)))
+            {
+                _watches[path] = Monitor.Watch(path);
+            }
+
+            foreach (var gone in _watches.Keys.Where(p => !paths.Contains(p)).ToList())
+            {
+                _watches[gone].Dispose();
+                _watches.Remove(gone);
+            }
+        }
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            Bench.Changed -= OnChanged;
+            Directory.Changed -= OnChanged;
+            State.Changed -= WatchAll;
+            lock (_watches)
+            {
+                foreach (var watch in _watches.Values)
+                {
+                    watch.Dispose();
+                }
+
+                _watches.Clear();
+            }
+        }
+
+        base.Dispose(disposing);
+    }
+}

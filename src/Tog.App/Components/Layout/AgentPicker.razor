@@ -89,50 +89,7 @@
                         @onkeydown="e => OnItemKey(e, target)"
                         title="@($"{target.Label} ({target.Where}, {AgentDirectory.StateWord(target)}{(unread ? ", finished and not read yet" : "")})")">
                     <span class="dot @AgentDirectory.DotClass(target.State)" aria-hidden="true"></span>
-                    <span class="chat-item-body">
-                        <span class="chat-item-top">
-                            <span class="chat-item-name @(target.LabelIsPrompt ? "untitled" : "")">@target.Label</span>
-                            @* A running clock for an agent that is doing something, or
-                               waiting; a fixed time for one that has stopped, since a
-                               ticking clock beside it reads as though it were still going. *@
-                            <span class="chat-item-time">
-                                @(target.State is ChatState.Parked or ChatState.Failed
-                                    ? Fmt.At(target.Since, Snapshot.Value.TakenAt)
-                                    : Fmt.Duration(Snapshot.Value.TakenAt - target.Since))
-                            </span>
-                            @if (unread)
-                            {
-                                <span class="unread-dot" role="img" aria-label="Unread"></span>
-                            }
-                        </span>
-                        @* Marks the agents whose files are the ones open, which with a
-                           worktree picked in the title bar need not be the agent picked. *@
-                        <span class="chat-item-where @(open ? "in-view" : "")" title="@(open ? "Its worktree is the one open" : null)">
-                            @if (open)
-                            {
-                                <svg viewBox="0 0 16 16" width="11" height="11" aria-label="Worktree open">
-                                    <path d="M1.5 4.5v8h11l2-5.5h-11l-2 5.5M1.5 4.5v-1.5h4l1.5 1.5h5v2" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" />
-                                </svg>
-                            }
-                            @target.Where
-                        </span>
-                        @if (target.BackgroundCount > 0 && target.State is not (ChatState.Parked or ChatState.Failed))
-                        {
-                            <span class="chat-item-bg">@target.BackgroundCount running in background</span>
-                        }
-                        @if (target.WaitingFor is { Length: > 0 } question)
-                        {
-                            <span class="chat-item-snippet waiting">@AgentSession.Shorten(question, 80)</span>
-                        }
-                        else if (target.LastReply is { Length: > 0 } reply)
-                        {
-                            <span class="chat-item-snippet">@AgentSession.Shorten(reply, 80)</span>
-                        }
-                        else if (target.State is ChatState.Parked or ChatState.Failed)
-                        {
-                            <span class="chat-item-snippet">@AgentDirectory.StateWord(target)</span>
-                        }
-                    </span>
+                    <AgentSummary Target="target" Now="Snapshot.Value.TakenAt" Unread="unread" InView="open" />
                 </button>
                 @* Beside the row rather than in it, since a button cannot hold
                    another, and without context-item so the arrows skip it. *@

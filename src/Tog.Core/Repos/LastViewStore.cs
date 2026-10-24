@@ -7,7 +7,8 @@ namespace Tog.Core.Repos;
 /// <param name="WorktreePath">The worktree in view.</param>
 /// <param name="RepoRoot">The repository of <paramref name="WorktreePath"/>, for standing in when it is removed.</param>
 /// <param name="Pinned">Whether the worktree was picked by hand rather than followed from the agent.</param>
-public sealed record LastView(string? SessionId, string? WorktreePath, string? RepoRoot, bool Pinned);
+/// <param name="ChatView">Whether the window showed the chat view, the agents and one conversation, rather than the workbench.</param>
+public sealed record LastView(string? SessionId, string? WorktreePath, string? RepoRoot, bool Pinned, bool ChatView = false);
 
 /// <summary>Reads and writes <see cref="LastView"/>, so the app reopens where it was left.</summary>
 /// <remarks>

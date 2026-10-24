@@ -41,8 +41,9 @@ file per subsystem that is easy to get wrong twice:
   the commit box and what each commit action runs
 - `docs/editor.md` - Monaco in the editor, vendoring it, stamp-based saves,
   images, opening a file from outside the app
-- `docs/workbench.md` - the VS Code-style layout, the panels, editor tabs, the
-  shared ChangesModel, what is kept per machine
+- `docs/workbench.md` - the VS Code-style layout and the chat view beside
+  it, the panels, editor tabs, the shared ChangesModel, what is kept per
+  machine
 - `docs/code-intelligence.md` - the `ICodeIntelligence` extension point, the C#
   extension's Roslyn load (opt-in per worktree), MSBuild in a load context, why
   references land in a panel rather than a peek widget

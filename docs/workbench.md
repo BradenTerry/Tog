@@ -25,6 +25,49 @@ flowchart TB
     W --- S
 ```
 
+## The chat view
+
+The workbench is one of two views. The other, the chat view, is every agent
+down the left and the conversation with the one picked, and nothing else. The
+Chat and Code switch beside the name in the title bar moves between them, as
+does Toggle Chat View (Alt+Cmd+C, Ctrl+Alt+C elsewhere). Which one is up is
+kept in `last-view.json` with the agent, so the app reopens in it.
+
+It exists so that answering agents one after another does not pay for the
+workbench on every switch. In the workbench a switch rebuilds the editor
+(keyed by worktree), walks the new worktree for Files and reads its diff for
+Source control. The chat view draws none of that: `MainLayout` leaves out the
+panels, `ChatPage` draws a `ChatPanel` keyed by the agent in place of the
+`EditorArea`, and the layout stops watching the worktree in view.
+
+```mermaid
+flowchart LR
+    subgraph Chat["Chat view"]
+        direction LR
+        A["AgentList<br/>grouped: needs you, working, idle, stopped"] --> P["ChatPanel<br/>keyed by agent"]
+    end
+    subgraph Code["Workbench"]
+        direction LR
+        F["Files"] --- E["EditorArea + Chat"] --- SC["Source control"]
+    end
+    Chat -- "Code, or opening any document" --> Code
+    Code -- "Chat" --> Chat
+```
+
+- **The list** (`AgentList`) groups the agents by what they need from you and
+  shows, under each, what its worktree holds uncommitted and unpushed, from
+  `git status` alone: files, not lines, since lines need the diff. Status is
+  only kept for watched worktrees, so the list watches every agent's while it
+  is up, a status read per worktree every ten seconds. Its rows share
+  `AgentSummary` with the title bar's picker.
+- **Anything that needs the editor goes to the workbench.** Opening a
+  document (`Workbench.Open`, an outside request, an extension's tab), a panel
+  view other than Chat (`Workbench.Show`), or picking a worktree in the title
+  bar turns the chat view off, so a file link in the conversation, Go to File
+  and a deep link all land where they can be shown.
+- **The list's width** is a border like the panels' (`--cv-list`, the `list`
+  sash in `app.js`), kept in `layout.json`.
+
 ## Who owns what
 
 `MainLayout` draws the frame, and the routed page is what the editor shows.
@@ -277,6 +320,8 @@ defaults, and a key bound twice is marked.
 - **Focus Chat** (Shift+Cmd+C, Ctrl+Shift+C elsewhere) brings up the
   conversation, in whichever panel it was put, and puts the caret in its box,
   from anywhere, Settings included.
+- **Toggle Chat View** (Alt+Cmd+C, Ctrl+Alt+C elsewhere) moves between the
+  chat view and the workbench.
 - **A new command** needs an entry in `Commands.All` and a case in
   `MainLayout.RunCommand`.
 
@@ -310,7 +355,13 @@ It is wrong for anything heavy. `FileTreePanel`, `FileDocument`
 and `SourceControlPanel` override `ShouldRender` and redraw only
 when they call `Touch()` or their model moves.
 
-`WorkbenchPanel` keeps the tabs you have opened built. When the panel moves to
+`WorkbenchPanel` builds a tab only once it can be seen: the tab in front of a
+section, in a panel that is open, in a section that is not folded. A closed
+panel builds nothing, so with the left panel shut, switching agents does not
+walk the worktree for Files, and Source control reads no diff until it is
+shown. Opening the panel builds what is in front then.
+
+It keeps the tabs you have opened built. When the panel moves to
 another agent, the app's own tabs are rebuilt, so Files and Source control read
 the worktree afresh. An extension's tabs are parked instead: kept built and
 hidden, and taken back when you switch to that agent again, so an extension
@@ -415,7 +466,7 @@ anything there was gone at the next launch.
 
 ## Reopening where it was left
 
-The agent and the worktree in view are written to `last-view.json` in the
+The agent, the worktree in view and whether the chat view is up are written to `last-view.json` in the
 app's data folder (`LastViewStore`) whenever either moves, and a new window
 starts on them: `Workbench` restores the worktree, picked by hand or not, as
 it was, and `ChatPage`, opened on no agent, goes to the saved one if it is
